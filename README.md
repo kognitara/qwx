@@ -1,22 +1,30 @@
 # Qwx
 
-**[WIP] - Conceptual Terminal Multiplexer & Monolithic Editor**
+**A monolithic, modal terminal environment built in Rust.**
 
-*Notice: This package is currently a placeholder to reserve the name on `crates.io`. The software is under heavy active development and the first release is not yet functional.*
+> **Status: Work In Progress (WIP)**
+> Qwx is currently in active early development. It is being built as a central hub for coding, system manipulation, and text editing without breaking context.
 
-## About The Project
+## Vision & Architecture
+Qwx is designed to eliminate context switching by bringing the entire workflow into a single, cohesive terminal environment. 
 
-`qwx` is an ambitious, ultra-versatile terminal environment built in Rust. Designed to completely eliminate context-switching, it merges a text editor, a terminal multiplexer, and a workspace dashboard into a single, unified interface, driven entirely by the keyboard.
+* **Modal Control:** Fast, keyboard-driven navigation centered around the `Alt` key as the Leader.
+* **Tiling Layouts:** Dynamic pane management inspired by tiling window managers (like xmonad).
+* **Deep Hierarchy:** Structured across 10 distinct layers (Session, Bank, Environment, Face, Pane, Menu, Workspace, View, Layer, Node).
+* **Base 12:** Core layout and grid logic structured around a base-12 architecture.
 
-At its core, `qwx` relies on a highly structured **10-layer Base-12 hierarchical architecture** (scaling from global network Sessions down to individual memory Nodes), all rendered asynchronously to ensure zero latency.
+## Current Development (Bank 1)
+The active development sprint is focused on the core rendering engine and document editing features:
+- [x] Basic data structures (`Node`, `Layer`, `View`) implemented.
+- [x] `crossterm` rendering engine online.
+- [x] 2x2 grid rendering with quadrant isolation.
+- [x] Workspace and pane navigation shortcuts.
 
-## Current Status
+## Next Steps
+- Transition to `Mode::Insert` for actual text input inside panes.
+- Dynamic layout cycling (`Alt + Space`).
+- YAML-based state persistence.
+- Network engine integration via `ssh2`.
 
-We are currently in the initial implementation phase. The theoretical foundation is complete, and we are laying down the low-level `crossterm` rendering engine and the core matrix state management.
-
-- [x] Architectural design and strict matrix hierarchy finalized.
-- [ ] Core data structures (Nodes, Layers, Views, Panes) implementation.
-- [ ] Asynchronous event loop and rendering engine.
-- [ ] Base keyboard mapping via Leader key (`Alt`).
-
-Stay tuned. The terminal is about to get a lot bigger.
+## Installation
+Currently reserved on `crates.io`. Source code build instructions will be provided once the MVP is stable.

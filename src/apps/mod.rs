@@ -2,11 +2,31 @@ use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers},
     execute, queue,
-    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    style::{Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::io::{Write, stdout};
 use std::{io::Result, time::Duration};
+
+// Niveau 10 : Le Nœud (La donnée brute en mémoire)
+pub struct Node {
+    pub id: usize,
+    pub content: Vec<String>, // Les lignes de ton fichier texte
+}
+
+// Niveau 9 : Le Calque (La surcouche visuelle)
+pub struct Layer {
+    pub name: String, // ex: "Base_Text", "Linter_Errors"
+    pub is_visible: bool,
+}
+
+// Niveau 8 : La Vue (La fenêtre de défilement)
+pub struct View {
+    pub active_node_id: usize,
+    pub layers: Vec<Layer>,
+    pub cursor_x: u16,
+    pub cursor_y: u16,
+}
 
 #[allow(dead_code)]
 struct Environment {
@@ -41,14 +61,16 @@ struct PaneState {
     workspace: u8,
     view: u8,
 }
-#[allow(dead_code)]
+
 pub struct App {
     environments: Vec<Environment>,
+    nodes: Vec<Node>, // La mémoire brute
+    views: Vec<View>, // Les fenêtres de défilement
     width: u16,
     height: u16,
     running: bool,
-    focus: PaneFocus,      // Le panneau actuellement actif
-    panes: [PaneState; 4], // Le tableau qui stocke l'état des 4 panneaux
+    focus: PaneFocus,
+    panes: [PaneState; 4],
     mode: Mode,
     dmenu_input: String,
 }
@@ -72,34 +94,56 @@ impl App {
     fn active_pane_mut(&mut self) -> &mut PaneState {
         &mut self.panes[self.focus as usize]
     }
+
     pub fn new() -> Result<Self> {
         let (width, height) = terminal::size()?;
+
+        // 1. Création d'un Nœud de test avec quelques lignes de code
+        let initial_node = Node {
+            id: 1,
+            content: vec![
+                String::from("fn main() {"),
+                String::from("    println!(\"Bienvenue dans Qwx\");"),
+                String::from("}"),
+            ],
+        };
+
+        // 2. Création de la Vue associée
+        let initial_view = View {
+            active_node_id: 1,
+            layers: Vec::new(),
+            cursor_x: 0,
+            cursor_y: 0,
+        };
+
         Ok(Self {
             width,
             height,
             running: true,
-            focus: PaneFocus::TopLeft, // Focus par défaut en haut à gauche
+            focus: PaneFocus::TopLeft,
             panes: [
                 PaneState {
                     workspace: 1,
                     view: 1,
-                }, // TopLeft
+                },
                 PaneState {
                     workspace: 2,
                     view: 1,
-                }, // TopRight
+                },
                 PaneState {
                     workspace: 3,
                     view: 1,
-                }, // BottomLeft
+                },
                 PaneState {
                     workspace: 4,
                     view: 1,
-                }, // BottomRight
+                },
             ],
             mode: Mode::Normal,
             dmenu_input: String::new(),
             environments: Vec::new(),
+            nodes: vec![initial_node], // On injecte la donnée
+            views: vec![initial_view], // On injecte la vue
         })
     }
 
@@ -259,75 +303,114 @@ impl App {
         queue!(w, Clear(ClearType::All))?;
         let mid_x = self.width / 2;
         let mid_y = self.height / 2;
-        let positions = [
-            (
-                mid_x.saturating_sub(4),
-                mid_y.saturating_sub(2),
-                PaneFocus::TopLeft,
-            ),
-            (
-                mid_x.saturating_add(3),
-                mid_y.saturating_sub(2),
-                PaneFocus::TopRight,
-            ),
-            (
-                mid_x.saturating_sub(4),
-                mid_y.saturating_add(2),
-                PaneFocus::BottomLeft,
-            ),
-            (
-                mid_x.saturating_add(3),
-                mid_y.saturating_add(2),
-                PaneFocus::BottomRight,
-            ),
-        ];
-        // 1. Dessiner la ligne horizontale
+
+        // 1. Dessiner la croix centrale (Gris sombre pour ne pas agresser l'œil)
         for x in 0..self.width {
             if x != mid_x {
                 queue!(
                     w,
                     cursor::MoveTo(x, mid_y),
-                    SetForegroundColor(Color::Grey),
+                    SetForegroundColor(Color::DarkGrey),
                     Print("─")
                 )?;
             }
         }
-
-        // 2. Dessiner la ligne verticale
         for y in 0..self.height {
             if y != mid_y {
                 queue!(
                     w,
                     cursor::MoveTo(mid_x, y),
-                    SetForegroundColor(Color::Grey),
+                    SetForegroundColor(Color::DarkGrey),
                     Print("│")
                 )?;
             }
         }
-
-        // 3. L'intersection au centre
         queue!(
             w,
             cursor::MoveTo(mid_x, mid_y),
-            SetForegroundColor(Color::Grey),
+            SetForegroundColor(Color::DarkGrey),
             Print("┼")
         )?;
 
-        // 4. Placer les indicateurs Workspaces/Views (les exposants)
+        // 2. Définir les zones (x_départ, y_départ, largeur, hauteur) pour chaque panneau
+        let panes_bounds = [
+            (PaneFocus::TopLeft, 0, 0, mid_x, mid_y),
+            (
+                PaneFocus::TopRight,
+                mid_x + 1,
+                0,
+                self.width.saturating_sub(mid_x + 1),
+                mid_y,
+            ),
+            (
+                PaneFocus::BottomLeft,
+                0,
+                mid_y + 1,
+                mid_x,
+                self.height.saturating_sub(mid_y + 1),
+            ),
+            (
+                PaneFocus::BottomRight,
+                mid_x + 1,
+                mid_y + 1,
+                self.width.saturating_sub(mid_x + 1),
+                self.height.saturating_sub(mid_y + 1),
+            ),
+        ];
 
-        for (i, &(x, y, pane_type)) in positions.iter().enumerate() {
+        // 3. Dessiner le contenu de chaque panneau
+        for (i, &(pane_focus, start_x, start_y, p_width, p_height)) in
+            panes_bounds.iter().enumerate()
+        {
             let pane = self.panes[i];
-            let expo = get_superscript(pane.view);
-            let is_active = self.focus == pane_type;
+            let is_active = self.focus == pane_focus;
 
-            queue!(w, cursor::MoveTo(x, y))?;
+            // Le panneau actif est en Cyan, les autres sont grisés
+            let text_color = if is_active {
+                Color::Cyan
+            } else {
+                Color::DarkGrey
+            };
+
+            // Récupération de la donnée : on cherche la vue et le nœud associé
+            // (Pour ce prototype, on prend la première vue et le premier nœud dispo)
+            if let Some(view) = self.views.first()
+                && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
+            {
+                // Itération sur le texte, limitée à la hauteur disponible du panneau
+                for (line_idx, line) in node.content.iter().take(p_height as usize).enumerate() {
+                    // On tronque la ligne pour éviter qu'elle ne déborde visuellement du quadrant
+                    let display_line = if line.len() > p_width as usize {
+                        &line[0..p_width as usize]
+                    } else {
+                        line
+                    };
+
+                    queue!(
+                        w,
+                        cursor::MoveTo(start_x, start_y + line_idx as u16),
+                        SetForegroundColor(text_color),
+                        Print(display_line)
+                    )?;
+                }
+            }
+
+            // 4. Placer les indicateurs Workspaces/Views en bas à droite de chaque panneau
+            let expo = get_superscript(pane.view);
+            let indicator_x = start_x + p_width.saturating_sub(3);
+            let indicator_y = start_y + p_height.saturating_sub(1);
+
+            queue!(w, cursor::MoveTo(indicator_x, indicator_y))?;
 
             if is_active {
-                // Panneau actif : Vert Clair et Cyan
-                queue!(w, SetForegroundColor(Color::Green), Print(pane.workspace))?;
-                queue!(w, SetForegroundColor(Color::Cyan), Print(expo))?;
+                queue!(
+                    w,
+                    SetForegroundColor(Color::Green),
+                    Print(pane.workspace),
+                    SetForegroundColor(Color::Cyan),
+                    Print(expo)
+                )?;
             } else {
-                // Panneaux inactifs : Gris sombre pour ne pas distraire
                 queue!(
                     w,
                     SetForegroundColor(Color::DarkGrey),
@@ -336,31 +419,34 @@ impl App {
                 )?;
             }
         }
+
+        // 5. Rendu du mode Dmenu (Barre de commande)
         if self.mode == Mode::Dmenu {
-            // 1. Déterminer la position et la largeur selon le focus
             let (start_x, start_y, pane_width) = match self.focus {
                 PaneFocus::TopLeft => (0, 0, mid_x),
-                PaneFocus::TopRight => (mid_x, 0, self.width - mid_x),
-                PaneFocus::BottomLeft => (0, mid_y, mid_x),
-                PaneFocus::BottomRight => (mid_x, mid_y, self.width - mid_x),
+                PaneFocus::TopRight => (mid_x + 1, 0, self.width.saturating_sub(mid_x + 1)),
+                PaneFocus::BottomLeft => (0, mid_y + 1, mid_x),
+                PaneFocus::BottomRight => {
+                    (mid_x + 1, mid_y + 1, self.width.saturating_sub(mid_x + 1))
+                }
             };
 
-            // 2. Préparer la chaîne à afficher (avec des espaces pour remplir la largeur)
-            let prompt = format!(" > {} ", self.dmenu_input);
+            let prompt = format!(" {} ", self.dmenu_input);
             let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
 
-            // 3. Dessiner la barre (Fond Vert, Texte Noir)
+            // Palette d'inspiration océan sombre pour l'interface de commande
             queue!(
                 w,
                 cursor::MoveTo(start_x, start_y),
+                SetAttribute(crossterm::style::Attribute::Bold),
                 SetBackgroundColor(Color::Green),
                 SetForegroundColor(Color::Black),
                 Print(padded_prompt),
-                ResetColor // On n'oublie pas de réinitialiser !
+                ResetColor
             )?;
         }
+
         queue!(w, ResetColor)?;
-        // On envoie tout au terminal d'un coup
         w.flush()?;
         Ok(())
     }
