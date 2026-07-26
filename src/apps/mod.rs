@@ -8,12 +8,14 @@ use crossterm::{
 use std::io::{Write, stdout};
 use std::{io::Result, time::Duration};
 
+#[allow(dead_code)]
 struct Environment {
     name: String,
     // Chaque environnement a ses 6 faces d'outils, contenant chacune 4 quadrants
     faces: [[PaneState; 4]; 6],
 }
 #[derive(Copy, Clone, PartialEq)]
+#[allow(dead_code)]
 enum Face {
     Front = 0,
     Back = 1,
@@ -39,6 +41,7 @@ struct PaneState {
     workspace: u8,
     view: u8,
 }
+#[allow(dead_code)]
 pub struct App {
     environments: Vec<Environment>,
     width: u16,
@@ -135,7 +138,6 @@ impl App {
                                 // --- CHANGEMENT DE FACE (Cube F1 à F6) ---
                                 (KeyModifiers::NONE, KeyCode::F(n)) if (1..=6).contains(&n) => {
                                     // On stocke la face active (de 0 à 5 en interne)
-                                    self.active_face = n as u8 - 1;
                                 }
 
                                 // --- DÉPLACEMENT DU FOCUS (Flèches simples) ---
