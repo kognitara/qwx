@@ -1,13 +1,27 @@
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute, queue,
-    style::{Color, Print, ResetColor, SetForegroundColor},
+    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::io::Result;
 use std::io::{Write, stdout};
+use std::{io::Result, time::Duration};
 
+struct Environment {
+    name: String,
+    // Chaque environnement a ses 6 faces d'outils, contenant chacune 4 quadrants
+    faces: [[PaneState; 4]; 6],
+}
+#[derive(Copy, Clone, PartialEq)]
+enum Face {
+    Front = 0,
+    Back = 1,
+    Left = 2,
+    Right = 3,
+    Top = 4,
+    Bottom = 5,
+}
 #[derive(Copy, Clone, PartialEq)]
 enum PaneFocus {
     TopLeft = 0,
@@ -15,17 +29,25 @@ enum PaneFocus {
     BottomLeft = 2,
     BottomRight = 3,
 }
+#[derive(PartialEq)]
+enum Mode {
+    Normal,
+    Dmenu, // Le mode où l'on tape du texte dans la barre verte
+}
 #[derive(Copy, Clone)]
 struct PaneState {
     workspace: u8,
     view: u8,
 }
 pub struct App {
+    environments: Vec<Environment>,
     width: u16,
     height: u16,
     running: bool,
     focus: PaneFocus,      // Le panneau actuellement actif
     panes: [PaneState; 4], // Le tableau qui stocke l'état des 4 panneaux
+    mode: Mode,
+    dmenu_input: String,
 }
 
 fn get_superscript(num: u8) -> &'static str {
@@ -43,6 +65,10 @@ fn get_superscript(num: u8) -> &'static str {
     }
 }
 impl App {
+    /// Retourne une référence mutable (pour modifier) le panneau actif
+    fn active_pane_mut(&mut self) -> &mut PaneState {
+        &mut self.panes[self.focus as usize]
+    }
     pub fn new() -> Result<Self> {
         let (width, height) = terminal::size()?;
         Ok(Self {
@@ -68,6 +94,9 @@ impl App {
                     view: 1,
                 }, // BottomRight
             ],
+            mode: Mode::Normal,
+            dmenu_input: String::new(),
+            environments: Vec::new(),
         })
     }
 
@@ -81,7 +110,7 @@ impl App {
 
         while self.running {
             self.draw(&mut stdout)?;
-            self.handle()?;
+            self.handle_events()?;
         }
 
         // Nettoyage en quittant
@@ -89,54 +118,128 @@ impl App {
         terminal::disable_raw_mode()?;
         Ok(())
     }
-    fn handle(&mut self) -> Result<()> {
-        if event::poll(std::time::Duration::from_millis(16))? {
+    fn handle_events(&mut self) -> Result<()> {
+        if event::poll(Duration::from_millis(16))? {
             match event::read()? {
                 Event::Key(key) => {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => self.running = false,
+                    match self.mode {
+                        // ==========================================
+                        // MODE NORMAL : Navigation et Raccourcis
+                        // ==========================================
+                        Mode::Normal => {
+                            match (key.modifiers, key.code) {
+                                // --- QUITTER ---
+                                (KeyModifiers::NONE, KeyCode::Char('q'))
+                                | (KeyModifiers::NONE, KeyCode::Esc) => self.running = false,
 
-                        // --- DÉPLACEMENT DU FOCUS ---
-                        // Utilise les flèches (ou ajoute 'h','j','k','l' si tu préfères la navigation Vim)
-                        KeyCode::Right => {
-                            self.focus = match self.focus {
-                                PaneFocus::TopLeft => PaneFocus::TopRight,
-                                PaneFocus::BottomLeft => PaneFocus::BottomRight,
-                                _ => self.focus,
-                            };
+                                // --- CHANGEMENT DE FACE (Cube F1 à F6) ---
+                                (KeyModifiers::NONE, KeyCode::F(n)) if (1..=6).contains(&n) => {
+                                    // On stocke la face active (de 0 à 5 en interne)
+                                    self.active_face = n as u8 - 1;
+                                }
+
+                                // --- DÉPLACEMENT DU FOCUS (Flèches simples) ---
+                                (KeyModifiers::NONE, KeyCode::Right) => {
+                                    self.focus = match self.focus {
+                                        PaneFocus::TopLeft => PaneFocus::TopRight,
+                                        PaneFocus::BottomLeft => PaneFocus::BottomRight,
+                                        _ => self.focus,
+                                    };
+                                }
+                                (KeyModifiers::NONE, KeyCode::Left) => {
+                                    self.focus = match self.focus {
+                                        PaneFocus::TopRight => PaneFocus::TopLeft,
+                                        PaneFocus::BottomRight => PaneFocus::BottomLeft,
+                                        _ => self.focus,
+                                    };
+                                }
+                                (KeyModifiers::NONE, KeyCode::Down) => {
+                                    self.focus = match self.focus {
+                                        PaneFocus::TopLeft => PaneFocus::BottomLeft,
+                                        PaneFocus::TopRight => PaneFocus::BottomRight,
+                                        _ => self.focus,
+                                    };
+                                }
+                                (KeyModifiers::NONE, KeyCode::Up) => {
+                                    self.focus = match self.focus {
+                                        PaneFocus::BottomLeft => PaneFocus::TopLeft,
+                                        PaneFocus::BottomRight => PaneFocus::TopRight,
+                                        _ => self.focus,
+                                    };
+                                }
+
+                                // --- CYCLAGE WORKSPACES (Alt + Gauche / Droite) ---
+                                (KeyModifiers::ALT, KeyCode::Left) => {
+                                    let pane = self.active_pane_mut();
+                                    pane.workspace = if pane.workspace > 1 {
+                                        pane.workspace - 1
+                                    } else {
+                                        9
+                                    };
+                                }
+                                (KeyModifiers::ALT, KeyCode::Right) => {
+                                    let pane = self.active_pane_mut();
+                                    pane.workspace = if pane.workspace < 9 {
+                                        pane.workspace + 1
+                                    } else {
+                                        1
+                                    };
+                                }
+
+                                // --- CYCLAGE VIEWS (Alt + Haut / Bas) ---
+                                (KeyModifiers::ALT, KeyCode::Up) => {
+                                    let pane = self.active_pane_mut();
+                                    pane.view = if pane.view < 9 { pane.view + 1 } else { 1 };
+                                }
+                                (KeyModifiers::ALT, KeyCode::Down) => {
+                                    let pane = self.active_pane_mut();
+                                    pane.view = if pane.view > 1 { pane.view - 1 } else { 9 };
+                                }
+
+                                // --- LANCEMENT DU DMENU (Alt + d) ---
+                                (KeyModifiers::ALT, KeyCode::Char('d')) => {
+                                    self.mode = Mode::Dmenu;
+                                    self.dmenu_input.clear();
+                                }
+
+                                _ => {}
+                            }
                         }
-                        KeyCode::Left => {
-                            self.focus = match self.focus {
-                                PaneFocus::TopRight => PaneFocus::TopLeft,
-                                PaneFocus::BottomRight => PaneFocus::BottomLeft,
-                                _ => self.focus,
-                            };
+
+                        // ==========================================
+                        // MODE DMENU : Saisie de texte
+                        // ==========================================
+                        Mode::Dmenu => {
+                            match (key.modifiers, key.code) {
+                                // --- ANNULER ET QUITTER LE MENU ---
+                                (KeyModifiers::NONE, KeyCode::Esc) => {
+                                    self.mode = Mode::Normal;
+                                    self.dmenu_input.clear();
+                                }
+
+                                // --- VALIDER LA RECHERCHE ---
+                                (KeyModifiers::NONE, KeyCode::Enter) => {
+                                    // TODO : Implémenter le scan de dossier avec walkdir/jwalk ici
+                                    // en utilisant le contenu de self.dmenu_input
+
+                                    self.mode = Mode::Normal;
+                                    self.dmenu_input.clear();
+                                }
+
+                                // --- EFFACER UN CARACTÈRE ---
+                                (KeyModifiers::NONE, KeyCode::Backspace) => {
+                                    self.dmenu_input.pop();
+                                }
+
+                                // --- TAPER DU TEXTE ---
+                                // On ignore les modificateurs pour attraper les lettres simplement
+                                (_, KeyCode::Char(c)) => {
+                                    self.dmenu_input.push(c);
+                                }
+
+                                _ => {}
+                            }
                         }
-                        KeyCode::Down => {
-                            self.focus = match self.focus {
-                                PaneFocus::TopLeft => PaneFocus::BottomLeft,
-                                PaneFocus::TopRight => PaneFocus::BottomRight,
-                                _ => self.focus,
-                            };
-                        }
-                        KeyCode::Up => {
-                            self.focus = match self.focus {
-                                PaneFocus::BottomLeft => PaneFocus::TopLeft,
-                                PaneFocus::BottomRight => PaneFocus::TopRight,
-                                _ => self.focus,
-                            };
-                        }
-                        // --- CHANGEMENT DE WORKSPACE ---
-                        // Si on tape un chiffre entre 1 et 9, on change le workspace du panneau actif
-                        KeyCode::Char(c) if c.is_ascii_digit() && c != '0' => {
-                            let val = c.to_digit(10).unwrap() as u8;
-                            let idx = self.focus as usize;
-                            self.panes[idx].workspace = val;
-                        }
-                        // --- CHANGEMENTDE VIEW (Exemple avec Maj + Chiffre) ---
-                        // On pourrait utiliser un modificateur pour la view
-                        // ... à définir selon tes préférences de raccourcis !
-                        _ => {}
                     }
                 }
                 Event::Resize(columns, rows) => {
@@ -148,6 +251,7 @@ impl App {
         }
         Ok(())
     }
+
     /// Gère l'affichage de l'interface
     fn draw<W: Write>(&self, w: &mut W) -> Result<()> {
         queue!(w, Clear(ClearType::All))?;
@@ -178,19 +282,34 @@ impl App {
         // 1. Dessiner la ligne horizontale
         for x in 0..self.width {
             if x != mid_x {
-                queue!(w, cursor::MoveTo(x, mid_y), Print("─"))?;
+                queue!(
+                    w,
+                    cursor::MoveTo(x, mid_y),
+                    SetForegroundColor(Color::Grey),
+                    Print("─")
+                )?;
             }
         }
 
         // 2. Dessiner la ligne verticale
         for y in 0..self.height {
             if y != mid_y {
-                queue!(w, cursor::MoveTo(mid_x, y), Print("│"))?;
+                queue!(
+                    w,
+                    cursor::MoveTo(mid_x, y),
+                    SetForegroundColor(Color::Grey),
+                    Print("│")
+                )?;
             }
         }
 
         // 3. L'intersection au centre
-        queue!(w, cursor::MoveTo(mid_x, mid_y), Print("┼"))?;
+        queue!(
+            w,
+            cursor::MoveTo(mid_x, mid_y),
+            SetForegroundColor(Color::Grey),
+            Print("┼")
+        )?;
 
         // 4. Placer les indicateurs Workspaces/Views (les exposants)
 
@@ -214,6 +333,29 @@ impl App {
                     Print(expo)
                 )?;
             }
+        }
+        if self.mode == Mode::Dmenu {
+            // 1. Déterminer la position et la largeur selon le focus
+            let (start_x, start_y, pane_width) = match self.focus {
+                PaneFocus::TopLeft => (0, 0, mid_x),
+                PaneFocus::TopRight => (mid_x, 0, self.width - mid_x),
+                PaneFocus::BottomLeft => (0, mid_y, mid_x),
+                PaneFocus::BottomRight => (mid_x, mid_y, self.width - mid_x),
+            };
+
+            // 2. Préparer la chaîne à afficher (avec des espaces pour remplir la largeur)
+            let prompt = format!(" > {} ", self.dmenu_input);
+            let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
+
+            // 3. Dessiner la barre (Fond Vert, Texte Noir)
+            queue!(
+                w,
+                cursor::MoveTo(start_x, start_y),
+                SetBackgroundColor(Color::Green),
+                SetForegroundColor(Color::Black),
+                Print(padded_prompt),
+                ResetColor // On n'oublie pas de réinitialiser !
+            )?;
         }
         queue!(w, ResetColor)?;
         // On envoie tout au terminal d'un coup
