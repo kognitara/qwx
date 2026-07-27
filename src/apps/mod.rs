@@ -29,7 +29,6 @@ pub struct Node {
 // Niveau 8 : La Vue (La fenêtre de défilement)
 pub struct View {
     pub active_node_id: usize,
-    pub cursor: u16,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -49,6 +48,7 @@ enum Mode {
 struct PaneState {
     workspace: u8,
     view: u8,
+    cursor: u16,
 }
 
 pub struct App {
@@ -131,10 +131,7 @@ impl App {
                     .to_string(),
                 is_file: PathBuf::from(filename).is_file(),
             });
-            views.push(View {
-                active_node_id: i,
-                cursor: 0,
-            });
+            views.push(View { active_node_id: i });
         }
         Ok(Self {
             width,
@@ -145,18 +142,22 @@ impl App {
                 PaneState {
                     workspace: 1,
                     view: 1,
+                    cursor: 0,
                 },
                 PaneState {
                     workspace: 2,
                     view: 1,
+                    cursor: 0,
                 },
                 PaneState {
                     workspace: 3,
                     view: 1,
+                    cursor: 0,
                 },
                 PaneState {
                     workspace: 4,
                     view: 1,
+                    cursor: 0,
                 },
             ],
             mode: Mode::Normal,
@@ -183,7 +184,7 @@ impl App {
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
         execute!(stdout, EnterAlternateScreen, cursor::Hide)?;
-
+        queue!(stdout, Clear(ClearType::All))?;
         while self.running {
             self.draw(&mut stdout)?;
             self.handle_events()?;
@@ -215,6 +216,9 @@ impl App {
         let mut highlighter =
             syntect::easy::HighlightLines::new(syntax, &self.theme_set.themes["base16-ocean.dark"]);
         let mut w = stdout();
+
+        let mut drawn_lines = 0; // <-- NOUVEAU : On traque le nombre de lignes dessinées
+
         for (line_idx, line) in node
             .content
             .iter()
@@ -235,23 +239,17 @@ impl App {
             let mut current_width = 0;
 
             for (style, text) in ranges {
-                // 1. On enlève uniquement les retours à la ligne, et on garde les espaces (indentation)
-                // 2. On convertit les tabulations en 4 espaces pour contrôler exactement la largeur affichée
                 let clean_text = text
                     .trim_end_matches(&['\n', '\r'][..])
                     .replace('\t', "    ");
 
-                // 3. On calcule la vraie largeur visuelle sur le terminal (gère les accents UTF-8)
                 let text_width = clean_text.width();
-
-                // Calcul de l'espace restant dans la largeur du panneau
                 let remaining_width = p_width.saturating_sub(current_width) as usize;
 
                 if remaining_width == 0 {
-                    break; // On sort si on a atteint le bord droit
+                    break;
                 }
 
-                // 4. Découpage propre caractère par caractère si on dépasse la limite
                 let display_text = if text_width > remaining_width {
                     let mut acc_width = 0;
                     let mut truncated = String::new();
@@ -268,7 +266,6 @@ impl App {
                     clean_text
                 };
 
-                // On traduit la couleur RGB de syntect vers crossterm
                 let crossterm_color = Color::Rgb {
                     r: style.foreground.r,
                     g: style.foreground.g,
@@ -276,10 +273,27 @@ impl App {
                 };
 
                 queue!(w, SetForegroundColor(crossterm_color), Print(&display_text))?;
-
-                // On met à jour la largeur avec la vraie taille visuelle de ce qu'on vient d'afficher
                 current_width += display_text.width() as u16;
             }
+
+            // ✨ CORRECTION 1 : Nettoyer la fin de la ligne avec des espaces si elle est trop courte
+            if current_width < p_width {
+                let padding = " ".repeat((p_width - current_width) as usize);
+                queue!(w, ResetColor, Print(padding))?;
+            }
+
+            drawn_lines += 1;
+        }
+
+        // ✨ CORRECTION 2 : Nettoyer les lignes restantes en bas du panneau avec des lignes vides
+        for empty_y in drawn_lines..(p_height as usize) {
+            let padding = " ".repeat(p_width as usize);
+            queue!(
+                w,
+                cursor::MoveTo(start_x, start_y + empty_y as u16),
+                ResetColor,
+                Print(padding)
+            )?;
         }
         Ok(())
     }
@@ -300,30 +314,29 @@ impl App {
                                 (KeyModifiers::NONE, KeyCode::F(n)) if (1..=6).contains(&n) => {
                                     // On stocke la face active (de 0 à 5 en interne)
                                 }
-
                                 (KeyModifiers::NONE, KeyCode::Char('j')) => {
+                                    // 1. ON LIT (Immutable)
                                     let active_idx = self.focus as usize;
-                                    if let Some(view) = self.views.get_mut(active_idx) {
-                                        // On récupère la longueur totale du fichier pour ne pas scroller à l'infini
-                                        let node_len = self
-                                            .nodes
-                                            .get(active_idx)
+                                    let node_len = if let Some(view) = self.views.get(active_idx) {
+                                        self.nodes
+                                            .get(view.active_node_id)
                                             .map(|n| n.content.len())
-                                            .unwrap_or(0);
+                                            .unwrap_or(0)
+                                    } else {
+                                        0
+                                    };
 
-                                        // On autorise la descente si on n'est pas à la fin
-                                        if (view.cursor as usize) < node_len.saturating_sub(1) {
-                                            view.cursor += 1;
-                                        }
+                                    // 2. ON MODIFIE (Mutable) après avoir terminé la lecture
+                                    let active_pane = self.active_pane_mut();
+                                    if (active_pane.cursor as usize) < node_len.saturating_sub(1) {
+                                        active_pane.cursor += 1;
                                     }
                                 }
                                 (KeyModifiers::NONE, KeyCode::Char('k')) => {
-                                    let active_idx = self.focus as usize;
-                                    if let Some(view) = self.views.get_mut(active_idx) {
-                                        // saturating_sub empêche la valeur de passer en dessous de 0
-                                        view.cursor = view.cursor.saturating_sub(1);
-                                    }
-                                } // --- DÉPLACEMENT DU FOCUS (Flèches simples) ---
+                                    let active_pane = self.active_pane_mut();
+                                    // On soustrait 1 pour remonter, sans jamais descendre sous zéro
+                                    active_pane.cursor = active_pane.cursor.saturating_sub(1);
+                                }
                                 (KeyModifiers::NONE, KeyCode::Right) => {
                                     self.focus = match self.focus {
                                         PaneFocus::TopLeft => PaneFocus::TopRight,
@@ -426,6 +439,12 @@ impl App {
                             }
                         }
                         Mode::Finder => match (key.modifiers, key.code) {
+                            (KeyModifiers::ALT, KeyCode::Down) => {
+                                self.finder.next_dir();
+                            }
+                            (KeyModifiers::ALT, KeyCode::Up) => {
+                                self.finder.prev_dir();
+                            }
                             (KeyModifiers::NONE, KeyCode::F(5)) => {
                                 self.finder = Finder::new(Path::new("."), FinderLayout::Grid);
                             }
@@ -449,14 +468,11 @@ impl App {
                                     self.finder_recherch.clear();
                                 }
                             }
-
                             // --- REMONTER AU DOSSIER PARENT ---
                             (KeyModifiers::ALT, KeyCode::Left) => {
                                 // On utilise .parent() pour remonter d'un niveau en toute sécurité
                                 if let Some(parent) = self.current_dir.parent() {
                                     self.current_dir = parent.into();
-
-                                    // On met à jour le Finder
                                     self.finder =
                                         Finder::new(&self.current_dir, self.finder_layout.clone());
                                     self.finder_recherch.clear();
@@ -469,11 +485,9 @@ impl App {
                                 self.next_finder_layout();
                             }
                             (KeyModifiers::NONE, KeyCode::Enter) => {
-                                // 1. On récupère le premier fichier de la liste filtrée
                                 if let Some(filename) = self.finder.get_files().first() {
                                     let full_path = self.current_dir.join(filename);
 
-                                    // 2. On vérifie si ce fichier est déjà en mémoire (Nodes), sinon on le charge
                                     let node_id = if let Some(existing_node) =
                                         self.nodes.iter().find(|n| n.name == *filename)
                                     {
@@ -496,19 +510,17 @@ impl App {
                                             });
                                             new_id
                                         } else {
+                                            self.finder_recherch.clear();
                                             // En cas d'erreur de lecture (fichier protégé, etc.), on stoppe l'action
                                             return Ok(());
                                         }
                                     };
-
-                                    // 3. On modifie la vue du panneau qui a actuellement le focus
                                     let active_idx = self.focus as usize;
 
                                     // Sécurité pour s'assurer que la vue existe bien
                                     if self.views.len() <= active_idx {
                                         self.views.resize_with(active_idx + 1, || View {
                                             active_node_id: 0,
-                                            cursor: 0,
                                         });
                                     }
 
@@ -516,6 +528,9 @@ impl App {
                                     if let Some(view) = self.views.get_mut(active_idx) {
                                         view.active_node_id = node_id;
                                     }
+
+                                    // ✨ LA CORRECTION EST ICI : Réinitialiser le scroll pour le nouveau fichier
+                                    self.panes[active_idx].cursor = 0;
                                 }
 
                                 // 4. On nettoie la barre de recherche et on quitte le finder
@@ -549,7 +564,6 @@ impl App {
 
     /// Gère l'affichage de l'interface
     fn draw<W: Write>(&mut self, w: &mut W) -> Result<()> {
-        queue!(w, Clear(ClearType::All))?;
         let mid_x = self.width / 2;
         let mid_y = self.height / 2;
         let right_x = self.width.saturating_sub(1);
@@ -624,7 +638,6 @@ impl App {
             cursor::MoveTo(mid_x, mid_y),
             Print("┼")
         )?;
-
         // 3. Dessiner le contenu de chaque panneau
         // 2. Définir les zones (x_départ, y_départ, largeur, hauteur) en protégeant les bordures
         let panes_bounds = [
@@ -663,23 +676,46 @@ impl App {
         {
             let pane = self.panes[i];
             let is_active = self.focus == pane_focus;
+
             if let Some(view) = self.views.get(i)
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
                 && node.is_file
             {
-                let view_scroll = self.views.get(i).map(|v| v.cursor as usize).unwrap_or(0);
-                let _ = self.preview(node, start_x, start_y, p_width, p_height, view_scroll);
+                // On passe le curseur propre de ce panneau spécifique
+                let _ = self.preview(
+                    node,
+                    start_x,
+                    start_y,
+                    p_width,
+                    p_height,
+                    pane.cursor as usize,
+                );
             }
 
-            // 4. Placer les indicateurs Workspaces/Views en bas à droite de chaque panneau
+            // Calcul du pourcentage basé sur le curseur de CE panneau
+            let percentage_str = if let Some(view) = self.views.get(i)
+                && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
+                && node.is_file
+            {
+                let len = node.content.len();
+                if len <= 1 {
+                    100
+                } else {
+                    ((pane.cursor as usize * 100) / (len - 1)).min(100)
+                }
+            } else {
+                0
+            };
             let expo = get_superscript(pane.view);
-            let indicator_x = start_x + p_width.saturating_sub(3);
+            let info_display = format!("{}% {}{}", percentage_str, pane.workspace, expo);
+            let indicator_x = start_x + p_width.saturating_sub(info_display.len() as u16);
             let indicator_y = start_y + p_height.saturating_sub(1);
-
             queue!(w, cursor::MoveTo(indicator_x, indicator_y))?;
             if is_active {
                 queue!(
                     w,
+                    SetForegroundColor(Color::Green),
+                    Print(format!("{}% ", percentage_str)),
                     SetForegroundColor(Color::Green),
                     Print(pane.workspace),
                     SetForegroundColor(Color::Cyan),
@@ -689,6 +725,7 @@ impl App {
                 queue!(
                     w,
                     SetForegroundColor(Color::DarkGrey),
+                    Print(format!("{}% ", percentage_str)),
                     Print(pane.workspace),
                     Print(expo)
                 )?;

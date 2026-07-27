@@ -24,7 +24,7 @@ pub enum FinderLayout {
     /// │                       │                          │
     /// │                       │                          │
     /// ├───────────────────────┼──────────────────────────┤
-    /// │ ROOTS FILES           │ PREVIEW                  │
+    /// │ ROOTS FILES           │ SUB ROOTS FILES          │
     /// │                       │                          │
     /// │                       │                          │
     /// │                       │                          │
@@ -209,11 +209,33 @@ pub fn list_sub_dirs(path: &Path) -> Vec<String> {
     dirs
 }
 
+pub fn list_sub_files(path: &Path) -> Vec<String> {
+    let mut files: Vec<String> = Vec::new();
+    for entry in WalkDir::new(path)
+        .max_depth(2)
+        .min_depth(2)
+        .into_iter()
+        .flatten()
+    {
+        if entry.path().is_file() {
+            // Pour les sous-dossiers, on garde le chemin relatif propre (ex: "parent/enfant")
+            if let Ok(rel_path) = entry.path().strip_prefix(path) {
+                files.push(rel_path.to_string_lossy().to_string());
+            }
+        }
+    }
+    files
+}
+
 pub struct Finder {
     layout: FinderLayout,
     directories: Vec<String>,
     sub_directories: Vec<String>,
+    sub_files: Vec<String>,
     files: Vec<String>,
+    pub selected_dir: usize,
+    pub selected_sub_dir: usize,
+    pub selected_sub_file: usize,
     width: u16,
     height: u16,
 }
@@ -227,6 +249,10 @@ impl Finder {
             directories: list_dirs(path),
             files: list_files(path),
             sub_directories: list_sub_dirs(path),
+            sub_files: list_sub_files(path),
+            selected_dir: 0,
+            selected_sub_dir: 0,
+            selected_sub_file: 0,
             width: w,
             height: h,
         }
@@ -241,7 +267,21 @@ impl Finder {
     pub fn get_files(&self) -> Vec<String> {
         self.files.to_vec()
     }
+    pub fn next_dir(&mut self) {
+        if !self.directories.is_empty() {
+            self.selected_dir = (self.selected_dir + 1) % self.directories.len();
+        }
+    }
 
+    pub fn prev_dir(&mut self) {
+        if !self.directories.is_empty() {
+            self.selected_dir = if self.selected_dir > 0 {
+                self.selected_dir - 1
+            } else {
+                self.directories.len() - 1
+            };
+        }
+    }
     pub fn filter(&mut self, path: &Path, research: String) -> (Vec<String>, Vec<String>) {
         let files = list_files(path);
         let dirs = list_dirs(path);
@@ -434,9 +474,8 @@ impl Finder {
                     )?;
                 }
             }
-
             // ==========================================
-            // AFFICHAGE DES SOUS-DOSSIERS
+            // AFFICHAGE DES SOUS-DOSSIERS (Haut Droite)
             // ==========================================
             let max_sub_dirs_display = (mid_y - main_y_start - 2) as usize;
             let right_pane_x = mid_x + 4;
@@ -448,14 +487,56 @@ impl Finder {
                 .enumerate()
             {
                 let padded_name = format_padded(sub_dir, pane_width);
-                queue!(
-                    w,
-                    MoveTo(right_pane_x, main_y_start + 2 + i as u16),
-                    ResetColor, // <-- CORRECTION ICI
-                    SetForegroundColor(Color::Cyan),
-                    Print(padded_name)
-                )?;
+                if i == self.selected_sub_dir {
+                    queue!(
+                        w,
+                        MoveTo(right_pane_x, main_y_start + 2 + i as u16),
+                        SetForegroundColor(Color::Cyan),
+                        Print(padded_name),
+                        ResetColor
+                    )?;
+                } else {
+                    queue!(
+                        w,
+                        MoveTo(right_pane_x, main_y_start + 2 + i as u16),
+                        ResetColor,
+                        SetForegroundColor(Color::DarkGrey),
+                        Print(padded_name)
+                    )?;
+                }
             }
+
+            // ==========================================
+            // AFFICHAGE DES SOUS-FICHIERS (Bas Droite) -> COORDONNÉES CORRIGÉES !
+            // ==========================================
+            let max_sub_files_display = (self.height.saturating_sub(footer_h) - mid_y - 2) as usize;
+
+            for (i, sub_file) in self
+                .sub_files
+                .iter()
+                .take(max_sub_files_display)
+                .enumerate()
+            {
+                let padded_name = format_padded(sub_file, pane_width);
+                if i == self.selected_sub_file {
+                    queue!(
+                        w,
+                        MoveTo(right_pane_x, mid_y + 2 + i as u16),
+                        SetForegroundColor(Color::White),
+                        Print(padded_name),
+                        ResetColor
+                    )?;
+                } else {
+                    queue!(
+                        w,
+                        MoveTo(right_pane_x, mid_y + 2 + i as u16),
+                        ResetColor,
+                        SetForegroundColor(Color::DarkGrey),
+                        Print(padded_name)
+                    )?;
+                }
+            }
+
             // ==========================================
             // 4. ZONE FOOTER : STATISTIQUES ET RÉSULTATS
             // ==========================================
