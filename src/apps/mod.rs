@@ -1,9 +1,9 @@
-use crate::finder::{Finder, FinderLayout, list_dirs, list_files};
+use crate::finder::{Finder, FinderLayout, list_files};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers},
     execute, queue,
-    style::{Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor},
+    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::io::Write;
@@ -26,27 +26,10 @@ pub struct Node {
     pub is_file: bool,
 }
 
-// Niveau 9 : Le Calque (La surcouche visuelle)
-pub struct Layer {
-    pub name: String, // ex: "Base_Text", "Linter_Errors"
-    pub is_visible: bool,
-}
-
 // Niveau 8 : La Vue (La fenêtre de défilement)
 pub struct View {
     pub active_node_id: usize,
-    pub layers: Vec<Layer>,
-    pub cursor_x: u16,
-    pub cursor_y: u16,
-}
-
-pub struct Bank {
-    environment: Environment,
-}
-pub struct Environment {
-    name: String,
-    // Chaque environnement a ses 6 faces d'outils, contenant chacune 4 quadrants
-    faces: [[PaneState; 4]; 6],
+    pub cursor: u16,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -69,7 +52,6 @@ struct PaneState {
 }
 
 pub struct App {
-    environments: Vec<Environment>,
     finder_layout: FinderLayout,
     finder: Finder,
     finder_recherch: String,
@@ -83,11 +65,8 @@ pub struct App {
     panes: [PaneState; 4],
     mode: Mode,
     dmenu_input: String,
-    finder_open: bool,
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
-    current_file_lines: Vec<String>,
-    current_node: Node,
 }
 
 fn get_superscript(num: u8) -> &'static str {
@@ -154,9 +133,7 @@ impl App {
             });
             views.push(View {
                 active_node_id: i,
-                layers: Vec::new(),
-                cursor_x: 0,
-                cursor_y: 0,
+                cursor: 0,
             });
         }
         Ok(Self {
@@ -184,18 +161,14 @@ impl App {
             ],
             mode: Mode::Normal,
             dmenu_input: String::new(),
-            environments: Vec::new(),
             nodes: nodes.clone(),
             views,
-            finder_open: false,
             finder_layout: FinderLayout::Grid,
             finder_recherch: String::new(),
             finder: Finder::new(path, FinderLayout::Grid),
             current_dir: path.into(),
-            current_file_lines: nodes.clone().first().expect("no files").content.clone(),
             syntax_set,
             theme_set,
-            current_node: nodes.first().expect("failed to get first node").clone(),
         })
     }
 
@@ -339,8 +312,8 @@ impl App {
                                             .unwrap_or(0);
 
                                         // On autorise la descente si on n'est pas à la fin
-                                        if (view.cursor_y as usize) < node_len.saturating_sub(1) {
-                                            view.cursor_y += 1;
+                                        if (view.cursor as usize) < node_len.saturating_sub(1) {
+                                            view.cursor += 1;
                                         }
                                     }
                                 }
@@ -348,7 +321,7 @@ impl App {
                                     let active_idx = self.focus as usize;
                                     if let Some(view) = self.views.get_mut(active_idx) {
                                         // saturating_sub empêche la valeur de passer en dessous de 0
-                                        view.cursor_y = view.cursor_y.saturating_sub(1);
+                                        view.cursor = view.cursor.saturating_sub(1);
                                     }
                                 } // --- DÉPLACEMENT DU FOCUS (Flèches simples) ---
                                 (KeyModifiers::NONE, KeyCode::Right) => {
@@ -535,9 +508,7 @@ impl App {
                                     if self.views.len() <= active_idx {
                                         self.views.resize_with(active_idx + 1, || View {
                                             active_node_id: 0,
-                                            layers: Vec::new(),
-                                            cursor_x: 0,
-                                            cursor_y: 0,
+                                            cursor: 0,
                                         });
                                     }
 
@@ -696,7 +667,7 @@ impl App {
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
                 && node.is_file
             {
-                let view_scroll = self.views.get(i).map(|v| v.cursor_y as usize).unwrap_or(0);
+                let view_scroll = self.views.get(i).map(|v| v.cursor as usize).unwrap_or(0);
                 let _ = self.preview(node, start_x, start_y, p_width, p_height, view_scroll);
             }
 
