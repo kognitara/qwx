@@ -1,8 +1,10 @@
 use crate::apps::App;
-use std::io::Result;
+use std::{io::Result, path::Path};
+
 mod apps;
+mod finder;
 
 fn main() -> Result<()> {
-    let mut app = App::new()?;
+    let mut app = App::new(Path::new("."))?;
     app.run()
 }
