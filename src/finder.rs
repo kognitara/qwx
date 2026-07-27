@@ -251,18 +251,18 @@ impl Finder {
 
         self.files = files
             .into_iter()
-            .filter(|x| x.to_lowercase().contains(&research_lower))
+            .filter(|x| x.to_lowercase().starts_with(&research_lower))
             .collect();
 
         self.directories = dirs
             .into_iter()
-            .filter(|x| x.to_lowercase().contains(&research_lower))
+            .filter(|x| x.to_lowercase().starts_with(&research_lower))
             .collect();
 
         // Filtrage sur la liste fraîche, pas sur l'ancienne !
         self.sub_directories = sub_dirs
             .into_iter()
-            .filter(|x| x.to_lowercase().contains(&research_lower))
+            .filter(|x| x.to_lowercase().starts_with(&research_lower))
             .collect();
 
         (self.get_directories(), self.get_files())
