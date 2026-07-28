@@ -286,6 +286,7 @@ impl Finder {
             };
         }
     }
+
     pub fn filter(&mut self, path: &Path, research: String) -> (Vec<String>, Vec<String>) {
         let files = list_files(path);
         let dirs = list_dirs(path);
@@ -293,24 +294,36 @@ impl Finder {
 
         let research_lower = research.to_lowercase();
 
-        self.files = files
-            .into_iter()
-            .filter(|x| x.to_lowercase().contains(&research_lower))
-            .collect();
+        // Closure contenant notre logique de filtrage avancée
+        let matcher = |item_name: &String| -> bool {
+            let item_lower = item_name.to_lowercase();
 
-        self.directories = dirs
-            .into_iter()
-            .filter(|x| x.to_lowercase().contains(&research_lower))
-            .collect();
+            if let Some(target) = research_lower.strip_prefix('=') {
+                // Recherche exacte (eq)
+                item_lower == target
+            } else if let Some(target) = research_lower.strip_prefix('^') {
+                // Commence par (starts_with)
+                item_lower.starts_with(target)
+            } else if let Some(target) = research_lower.strip_prefix('$') {
+                // Finit par (ends_with) - Pratique pour filtrer par extension (.rs, .c)
+                item_lower.ends_with(target)
+            } else {
+                // Comportement par défaut : contient (contains)
+                item_lower.contains(&research_lower)
+            }
+        };
+
+        // On applique la closure 'matcher' à toutes les listes
+        self.files = files.into_iter().filter(&matcher).collect();
+
+        self.directories = dirs.into_iter().filter(&matcher).collect();
 
         // Filtrage sur la liste fraîche, pas sur l'ancienne !
-        self.sub_directories = sub_dirs
-            .into_iter()
-            .filter(|x| x.to_lowercase().contains(&research_lower))
-            .collect();
+        self.sub_directories = sub_dirs.into_iter().filter(&matcher).collect();
 
         (self.get_directories(), self.get_files())
     }
+
     pub fn draw<W: Write>(
         &self,
         w: &mut W,
