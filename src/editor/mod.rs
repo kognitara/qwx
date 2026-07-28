@@ -9,7 +9,7 @@ use tree_sitter::{Parser, Tree};
 use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
 pub mod theme;
-/// Helper pour instancier et configurer proprement HighlightConfiguration
+///
 fn create_config(
     scope: &str,
     lang: Language,

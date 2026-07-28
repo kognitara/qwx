@@ -307,6 +307,8 @@ impl Finder {
             } else if let Some(target) = research_lower.strip_prefix('$') {
                 // Finit par (ends_with) - Pratique pour filtrer par extension (.rs, .c)
                 item_lower.ends_with(target)
+            } else if let Some(target) = research_lower.strip_prefix('!') {
+                !item_lower.contains(target)
             } else {
                 // Comportement par défaut : contient (contains)
                 item_lower.contains(&research_lower)

@@ -16,16 +16,38 @@ use std::io::Write;
 use std::time::Duration;
 use std::{
     fs::File,
+    fs::create_dir_all,
     io::{BufRead, BufReader, Result, stdout},
     path::{Path, PathBuf},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-// Niveau 10 : Le Nœud (La donnée brute en mémoire)
+
+/// Crée un répertoire et tous ses parents s'ils n'existent pas
+pub fn create_directory<P: AsRef<Path>>(path: P) -> Result<()> {
+    create_dir_all(path)
+}
+
+/// Crée un fichier vide. Si les dossiers parents n'existent pas,
+/// ils seront créés automatiquement pour éviter un crash.
+pub fn create_empty_file<P: AsRef<Path>>(path: P) -> Result<()> {
+    let path = path.as_ref();
+
+    // On vérifie s'il y a des dossiers parents dans le chemin saisi
+    if let Some(parent) = path.parent()
+        && !parent.exists()
+    {
+        // On crée toute la hiérarchie parente nécessaire
+        create_dir_all(parent)?;
+    }
+    // On crée le fichier (et on le referme immédiatement)
+    File::create(path)?;
+    Ok(())
+}
 #[derive(Default, Clone)]
 pub struct Node {
     pub id: usize,
     pub name: String,
-    pub content: Vec<String>, // Les lignes de ton fichier texte
+    pub content: Vec<String>,
     pub colored_lines: Vec<Vec<(String, Color)>>,
     pub is_file: bool,
 }
@@ -45,7 +67,7 @@ enum PaneFocus {
 #[derive(PartialEq)]
 enum Mode {
     Normal,
-    Dmenu, // Le mode où l'on tape du texte dans la barre verte
+    Dmenu,
     Finder,
     Editor,
 }
@@ -238,8 +260,6 @@ impl App {
                 }
 
                 node.content = new_content;
-
-                // ✨ AJOUT INDISPENSABLE : Mettre à jour le cache des couleurs en direct
                 let mut new_colored = Vec::new();
                 let spans = self.editor.get_colored_spans();
 
@@ -393,10 +413,36 @@ impl App {
                     match self.mode {
                         Mode::Editor => {
                             match key.code {
-                                // ==========================================
-                                // SYSTÈME ET NAVIGATION DE BASE
-                                // ==========================================
+                                KeyCode::Char('k')
+                                    if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                                {
+                                    let current_line = self.editor.cursor_line;
+                                    let total_lines = self.editor.rope.len_lines();
 
+                                    if current_line < total_lines {
+                                        // 1. On récupère le nombre exact de caractères sur la ligne (incluant le \n)
+                                        let chars_to_delete =
+                                            self.editor.rope.line(current_line).len_chars();
+
+                                        // 2. On place le curseur au tout début de la ligne
+                                        self.editor.cursor_col = 0;
+
+                                        // 3. On supprime proprement via l'API de `Ji` pour garder Tree-sitter à jour !
+                                        for _ in 0..chars_to_delete {
+                                            self.editor.delete();
+                                        }
+
+                                        // 4. Si on vient de supprimer la toute dernière ligne du fichier, on remonte le curseur
+                                        if current_line >= self.editor.rope.len_lines()
+                                            && current_line > 0
+                                        {
+                                            self.editor.cursor_line -= 1;
+                                        }
+
+                                        // 5. On synchronise l'affichage avec le nouveau cache
+                                        self.sync_node_content();
+                                    }
+                                }
                                 // Sauvegarder (Ctrl + S)
                                 KeyCode::Char('s')
                                     if key.modifiers.contains(KeyModifiers::CONTROL) =>
@@ -563,6 +609,35 @@ impl App {
                                 (KeyModifiers::NONE, KeyCode::F(n)) if (1..=6).contains(&n) => {
                                     // On stocke la face active (de 0 à 5 en interne)
                                 }
+                                // --- DÉFILEMENT RAPIDE (PageUp / PageDown) ---
+                                (KeyModifiers::NONE, KeyCode::PageDown) => {
+                                    let active_idx = self.focus as usize;
+                                    let node_len = if let Some(view) = self.views.get(active_idx) {
+                                        self.nodes
+                                            .get(view.active_node_id)
+                                            .map(|n| n.content.len())
+                                            .unwrap_or(0)
+                                    } else {
+                                        0
+                                    };
+
+                                    let active_pane = self.active_pane_mut();
+                                    let step = 15; // Nombre de lignes sautées
+
+                                    if (active_pane.cursor as usize) + step < node_len {
+                                        active_pane.cursor += step as u16;
+                                    } else {
+                                        // Sécurité pour ne pas dépasser la fin du fichier
+                                        active_pane.cursor = node_len.saturating_sub(1) as u16;
+                                    }
+                                }
+                                (KeyModifiers::NONE, KeyCode::PageUp) => {
+                                    let active_pane = self.active_pane_mut();
+                                    let step = 15; // Nombre de lignes sautées
+
+                                    // saturating_sub empêche de descendre en dessous de 0
+                                    active_pane.cursor = active_pane.cursor.saturating_sub(step);
+                                }
                                 (KeyModifiers::NONE, KeyCode::Char('e')) => {
                                     let active_idx = self.focus as usize;
 
@@ -575,18 +650,12 @@ impl App {
                                         if let Some(path_str) = full_path.to_str()
                                             && let Ok(editor) = Ji::open(path_str)
                                         {
-                                            self.editor = editor;
-
-                                            // ==========================================
-                                            // NOUVEAU : SYNCHRONISATION DU CURSEUR
-                                            // ==========================================
-                                            // On place le curseur sur la première ligne visible du panneau
                                             let scroll_y = self.panes[active_idx].cursor as usize;
                                             if scroll_y < self.editor.rope.len_lines() {
-                                                self.editor.cursor_line =
-                                                    self.editor.rope.line_to_char(scroll_y);
+                                                self.editor.cursor_line = scroll_y;
+                                                self.editor.cursor_col = 0;
                                             }
-
+                                            self.editor = editor;
                                             self.mode = Mode::Editor;
                                         }
                                     }
@@ -695,16 +764,57 @@ impl App {
                                     self.dmenu_input.clear();
                                 }
 
-                                // --- VALIDER LA RECHERCHE ---
+                                // --- VALIDER LA RECHERCHE OU LANCER UNE COMMANDE ---
                                 (KeyModifiers::NONE, KeyCode::Enter) => {
-                                    // TODO : Implémenter le scan de dossier avec walkdir/jwalk ici
-                                    // en utilisant le contenu de self.dmenu_input
+                                    if let Some(cmd) = self.dmenu_input.strip_prefix('!') {
+                                        let cmd_clean = cmd.trim();
 
+                                        if let Some(dir_name) = cmd_clean.strip_prefix("mkdir ") {
+                                            // On combine le dossier actuel avec le nom saisi
+                                            let target_path =
+                                                self.current_dir.join(dir_name.trim());
+                                            let _ = create_directory(&target_path);
+                                        } else if let Some(file_name) =
+                                            cmd_clean.strip_prefix("touch ")
+                                        {
+                                            // Pareil pour touch
+                                            let target_path =
+                                                self.current_dir.join(file_name.trim());
+                                            let _ = create_empty_file(&target_path);
+                                        } else {
+                                            // 1. Exécuter la commande de façon bloquante (ex: cargo fmt)
+                                            let _ = std::process::Command::new("sh")
+                                                .arg("-c")
+                                                .arg(cmd_clean)
+                                                .stdout(std::process::Stdio::null())
+                                                .stderr(std::process::Stdio::null())
+                                                .status();
+
+                                            // 2. Mettre à jour les fichiers en mémoire SANS casser les vues
+                                            for node in self.nodes.iter_mut() {
+                                                if node.is_file {
+                                                    let full_path =
+                                                        self.current_dir.join(&node.name);
+
+                                                    // On recharge le fichier silencieusement
+                                                    if let Ok(fresh_node) =
+                                                        load_node(node.id, &full_path)
+                                                    {
+                                                        node.content = fresh_node.content;
+                                                        node.colored_lines =
+                                                            fresh_node.colored_lines;
+                                                    }
+                                                }
+                                            }
+                                            let mut w = std::io::stdout();
+                                            let _ = queue!(w, Clear(ClearType::All));
+                                        }
+                                    } else {
+                                        // TODO : Scan dmenu normal avec jwalk/walkdir
+                                    }
                                     self.mode = Mode::Normal;
                                     self.dmenu_input.clear();
                                 }
-
-                                // --- EFFACER UN CARACTÈRE ---
                                 (KeyModifiers::NONE, KeyCode::Backspace) => {
                                     self.dmenu_input.pop();
                                 }
