@@ -1,5 +1,8 @@
 use crate::{
-    editor::Ji,
+    editor::{
+        Ji,
+        theme::{UI_BORDER_ACTIVE, UI_BORDER_INACTIVE, UI_DMENU_BG, UI_DMENU_FG, UI_TEXT_MUTED},
+    },
     finder::{Finder, FinderLayout, list_files},
 };
 use crossterm::{
@@ -16,16 +19,14 @@ use std::{
     io::{BufRead, BufReader, Result, stdout},
     path::{Path, PathBuf},
 };
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 // Niveau 10 : Le Nœud (La donnée brute en mémoire)
 #[derive(Default, Clone)]
 pub struct Node {
     pub id: usize,
     pub name: String,
-    pub ext: String,
     pub content: Vec<String>, // Les lignes de ton fichier texte
+    pub colored_lines: Vec<Vec<(String, Color)>>,
     pub is_file: bool,
 }
 
@@ -69,8 +70,6 @@ pub struct App {
     panes: [PaneState; 4],
     mode: Mode,
     dmenu_input: String,
-    syntax_set: SyntaxSet,
-    theme_set: ThemeSet,
     editor: Ji,
 }
 
@@ -107,6 +106,61 @@ fn read_lines(path: impl AsRef<Path>) -> Result<Vec<String>> {
     Ok(lines)
 }
 
+fn load_node(id: usize, path: &Path) -> Result<Node> {
+    let content = read_lines(path)?;
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap_or_default()
+        .to_string();
+    let is_file = path.is_file();
+
+    let mut colored_lines = Vec::new();
+
+    if is_file {
+        // On ouvre silencieusement le fichier avec Ji pour générer l'arbre syntaxique
+        if let Ok(temp_ji) = Ji::open(path) {
+            let spans = temp_ji.get_colored_spans();
+
+            // On ne peuple le cache que si Tree-sitter a vraiment renvoyé des couleurs
+            if !spans.is_empty() {
+                colored_lines.push(vec![]);
+                for (text, color) in spans {
+                    let mut is_first = true;
+                    for part in text.split('\n') {
+                        if !is_first {
+                            colored_lines.push(vec![]);
+                        }
+                        if !part.is_empty() {
+                            colored_lines
+                                .last_mut()
+                                .unwrap()
+                                .push((part.to_string(), color));
+                        }
+                        is_first = false;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback : Si le fichier est vide, ou qu'il n'y a pas de Tree-sitter pour lui, texte en blanc
+    if colored_lines.is_empty() {
+        for line in &content {
+            colored_lines.push(vec![(line.clone(), Color::White)]);
+        }
+    }
+
+    Ok(Node {
+        id,
+        name,
+        content,
+        colored_lines,
+        is_file,
+    })
+}
+
 impl App {
     fn active_pane_mut(&mut self) -> &mut PaneState {
         &mut self.panes[self.focus as usize]
@@ -114,29 +168,13 @@ impl App {
 
     pub fn new(path: &Path) -> Result<Self> {
         let (width, height) = terminal::size()?;
-        let syntax_set = SyntaxSet::load_defaults_newlines();
-        let theme_set = ThemeSet::load_defaults();
         let mut nodes: Vec<Node> = Vec::new();
         let mut views: Vec<View> = Vec::new();
         for (i, filename) in list_files(path).iter().enumerate() {
-            nodes.push(Node {
-                id: i,
-                content: read_lines(PathBuf::from(filename).as_path())?,
-                name: PathBuf::from(filename)
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_str()
-                    .unwrap_or_default()
-                    .to_string(),
-                ext: PathBuf::from(filename)
-                    .extension()
-                    .unwrap_or_default()
-                    .to_str()
-                    .unwrap_or_default()
-                    .to_string(),
-                is_file: PathBuf::from(filename).is_file(),
-            });
-            views.push(View { active_node_id: i });
+            if let Ok(node) = load_node(i, PathBuf::from(filename).as_path()) {
+                nodes.push(node);
+                views.push(View { active_node_id: i });
+            }
         }
         Ok(Self {
             width,
@@ -173,9 +211,7 @@ impl App {
             finder_recherch: String::new(),
             finder: Finder::new(path, FinderLayout::Grid),
             current_dir: path.into(),
-            syntax_set,
-            theme_set,
-            editor: Ji::new(),
+            editor: Ji::default(),
         })
     }
     /// Synchronise le Rope de l'éditeur vers le Vec<String> du Nœud actif
@@ -193,6 +229,7 @@ impl App {
                 for line in self.editor.rope.lines() {
                     // On enlève les retours à la ligne de la fin, car ta fonction preview
                     // les rajoute manuellement avant de les passer à syntect
+
                     let clean_line = line
                         .to_string()
                         .trim_end_matches(&['\n', '\r'][..])
@@ -201,6 +238,35 @@ impl App {
                 }
 
                 node.content = new_content;
+
+                // ✨ AJOUT INDISPENSABLE : Mettre à jour le cache des couleurs en direct
+                let mut new_colored = Vec::new();
+                let spans = self.editor.get_colored_spans();
+
+                if !spans.is_empty() {
+                    new_colored.push(vec![]);
+                    for (text, color) in spans {
+                        let mut is_first = true;
+                        for part in text.split('\n') {
+                            if !is_first {
+                                new_colored.push(vec![]);
+                            }
+                            if !part.is_empty() {
+                                new_colored
+                                    .last_mut()
+                                    .unwrap()
+                                    .push((part.to_string(), color));
+                            }
+                            is_first = false;
+                        }
+                    }
+                } else {
+                    // Secours en blanc au cas où l'arbre syntaxique saute pendant la frappe
+                    for line in &node.content {
+                        new_colored.push(vec![(line.clone(), Color::White)]);
+                    }
+                }
+                node.colored_lines = new_colored;
             }
         }
     }
@@ -252,18 +318,12 @@ impl App {
         p_height: u16,
         scroll_y: usize,
     ) -> Result<()> {
-        let syntax = self
-            .syntax_set
-            .find_syntax_by_extension(&node.ext)
-            .unwrap_or(self.syntax_set.find_syntax_plain_text());
-        let mut highlighter =
-            syntect::easy::HighlightLines::new(syntax, &self.theme_set.themes["base16-ocean.dark"]);
         let mut w = stdout();
+        let mut drawn_lines = 0;
 
-        let mut drawn_lines = 0; // <-- NOUVEAU : On traque le nombre de lignes dessinées
-
-        for (line_idx, line) in node
-            .content
+        // RENDU DES LIGNES DIRECTEMENT DEPUIS LE CACHE DU NODE (0 calcul, 100% vitesse)
+        for (line_idx, line_spans) in node
+            .colored_lines
             .iter()
             .skip(scroll_y)
             .take(p_height as usize)
@@ -271,28 +331,19 @@ impl App {
         {
             queue!(w, cursor::MoveTo(start_x, start_y + line_idx as u16))?;
 
-            // syntect a besoin du \n pour bien identifier les fins d'instructions ou commentaires
-            let line_with_nl = format!("{line}\n");
-
-            // On demande à syntect de découper la ligne en segments (style, texte)
-            let ranges: Vec<(syntect::highlighting::Style, &str)> = highlighter
-                .highlight_line(&line_with_nl, &self.syntax_set)
-                .unwrap();
-
             let mut current_width = 0;
 
-            for (style, text) in ranges {
-                let clean_text = text
-                    .trim_end_matches(&['\n', '\r'][..])
-                    .replace('\t', "    ");
-
+            for (text, color) in line_spans {
+                // Nettoyage des tabulations et retours chariots orphelins
+                let clean_text = text.replace('\t', "    ").replace('\r', "");
                 let text_width = clean_text.width();
                 let remaining_width = p_width.saturating_sub(current_width) as usize;
 
                 if remaining_width == 0 {
-                    break;
+                    break; // Plus de place sur cette ligne
                 }
 
+                // Logique pour tronquer proprement le texte
                 let display_text = if text_width > remaining_width {
                     let mut acc_width = 0;
                     let mut truncated = String::new();
@@ -309,17 +360,12 @@ impl App {
                     clean_text
                 };
 
-                let crossterm_color = Color::Rgb {
-                    r: style.foreground.r,
-                    g: style.foreground.g,
-                    b: style.foreground.b,
-                };
-
-                queue!(w, SetForegroundColor(crossterm_color), Print(&display_text))?;
+                // On déréférence la couleur avec *color car on itère sur les références du cache
+                queue!(w, SetForegroundColor(*color), Print(&display_text))?;
                 current_width += display_text.width() as u16;
             }
 
-            // CORRECTION 1 : Nettoyer la fin de la ligne avec des espaces si elle est trop courte
+            // Remplissage avec des espaces pour vider le reste de la ligne
             if current_width < p_width {
                 let padding = " ".repeat((p_width - current_width) as usize);
                 queue!(w, ResetColor, Print(padding))?;
@@ -328,7 +374,7 @@ impl App {
             drawn_lines += 1;
         }
 
-        // CORRECTION 2 : Nettoyer les lignes restantes en bas du panneau avec des lignes vides
+        // Nettoyer les lignes restantes en bas du panneau (si fin de fichier)
         for empty_y in drawn_lines..(p_height as usize) {
             let padding = " ".repeat(p_width as usize);
             queue!(
@@ -355,8 +401,8 @@ impl App {
                                 KeyCode::Char('s')
                                     if key.modifiers.contains(KeyModifiers::CONTROL) =>
                                 {
-                                    if let Err(e) = self.editor.save() {
-                                        eprintln!("Erreur lors de la sauvegarde : {e}");
+                                    if self.editor.save().is_err() {
+                                        eprintln!("Erreur lors de la sauvegarde");
                                     }
                                 }
 
@@ -370,82 +416,78 @@ impl App {
                                 // DÉPLACEMENTS DU CURSEUR (Flèches)
                                 // ==========================================
                                 KeyCode::Left => {
-                                    self.editor.cursor_idx =
-                                        self.editor.cursor_idx.saturating_sub(1);
+                                    if self.editor.cursor_col > 0 {
+                                        self.editor.cursor_col -= 1;
+                                    } else if self.editor.cursor_line > 0 {
+                                        // Remonte à la fin de la ligne précédente
+                                        self.editor.cursor_line -= 1;
+                                        self.editor.cursor_col = self
+                                            .editor
+                                            .rope
+                                            .line(self.editor.cursor_line)
+                                            .len_chars()
+                                            .saturating_sub(1);
+                                    }
                                 }
 
                                 KeyCode::Right => {
-                                    if self.editor.cursor_idx < self.editor.rope.len_chars() {
-                                        self.editor.cursor_idx += 1;
+                                    let max_col = self
+                                        .editor
+                                        .rope
+                                        .line(self.editor.cursor_line)
+                                        .len_chars()
+                                        .saturating_sub(1);
+                                    if self.editor.cursor_col < max_col {
+                                        self.editor.cursor_col += 1;
+                                    } else if self.editor.cursor_line + 1
+                                        < self.editor.rope.len_lines()
+                                    {
+                                        // Passe au début de la ligne suivante
+                                        self.editor.cursor_line += 1;
+                                        self.editor.cursor_col = 0;
                                     }
                                 }
 
                                 KeyCode::Up => {
-                                    let current_line =
-                                        self.editor.rope.char_to_line(self.editor.cursor_idx);
-                                    if current_line > 0 {
-                                        // On calcule à quelle colonne on est sur la ligne actuelle
-                                        let current_col = self.editor.cursor_idx
-                                            - self.editor.rope.line_to_char(current_line);
-
-                                        let prev_line = current_line - 1;
-                                        let prev_line_start =
-                                            self.editor.rope.line_to_char(prev_line);
-                                        // .saturating_sub(1) évite de positionner le curseur sur le caractère invisible '\n'
-                                        let prev_line_max_col = self
+                                    if self.editor.cursor_line > 0 {
+                                        self.editor.cursor_line -= 1;
+                                        // On s'assure que la colonne ne dépasse pas la taille de la nouvelle ligne
+                                        let max_col = self
                                             .editor
                                             .rope
-                                            .line(prev_line)
+                                            .line(self.editor.cursor_line)
                                             .len_chars()
                                             .saturating_sub(1);
-
-                                        self.editor.cursor_idx =
-                                            prev_line_start + current_col.min(prev_line_max_col);
+                                        self.editor.cursor_col =
+                                            self.editor.cursor_col.min(max_col);
                                     }
                                 }
 
                                 KeyCode::Down => {
-                                    let current_line =
-                                        self.editor.rope.char_to_line(self.editor.cursor_idx);
-                                    if current_line + 1 < self.editor.rope.len_lines() {
-                                        let current_col = self.editor.cursor_idx
-                                            - self.editor.rope.line_to_char(current_line);
-
-                                        let next_line = current_line + 1;
-                                        let next_line_start =
-                                            self.editor.rope.line_to_char(next_line);
-                                        let next_line_max_col = self
+                                    if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
+                                        self.editor.cursor_line += 1;
+                                        let max_col = self
                                             .editor
                                             .rope
-                                            .line(next_line)
+                                            .line(self.editor.cursor_line)
                                             .len_chars()
                                             .saturating_sub(1);
-
-                                        self.editor.cursor_idx =
-                                            next_line_start + current_col.min(next_line_max_col);
+                                        self.editor.cursor_col =
+                                            self.editor.cursor_col.min(max_col);
                                     }
                                 }
 
-                                // Aller au début de la ligne
                                 KeyCode::Home => {
-                                    let current_line =
-                                        self.editor.rope.char_to_line(self.editor.cursor_idx);
-                                    self.editor.cursor_idx =
-                                        self.editor.rope.line_to_char(current_line);
+                                    self.editor.cursor_col = 0;
                                 }
 
-                                // Aller à la fin de la ligne
                                 KeyCode::End => {
-                                    let current_line =
-                                        self.editor.rope.char_to_line(self.editor.cursor_idx);
-                                    let line_start = self.editor.rope.line_to_char(current_line);
-                                    let line_max_col = self
+                                    self.editor.cursor_col = self
                                         .editor
                                         .rope
-                                        .line(current_line)
+                                        .line(self.editor.cursor_line)
                                         .len_chars()
                                         .saturating_sub(1);
-                                    self.editor.cursor_idx = line_start + line_max_col;
                                 }
 
                                 // ==========================================
@@ -485,8 +527,7 @@ impl App {
 
                                 _ => {}
                             }
-                            let cursor_line = self.editor.rope.char_to_line(self.editor.cursor_idx);
-
+                            let cursor_line = self.editor.cursor_line;
                             // On recalcule la hauteur de la vue actuelle
                             let mid_y = self.height / 2;
                             let bottom_y = self.height.saturating_sub(1);
@@ -542,7 +583,7 @@ impl App {
                                             // On place le curseur sur la première ligne visible du panneau
                                             let scroll_y = self.panes[active_idx].cursor as usize;
                                             if scroll_y < self.editor.rope.len_lines() {
-                                                self.editor.cursor_idx =
+                                                self.editor.cursor_line =
                                                     self.editor.rope.line_to_char(scroll_y);
                                             }
 
@@ -730,24 +771,11 @@ impl App {
                                         existing_node.id
                                     } else {
                                         let new_id = self.nodes.len();
-                                        // On utilise ta fonction pour lire le contenu
-                                        if let Ok(content) = read_lines(&full_path) {
-                                            self.nodes.push(Node {
-                                                id: new_id,
-                                                name: filename.clone(),
-                                                ext: full_path
-                                                    .extension()
-                                                    .unwrap_or_default()
-                                                    .to_str()
-                                                    .unwrap_or_default()
-                                                    .to_string(),
-                                                content,
-                                                is_file: true,
-                                            });
+                                        if let Ok(node) = load_node(new_id, &full_path) {
+                                            self.nodes.push(node);
                                             new_id
                                         } else {
                                             self.finder_recherch.clear();
-                                            // En cas d'erreur de lecture (fichier protégé, etc.), on stoppe l'action
                                             return Ok(());
                                         }
                                     };
@@ -829,7 +857,7 @@ impl App {
         queue!(
             w,
             cursor::MoveTo(left_x, top_y),
-            SetForegroundColor(Color::DarkGrey),
+            SetForegroundColor(UI_BORDER_INACTIVE),
             Print(format!("┌{}┐", horiz_line)),
             cursor::MoveTo(left_x, bottom_y),
             Print(format!("└{}┘", horiz_line))
@@ -841,7 +869,7 @@ impl App {
                 queue!(
                     w,
                     cursor::MoveTo(left_x, y),
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(UI_BORDER_INACTIVE),
                     Print("│"),
                     cursor::MoveTo(right_x, y),
                     Print("│")
@@ -855,7 +883,7 @@ impl App {
                 queue!(
                     w,
                     cursor::MoveTo(x, mid_y),
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(UI_BORDER_INACTIVE),
                     Print("─")
                 )?;
             }
@@ -867,7 +895,7 @@ impl App {
                 queue!(
                     w,
                     cursor::MoveTo(mid_x, y),
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(UI_BORDER_INACTIVE),
                     Print("│")
                 )?;
             }
@@ -876,6 +904,7 @@ impl App {
         // Intersections
         queue!(
             w,
+            SetForegroundColor(UI_BORDER_INACTIVE),
             cursor::MoveTo(left_x, mid_y),
             Print("├"),
             cursor::MoveTo(right_x, mid_y),
@@ -963,19 +992,19 @@ impl App {
             let indicator_y = start_y + p_height.saturating_sub(1);
             queue!(w, cursor::MoveTo(indicator_x, indicator_y))?;
             if is_active {
+                // Le panneau actif utilise notre violet cosmique
                 queue!(
                     w,
-                    SetForegroundColor(Color::Green),
+                    SetForegroundColor(UI_BORDER_ACTIVE),
                     Print(format!("{}% ", percentage_str)),
-                    SetForegroundColor(Color::Green),
                     Print(pane.workspace),
-                    SetForegroundColor(Color::Cyan),
                     Print(expo)
                 )?;
             } else {
+                // Les panneaux inactifs reculent visuellement avec le texte muté
                 queue!(
                     w,
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(UI_TEXT_MUTED),
                     Print(format!("{}% ", percentage_str)),
                     Print(pane.workspace),
                     Print(expo)
@@ -1003,8 +1032,8 @@ impl App {
             queue!(
                 w,
                 cursor::MoveTo(start_x, start_y),
-                SetBackgroundColor(Color::Green),
-                SetForegroundColor(Color::Black),
+                SetBackgroundColor(UI_DMENU_BG),
+                SetForegroundColor(UI_DMENU_FG),
                 Print(padded_prompt),
                 ResetColor
             )?;
@@ -1022,10 +1051,8 @@ impl App {
             if let Some(&(_, start_x, start_y, p_width, p_height)) = active_bounds {
                 let active_pane = self.panes[self.focus as usize];
                 let scroll_y = active_pane.cursor as usize;
-
-                let line_idx = self.editor.rope.char_to_line(self.editor.cursor_idx);
-                let line_start_char = self.editor.rope.line_to_char(line_idx);
-                let col_idx = self.editor.cursor_idx.saturating_sub(line_start_char);
+                let line_idx = self.editor.cursor_line;
+                let col_idx = self.editor.cursor_col;
 
                 if line_idx >= scroll_y && line_idx < scroll_y + (p_height as usize) {
                     let screen_y = start_y + (line_idx - scroll_y) as u16;

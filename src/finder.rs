@@ -1,5 +1,5 @@
 use crossterm::queue;
-use crossterm::style::{Color, ResetColor};
+use crossterm::style::ResetColor;
 use crossterm::{
     cursor::MoveTo,
     style::{Print, SetForegroundColor},
@@ -11,6 +11,10 @@ use std::{
 };
 use unicode_width::UnicodeWidthChar;
 use walkdir::WalkDir;
+
+use crate::editor::theme::{
+    FINDER_ACTIVE_SELECT, FINDER_BORDER, FINDER_DIR_COLOR, FINDER_FILE_COLOR, FINDER_TEXT_MUTED,
+};
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum FinderLayout {
@@ -291,18 +295,18 @@ impl Finder {
 
         self.files = files
             .into_iter()
-            .filter(|x| x.to_lowercase().starts_with(&research_lower))
+            .filter(|x| x.to_lowercase().contains(&research_lower))
             .collect();
 
         self.directories = dirs
             .into_iter()
-            .filter(|x| x.to_lowercase().starts_with(&research_lower))
+            .filter(|x| x.to_lowercase().contains(&research_lower))
             .collect();
 
         // Filtrage sur la liste fraîche, pas sur l'ancienne !
         self.sub_directories = sub_dirs
             .into_iter()
-            .filter(|x| x.to_lowercase().starts_with(&research_lower))
+            .filter(|x| x.to_lowercase().contains(&research_lower))
             .collect();
 
         (self.get_directories(), self.get_files())
@@ -357,7 +361,7 @@ impl Finder {
             queue!(
                 w,
                 MoveTo(start_x, start_y),
-                SetForegroundColor(Color::DarkGrey),
+                SetForegroundColor(FINDER_BORDER),
                 Print(format!(
                     "┌{}┐",
                     "─".repeat((width.saturating_sub(2)) as usize)
@@ -365,7 +369,9 @@ impl Finder {
                 MoveTo(start_x, start_y + 1),
                 Print("│"),
                 MoveTo(research_x, start_y + 1),
+                SetForegroundColor(FINDER_TEXT_MUTED),
                 Print(search_placeholder),
+                SetForegroundColor(FINDER_BORDER),
                 MoveTo(right_x, start_y + 1),
                 Print("│"),
                 MoveTo(start_x, start_y + 2),
@@ -386,7 +392,7 @@ impl Finder {
                 queue!(
                     w,
                     MoveTo(x, mid_y),
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(FINDER_BORDER),
                     Print("─")
                 )?;
             }
@@ -395,7 +401,7 @@ impl Finder {
             for y in main_y_start..(start_y + height.saturating_sub(footer_h)) {
                 queue!(
                     w,
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(FINDER_BORDER),
                     MoveTo(start_x, y),
                     Print("│"),
                     MoveTo(mid_x, y),
@@ -408,7 +414,7 @@ impl Finder {
             // Intersections de la ligne centrale horizontale
             queue!(
                 w,
-                SetForegroundColor(Color::DarkGrey),
+                SetForegroundColor(FINDER_BORDER),
                 MoveTo(start_x, mid_y),
                 Print("├"),
                 MoveTo(mid_x, mid_y),
@@ -452,7 +458,7 @@ impl Finder {
                     queue!(
                         w,
                         MoveTo(start_x + 4, main_y_start + 2 + i as u16),
-                        SetForegroundColor(Color::Cyan),
+                        SetForegroundColor(FINDER_ACTIVE_SELECT), // Met en valeur le premier/actif en violet cosmique
                         Print(padded_name),
                         ResetColor
                     )?;
@@ -461,7 +467,7 @@ impl Finder {
                         w,
                         MoveTo(start_x + 4, main_y_start + 2 + i as u16),
                         ResetColor,
-                        SetForegroundColor(Color::Blue),
+                        SetForegroundColor(FINDER_DIR_COLOR), // Le bleu doux pour les dossiers
                         Print(padded_name)
                     )?;
                 }
@@ -476,7 +482,7 @@ impl Finder {
                     queue!(
                         w,
                         MoveTo(start_x + 4, mid_y + 2 + i as u16),
-                        SetForegroundColor(Color::White),
+                        SetForegroundColor(FINDER_ACTIVE_SELECT),
                         Print(padded_name),
                         ResetColor
                     )?;
@@ -485,7 +491,7 @@ impl Finder {
                         w,
                         MoveTo(start_x + 4, mid_y + 2 + i as u16),
                         ResetColor,
-                        SetForegroundColor(Color::DarkGrey),
+                        SetForegroundColor(FINDER_FILE_COLOR), // Le blanc argenté pour les fichiers standards
                         Print(padded_name)
                     )?;
                 }
@@ -508,7 +514,7 @@ impl Finder {
                     queue!(
                         w,
                         MoveTo(right_pane_x, main_y_start + 2 + i as u16),
-                        SetForegroundColor(Color::Cyan),
+                        SetForegroundColor(FINDER_ACTIVE_SELECT),
                         Print(padded_name),
                         ResetColor
                     )?;
@@ -517,7 +523,7 @@ impl Finder {
                         w,
                         MoveTo(right_pane_x, main_y_start + 2 + i as u16),
                         ResetColor,
-                        SetForegroundColor(Color::DarkGrey),
+                        SetForegroundColor(FINDER_TEXT_MUTED),
                         Print(padded_name)
                     )?;
                 }
@@ -540,7 +546,7 @@ impl Finder {
                     queue!(
                         w,
                         MoveTo(right_pane_x, mid_y + 2 + i as u16),
-                        SetForegroundColor(Color::White),
+                        SetForegroundColor(FINDER_FILE_COLOR),
                         Print(padded_name),
                         ResetColor
                     )?;
@@ -549,7 +555,7 @@ impl Finder {
                         w,
                         MoveTo(right_pane_x, mid_y + 2 + i as u16),
                         ResetColor,
-                        SetForegroundColor(Color::DarkGrey),
+                        SetForegroundColor(FINDER_TEXT_MUTED),
                         Print(padded_name)
                     )?;
                 }
@@ -561,26 +567,24 @@ impl Finder {
             let footer_y = start_y + height.saturating_sub(footer_h);
             let bottom_y = start_y + height.saturating_sub(1);
 
-            queue!(w, SetForegroundColor(Color::DarkGrey))?;
-
             // Lignes horizontales du footer (en évitant les coins)
             for x in (start_x + 1)..right_x {
                 queue!(
                     w,
                     MoveTo(x, footer_y),
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(FINDER_BORDER),
                     Print("─")
                 )?;
                 queue!(
                     w,
                     MoveTo(x, footer_y + 2),
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(FINDER_BORDER),
                     Print("─")
                 )?;
                 queue!(
                     w,
                     MoveTo(x, bottom_y),
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(FINDER_BORDER),
                     Print("─")
                 )?;
             }
@@ -589,7 +593,7 @@ impl Finder {
             for y in footer_y..bottom_y {
                 queue!(
                     w,
-                    SetForegroundColor(Color::DarkGrey),
+                    SetForegroundColor(FINDER_BORDER),
                     MoveTo(start_x, y),
                     Print("│"),
                     MoveTo(mid_x, y),
@@ -602,7 +606,7 @@ impl Finder {
             // Toutes les intersections du footer pour une grille parfaite
             queue!(
                 w,
-                SetForegroundColor(Color::DarkGrey),
+                SetForegroundColor(FINDER_BORDER),
                 MoveTo(start_x, footer_y),
                 Print("├"),
                 MoveTo(mid_x, footer_y),
@@ -632,7 +636,7 @@ impl Finder {
             queue!(
                 w,
                 MoveTo(start_x + 2, footer_y + 1),
-                SetForegroundColor(Color::DarkGrey),
+                SetForegroundColor(FINDER_TEXT_MUTED),
                 Print(dir_count_str),
                 MoveTo(mid_x + 2, footer_y + 1),
                 Print(sub_dir_count_str),
