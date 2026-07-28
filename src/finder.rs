@@ -1,10 +1,10 @@
+use crossterm::queue;
 use crossterm::style::{Color, ResetColor};
 use crossterm::{
     cursor::MoveTo,
     style::{Print, SetForegroundColor},
-    terminal::{ClearType, size},
+    terminal::size,
 };
-use crossterm::{queue, terminal::Clear};
 use std::{
     io::{Result, Write},
     path::Path,
@@ -307,8 +307,26 @@ impl Finder {
 
         (self.get_directories(), self.get_files())
     }
-    pub fn draw<W: Write>(&self, w: &mut W, research: String) -> Result<()> {
-        queue!(w, Clear(ClearType::All))?;
+    pub fn draw<W: Write>(
+        &self,
+        w: &mut W,
+        research: String,
+        start_x: u16, // Marge gauche
+        start_y: u16, // Marge haute (souvent 0)
+        width: u16,   // Largeur restreinte (ex: 180 max)
+        height: u16,  // Hauteur totale
+    ) -> Result<()> {
+        // ==========================================
+        // CORRECTION 1 : NETTOYAGE DU FOND
+        // ==========================================
+        // On remplit la zone exacte du Finder avec des espaces.
+        // Cela crée un "fond opaque" qui masque le code de l'éditeur
+        // situé en dessous, sans faire clignoter le reste du terminal.
+        let empty_line = " ".repeat(width as usize);
+        for y in start_y..(start_y + height) {
+            queue!(w, MoveTo(start_x, y), Print(&empty_line))?;
+        }
+
         if self.layout == FinderLayout::Grid {
             let search_placeholder = if research.is_empty() {
                 "Type to search"
@@ -316,53 +334,55 @@ impl Finder {
                 research.as_str()
             };
 
-            // MODIFICATION ICI : On décale la grille d'un caractère vers la droite
-            let mid_x = (self.width / 2) + 1;
+            // ==========================================
+            // CORRECTION 2 : ALIGNEMENT DU MILIEU
+            // ==========================================
+            // On a retiré le `+ 1`. La ligne centrale du Finder va
+            // maintenant s'emboîter parfaitement avec celle de l'App.
+            let mid_x = start_x + (width / 2);
+            let right_x = start_x + width.saturating_sub(1);
 
-            let header_h = 3; // Lignes 0, 1, 2 allouées à RESEARCH
-            let footer_h = 5; // Hauteur allouée aux blocs de statistiques en bas
+            let header_h = 3;
+            let footer_h = 5;
 
-            // Le point central de l'axe Y pour les 4 quadrants principaux
-            let main_y_start = header_h;
-            let main_h = self.height.saturating_sub(header_h + footer_h);
+            let main_y_start = start_y + header_h;
+            let main_h = height.saturating_sub(header_h + footer_h);
             let mid_y = main_y_start + (main_h / 2);
 
-            // --- CALCUL DES DIMENSIONS ---
-            // Attention : Supprime ou commente le deuxième `let mid_x = self.width / 2;`
-            // qui se trouvait un peu plus bas dans ton code pour ne pas écraser ta modification !
+            let research_x = start_x + (width.saturating_sub(search_placeholder.len() as u16) / 2);
 
-            let research_x = self.width.saturating_sub(search_placeholder.len() as u16) / 2;
-
+            // ==========================================
+            // 1. DESSIN DE L'EN-TÊTE (RESEARCH)
+            // ==========================================
             queue!(
                 w,
-                MoveTo(0, 0),
+                MoveTo(start_x, start_y),
                 SetForegroundColor(Color::DarkGrey),
                 Print(format!(
                     "┌{}┐",
-                    "─".repeat((self.width.saturating_sub(2)) as usize)
+                    "─".repeat((width.saturating_sub(2)) as usize)
                 )),
-                MoveTo(0, 1),
+                MoveTo(start_x, start_y + 1),
                 Print("│"),
-                MoveTo(research_x, 1),
+                MoveTo(research_x, start_y + 1),
                 Print(search_placeholder),
-                MoveTo(self.width - 1, 1),
+                MoveTo(right_x, start_y + 1),
                 Print("│"),
-                MoveTo(0, 2),
+                MoveTo(start_x, start_y + 2),
                 Print(format!(
                     "├{}┤",
-                    "─".repeat((self.width.saturating_sub(2)) as usize)
+                    "─".repeat((width.saturating_sub(2)) as usize)
                 )),
-                MoveTo(mid_x, 2),
+                MoveTo(mid_x, start_y + 2),
                 Print("┬")
             )?;
 
             // ==========================================
             // 2. ZONE PRINCIPALE : BORDURES DES QUADRANTS
             // ==========================================
-            let right_x = self.width.saturating_sub(1);
 
-            // Ligne de séparation horizontale centrale (on démarre à 1 et on s'arrête avant la fin pour les bordures)
-            for x in 1..right_x {
+            // Ligne de séparation horizontale centrale
+            for x in (start_x + 1)..right_x {
                 queue!(
                     w,
                     MoveTo(x, mid_y),
@@ -372,46 +392,43 @@ impl Finder {
             }
 
             // Lignes verticales (Gauche, Centre, Droite)
-            for y in main_y_start..self.height.saturating_sub(footer_h) {
+            for y in main_y_start..(start_y + height.saturating_sub(footer_h)) {
                 queue!(
                     w,
                     SetForegroundColor(Color::DarkGrey),
-                    MoveTo(0, y),
-                    Print("│"), // Bordure gauche
+                    MoveTo(start_x, y),
+                    Print("│"),
                     MoveTo(mid_x, y),
-                    Print("│"), // Ligne centrale
+                    Print("│"),
                     MoveTo(right_x, y),
-                    Print("│") // Bordure droite
+                    Print("│")
                 )?;
             }
+
             // Intersections de la ligne centrale horizontale
             queue!(
                 w,
                 SetForegroundColor(Color::DarkGrey),
-                MoveTo(0, mid_y),
-                Print("├"), // Intersection gauche
+                MoveTo(start_x, mid_y),
+                Print("├"),
                 MoveTo(mid_x, mid_y),
-                Print("┼"), // Croix centrale
+                Print("┼"),
                 MoveTo(right_x, mid_y),
-                Print("┤") // Intersection droite
+                Print("┤")
             )?;
 
-            // Titres des sections
-            let max_files_display = (self.height.saturating_sub(footer_h) - mid_y - 2) as usize;
+            // Titres et calcul des dimensions
+            let max_files_display =
+                (start_y + height.saturating_sub(footer_h) - mid_y - 2) as usize;
             let max_dirs_display = (mid_y - main_y_start - 2) as usize;
 
-            // 1. On restaure TA largeur d'origine pour un padding parfait jusqu'à la bordure !
-            let pane_width = (mid_x.saturating_sub(5)) as usize;
+            // Ajustement de la largeur de la zone en prenant en compte l'offset X
+            let pane_width = (mid_x.saturating_sub(start_x + 5)) as usize;
 
-            // NOUVELLE FONCTION SÉCURISÉE : Largeur EXACTE et nettoyage des caractères
             let format_padded = |text: &str, total_w: usize| -> String {
-                // Sécurité absolue : on retire les tabulations et retours à la ligne qui cassent le terminal
-                let safe_text = text
-                    .replace("\t", "    ")
-                    .replace("\n", "")
-                    .replace("\r", "");
+                let safe_text = text.replace('\t', "    ").replace(['\n', '\t'], "");
 
-                let max_text_w = total_w.saturating_sub(1); // On garde 1 place pour l'espace initial
+                let max_text_w = total_w.saturating_sub(1);
 
                 let mut acc = 0;
                 let mut truncated = String::new();
@@ -434,7 +451,7 @@ impl Finder {
                 if i == 0 {
                     queue!(
                         w,
-                        MoveTo(4, main_y_start + 2 + i as u16),
+                        MoveTo(start_x + 4, main_y_start + 2 + i as u16),
                         SetForegroundColor(Color::Cyan),
                         Print(padded_name),
                         ResetColor
@@ -442,7 +459,7 @@ impl Finder {
                 } else {
                     queue!(
                         w,
-                        MoveTo(4, main_y_start + 2 + i as u16),
+                        MoveTo(start_x + 4, main_y_start + 2 + i as u16),
                         ResetColor,
                         SetForegroundColor(Color::Blue),
                         Print(padded_name)
@@ -456,10 +473,9 @@ impl Finder {
             for (i, file) in self.files.iter().take(max_files_display).enumerate() {
                 let padded_name = format_padded(file, pane_width);
                 if i == 0 {
-                    // SÉLECTION ÉPURÉE pour les fichiers sélectionnés
                     queue!(
                         w,
-                        MoveTo(4, mid_y + 2 + i as u16),
+                        MoveTo(start_x + 4, mid_y + 2 + i as u16),
                         SetForegroundColor(Color::White),
                         Print(padded_name),
                         ResetColor
@@ -467,13 +483,14 @@ impl Finder {
                 } else {
                     queue!(
                         w,
-                        MoveTo(4, mid_y + 2 + i as u16),
+                        MoveTo(start_x + 4, mid_y + 2 + i as u16),
                         ResetColor,
                         SetForegroundColor(Color::DarkGrey),
                         Print(padded_name)
                     )?;
                 }
             }
+
             // ==========================================
             // AFFICHAGE DES SOUS-DOSSIERS (Haut Droite)
             // ==========================================
@@ -507,9 +524,10 @@ impl Finder {
             }
 
             // ==========================================
-            // AFFICHAGE DES SOUS-FICHIERS (Bas Droite) -> COORDONNÉES CORRIGÉES !
+            // AFFICHAGE DES SOUS-FICHIERS (Bas Droite)
             // ==========================================
-            let max_sub_files_display = (self.height.saturating_sub(footer_h) - mid_y - 2) as usize;
+            let max_sub_files_display =
+                (start_y + height.saturating_sub(footer_h) - mid_y - 2) as usize;
 
             for (i, sub_file) in self
                 .sub_files
@@ -540,31 +558,31 @@ impl Finder {
             // ==========================================
             // 4. ZONE FOOTER : STATISTIQUES ET RÉSULTATS
             // ==========================================
-            let footer_y = self.height.saturating_sub(footer_h);
-            let bottom_y = self.height.saturating_sub(1);
+            let footer_y = start_y + height.saturating_sub(footer_h);
+            let bottom_y = start_y + height.saturating_sub(1);
 
             queue!(w, SetForegroundColor(Color::DarkGrey))?;
 
             // Lignes horizontales du footer (en évitant les coins)
-            for x in 1..right_x {
+            for x in (start_x + 1)..right_x {
                 queue!(
                     w,
                     MoveTo(x, footer_y),
                     SetForegroundColor(Color::DarkGrey),
                     Print("─")
-                )?; // Séparateur supérieur
+                )?;
                 queue!(
                     w,
                     MoveTo(x, footer_y + 2),
                     SetForegroundColor(Color::DarkGrey),
                     Print("─")
-                )?; // Séparateur du milieu
+                )?;
                 queue!(
                     w,
                     MoveTo(x, bottom_y),
                     SetForegroundColor(Color::DarkGrey),
                     Print("─")
-                )?; // Ligne de fermeture en bas
+                )?;
             }
 
             // Lignes verticales du footer
@@ -572,12 +590,12 @@ impl Finder {
                 queue!(
                     w,
                     SetForegroundColor(Color::DarkGrey),
-                    MoveTo(0, y),
-                    Print("│"), // Bordure gauche
+                    MoveTo(start_x, y),
+                    Print("│"),
                     MoveTo(mid_x, y),
-                    Print("│"), // Colonne centrale
+                    Print("│"),
                     MoveTo(right_x, y),
-                    Print("│") // Bordure droite
+                    Print("│")
                 )?;
             }
 
@@ -585,27 +603,26 @@ impl Finder {
             queue!(
                 w,
                 SetForegroundColor(Color::DarkGrey),
-                MoveTo(0, footer_y),
+                MoveTo(start_x, footer_y),
                 Print("├"),
                 MoveTo(mid_x, footer_y),
                 Print("┼"),
                 MoveTo(right_x, footer_y),
                 Print("┤"),
-                // Ligne du milieu du footer
-                MoveTo(0, footer_y + 2),
+                MoveTo(start_x, footer_y + 2),
                 Print("├"),
                 MoveTo(mid_x, footer_y + 2),
                 Print("┼"),
                 MoveTo(right_x, footer_y + 2),
                 Print("┤"),
-                // Ligne du bas (Coins inférieurs)
-                MoveTo(0, bottom_y),
+                MoveTo(start_x, bottom_y),
                 Print("└"),
                 MoveTo(mid_x, bottom_y),
                 Print("┴"),
                 MoveTo(right_x, bottom_y),
                 Print("┘")
             )?;
+
             // Affichage des compteurs dynamiques
             let dir_count_str = format!(" ROOT DIRS FOUND : {} ", self.directories.len());
             let file_count_str = format!(" ROOT FILES FOUND : {} ", self.files.len());
@@ -614,18 +631,18 @@ impl Finder {
 
             queue!(
                 w,
-                MoveTo(2, footer_y + 1),
+                MoveTo(start_x + 2, footer_y + 1),
                 SetForegroundColor(Color::DarkGrey),
                 Print(dir_count_str),
                 MoveTo(mid_x + 2, footer_y + 1),
-                Print(sub_dir_count_str), // <-- ON UTILISE LA VARIABLE ICI
-                MoveTo(2, footer_y + 3),
-                Print(" SUB ROOT FILES FOUND : 0 "), // (Prêt pour quand tu feras les sous-fichiers !)
+                Print(sub_dir_count_str),
+                MoveTo(start_x + 2, footer_y + 3),
+                Print(" SUB ROOT FILES FOUND : 0 "),
                 MoveTo(mid_x + 2, footer_y + 3),
                 Print(file_count_str)
             )?;
         }
-        // On s'assure de réinitialiser les couleurs après avoir dessiné le Finder
+
         queue!(w, ResetColor)?;
         Ok(())
     }

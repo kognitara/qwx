@@ -1,6 +1,9 @@
-use crate::finder::{Finder, FinderLayout, list_files};
+use crate::{
+    editor::Ji,
+    finder::{Finder, FinderLayout, list_files},
+};
 use crossterm::{
-    cursor,
+    cursor::{self, Hide, Show},
     event::{self, Event, KeyCode, KeyModifiers},
     execute, queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
@@ -43,6 +46,7 @@ enum Mode {
     Normal,
     Dmenu, // Le mode où l'on tape du texte dans la barre verte
     Finder,
+    Editor,
 }
 #[derive(Copy, Clone)]
 struct PaneState {
@@ -67,6 +71,7 @@ pub struct App {
     dmenu_input: String,
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
+    editor: Ji,
 }
 
 fn get_superscript(num: u8) -> &'static str {
@@ -170,11 +175,49 @@ impl App {
             current_dir: path.into(),
             syntax_set,
             theme_set,
+            editor: Ji::new(),
         })
     }
+    /// Synchronise le Rope de l'éditeur vers le Vec<String> du Nœud actif
+    /// pour que l'affichage et syntect soient mis à jour en temps réel.
+    fn sync_node_content(&mut self) {
+        let active_idx = self.focus as usize;
 
+        if let Some(view) = self.views.get(active_idx) {
+            let node_id = view.active_node_id;
+
+            if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+                let mut new_content = Vec::new();
+
+                // On parcourt toutes les lignes générées par ropey
+                for line in self.editor.rope.lines() {
+                    // On enlève les retours à la ligne de la fin, car ta fonction preview
+                    // les rajoute manuellement avant de les passer à syntect
+                    let clean_line = line
+                        .to_string()
+                        .trim_end_matches(&['\n', '\r'][..])
+                        .to_string();
+                    new_content.push(clean_line);
+                }
+
+                node.content = new_content;
+            }
+        }
+    }
     fn draw_finder<W: Write>(&mut self, w: &mut W) -> Result<()> {
-        self.finder.draw(w, self.finder_recherch.to_string())
+        // On recalcule la zone centrale
+        let max_width = 180.min(self.width);
+        let left_x = (self.width.saturating_sub(max_width)) / 2;
+
+        // On envoie left_x, 0 (pour top_y), max_width et la hauteur totale au Finder
+        self.finder.draw(
+            w,
+            self.finder_recherch.clone(),
+            left_x,
+            0,
+            max_width,
+            self.height,
+        )
     }
     pub fn is_finder_open(&mut self) -> bool {
         self.mode == Mode::Finder
@@ -276,7 +319,7 @@ impl App {
                 current_width += display_text.width() as u16;
             }
 
-            // ✨ CORRECTION 1 : Nettoyer la fin de la ligne avec des espaces si elle est trop courte
+            // CORRECTION 1 : Nettoyer la fin de la ligne avec des espaces si elle est trop courte
             if current_width < p_width {
                 let padding = " ".repeat((p_width - current_width) as usize);
                 queue!(w, ResetColor, Print(padding))?;
@@ -285,7 +328,7 @@ impl App {
             drawn_lines += 1;
         }
 
-        // ✨ CORRECTION 2 : Nettoyer les lignes restantes en bas du panneau avec des lignes vides
+        // CORRECTION 2 : Nettoyer les lignes restantes en bas du panneau avec des lignes vides
         for empty_y in drawn_lines..(p_height as usize) {
             let padding = " ".repeat(p_width as usize);
             queue!(
@@ -300,8 +343,173 @@ impl App {
     fn handle_events(&mut self) -> Result<()> {
         if event::poll(Duration::from_millis(16))? {
             match event::read()? {
-                Event::Key(key) => {
+                Event::Key(key) if key.kind.is_press() => {
                     match self.mode {
+                        Mode::Editor => {
+                            match key.code {
+                                // ==========================================
+                                // SYSTÈME ET NAVIGATION DE BASE
+                                // ==========================================
+
+                                // Sauvegarder (Ctrl + S)
+                                KeyCode::Char('s')
+                                    if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                                {
+                                    if let Err(e) = self.editor.save() {
+                                        eprintln!("Erreur lors de la sauvegarde : {e}");
+                                    }
+                                }
+
+                                // Quitter le mode édition (Echap)
+                                KeyCode::Esc => {
+                                    self.mode = Mode::Normal;
+                                    queue!(stdout(), Hide)?; // On cache le curseur en sortant
+                                }
+
+                                // ==========================================
+                                // DÉPLACEMENTS DU CURSEUR (Flèches)
+                                // ==========================================
+                                KeyCode::Left => {
+                                    self.editor.cursor_idx =
+                                        self.editor.cursor_idx.saturating_sub(1);
+                                }
+
+                                KeyCode::Right => {
+                                    if self.editor.cursor_idx < self.editor.rope.len_chars() {
+                                        self.editor.cursor_idx += 1;
+                                    }
+                                }
+
+                                KeyCode::Up => {
+                                    let current_line =
+                                        self.editor.rope.char_to_line(self.editor.cursor_idx);
+                                    if current_line > 0 {
+                                        // On calcule à quelle colonne on est sur la ligne actuelle
+                                        let current_col = self.editor.cursor_idx
+                                            - self.editor.rope.line_to_char(current_line);
+
+                                        let prev_line = current_line - 1;
+                                        let prev_line_start =
+                                            self.editor.rope.line_to_char(prev_line);
+                                        // .saturating_sub(1) évite de positionner le curseur sur le caractère invisible '\n'
+                                        let prev_line_max_col = self
+                                            .editor
+                                            .rope
+                                            .line(prev_line)
+                                            .len_chars()
+                                            .saturating_sub(1);
+
+                                        self.editor.cursor_idx =
+                                            prev_line_start + current_col.min(prev_line_max_col);
+                                    }
+                                }
+
+                                KeyCode::Down => {
+                                    let current_line =
+                                        self.editor.rope.char_to_line(self.editor.cursor_idx);
+                                    if current_line + 1 < self.editor.rope.len_lines() {
+                                        let current_col = self.editor.cursor_idx
+                                            - self.editor.rope.line_to_char(current_line);
+
+                                        let next_line = current_line + 1;
+                                        let next_line_start =
+                                            self.editor.rope.line_to_char(next_line);
+                                        let next_line_max_col = self
+                                            .editor
+                                            .rope
+                                            .line(next_line)
+                                            .len_chars()
+                                            .saturating_sub(1);
+
+                                        self.editor.cursor_idx =
+                                            next_line_start + current_col.min(next_line_max_col);
+                                    }
+                                }
+
+                                // Aller au début de la ligne
+                                KeyCode::Home => {
+                                    let current_line =
+                                        self.editor.rope.char_to_line(self.editor.cursor_idx);
+                                    self.editor.cursor_idx =
+                                        self.editor.rope.line_to_char(current_line);
+                                }
+
+                                // Aller à la fin de la ligne
+                                KeyCode::End => {
+                                    let current_line =
+                                        self.editor.rope.char_to_line(self.editor.cursor_idx);
+                                    let line_start = self.editor.rope.line_to_char(current_line);
+                                    let line_max_col = self
+                                        .editor
+                                        .rope
+                                        .line(current_line)
+                                        .len_chars()
+                                        .saturating_sub(1);
+                                    self.editor.cursor_idx = line_start + line_max_col;
+                                }
+
+                                // ==========================================
+                                // ACTIONS D'ÉDITION
+                                // ==========================================
+                                KeyCode::Backspace => {
+                                    self.editor.backspace();
+                                    self.sync_node_content();
+                                }
+
+                                KeyCode::Delete => {
+                                    self.editor.delete();
+                                    self.sync_node_content();
+                                }
+
+                                KeyCode::Enter => {
+                                    self.editor.insert_char('\n');
+                                    self.sync_node_content();
+                                }
+
+                                // Tabulation propre (convertie en 4 espaces pour le code)
+                                KeyCode::Tab => {
+                                    for _ in 0..4 {
+                                        self.editor.insert_char(' ');
+                                    }
+                                    self.sync_node_content();
+                                }
+
+                                // Saisie des caractères (Majuscule ou Minuscule)
+                                KeyCode::Char(c)
+                                    if key.modifiers.is_empty()
+                                        || key.modifiers == KeyModifiers::SHIFT =>
+                                {
+                                    self.editor.insert_char(c);
+                                    self.sync_node_content();
+                                }
+
+                                _ => {}
+                            }
+                            let cursor_line = self.editor.rope.char_to_line(self.editor.cursor_idx);
+
+                            // On recalcule la hauteur de la vue actuelle
+                            let mid_y = self.height / 2;
+                            let bottom_y = self.height.saturating_sub(1);
+                            let p_height = match self.focus {
+                                PaneFocus::TopLeft | PaneFocus::TopRight => mid_y.saturating_sub(1),
+                                PaneFocus::BottomLeft | PaneFocus::BottomRight => {
+                                    (bottom_y - mid_y).saturating_sub(1)
+                                }
+                            } as usize;
+
+                            let pane = self.active_pane_mut();
+                            let scroll_y = pane.cursor as usize;
+
+                            // Si le curseur monte plus haut que la vue, on remonte le scroll
+                            if cursor_line < scroll_y {
+                                pane.cursor = cursor_line as u16;
+                            }
+                            // Si le curseur descend plus bas que la vue, on descend le scroll
+                            else if cursor_line >= scroll_y + p_height {
+                                pane.cursor =
+                                    (cursor_line.saturating_sub(p_height.saturating_sub(1))) as u16;
+                            }
+                        }
                         // ==========================================
                         // MODE NORMAL : Navigation et Raccourcis
                         // ==========================================
@@ -313,6 +521,34 @@ impl App {
                                 // --- CHANGEMENT DE FACE (Cube F1 à F6) ---
                                 (KeyModifiers::NONE, KeyCode::F(n)) if (1..=6).contains(&n) => {
                                     // On stocke la face active (de 0 à 5 en interne)
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('e')) => {
+                                    let active_idx = self.focus as usize;
+
+                                    if let Some(view) = self.views.get(active_idx)
+                                        && let Some(node) = self.nodes.get(view.active_node_id)
+                                        && node.is_file
+                                    {
+                                        let full_path = self.current_dir.join(&node.name);
+
+                                        if let Some(path_str) = full_path.to_str()
+                                            && let Ok(editor) = Ji::open(path_str)
+                                        {
+                                            self.editor = editor;
+
+                                            // ==========================================
+                                            // NOUVEAU : SYNCHRONISATION DU CURSEUR
+                                            // ==========================================
+                                            // On place le curseur sur la première ligne visible du panneau
+                                            let scroll_y = self.panes[active_idx].cursor as usize;
+                                            if scroll_y < self.editor.rope.len_lines() {
+                                                self.editor.cursor_idx =
+                                                    self.editor.rope.line_to_char(scroll_y);
+                                            }
+
+                                            self.mode = Mode::Editor;
+                                        }
+                                    }
                                 }
                                 (KeyModifiers::NONE, KeyCode::Char('j')) => {
                                     // 1. ON LIT (Immutable)
@@ -555,6 +791,7 @@ impl App {
                     self.width = columns;
                     self.height = rows;
                     self.finder.resize(columns, rows);
+                    queue!(stdout(), Clear(ClearType::All))?;
                 }
                 _ => {}
             }
@@ -564,37 +801,46 @@ impl App {
 
     /// Gère l'affichage de l'interface
     fn draw<W: Write>(&mut self, w: &mut W) -> Result<()> {
-        let mid_x = self.width / 2;
-        let mid_y = self.height / 2;
-        let right_x = self.width.saturating_sub(1);
+        // ==========================================
+        // CALCUL DES MARGES POUR CENTRER LA GRILLE
+        // ==========================================
+        // On fixe une largeur maximale agréable à lire (ex: 180 caractères).
+        // Si le terminal est plus petit, on prend toute la place (self.width).
+        let max_width = 180.min(self.width);
+
+        // On calcule l'espace vide restant pour trouver le point de départ en X
+        let left_x = (self.width.saturating_sub(max_width)) / 2;
+
+        // Nouvelles coordonnées basées sur la marge
+        let right_x = left_x + max_width.saturating_sub(1);
+        let mid_x = left_x + (max_width / 2);
+
+        let top_y = 0;
         let bottom_y = self.height.saturating_sub(1);
+        let mid_y = self.height / 2;
 
         // ==========================================
         // 1. DESSINER LE CADRE EXTÉRIEUR ET LA CROIX
         // ==========================================
 
-        // Coins et lignes horizontales du cadre (Haut et Bas)
+        // Ligne horizontale dynamique adaptée à max_width
+        let horiz_line = "─".repeat(max_width.saturating_sub(2) as usize);
+
         queue!(
             w,
-            cursor::MoveTo(0, 0),
+            cursor::MoveTo(left_x, top_y),
             SetForegroundColor(Color::DarkGrey),
-            Print(format!(
-                "┌{}┐",
-                "─".repeat((self.width.saturating_sub(2)) as usize)
-            )),
-            cursor::MoveTo(0, bottom_y),
-            Print(format!(
-                "└{}┘",
-                "─".repeat((self.width.saturating_sub(2)) as usize)
-            ))
+            Print(format!("┌{}┐", horiz_line)),
+            cursor::MoveTo(left_x, bottom_y),
+            Print(format!("└{}┘", horiz_line))
         )?;
 
-        // Lignes verticales extérieures (Gauche et Droite) et séparateur horizontal interne
-        for y in 1..bottom_y {
+        // Lignes verticales extérieures (Gauche et Droite)
+        for y in (top_y + 1)..bottom_y {
             if y != mid_y {
                 queue!(
                     w,
-                    cursor::MoveTo(0, y),
+                    cursor::MoveTo(left_x, y),
                     SetForegroundColor(Color::DarkGrey),
                     Print("│"),
                     cursor::MoveTo(right_x, y),
@@ -603,8 +849,8 @@ impl App {
             }
         }
 
-        // Ligne de séparation horizontale centrale (entre le haut et le bas)
-        for x in 1..right_x {
+        // Ligne de séparation horizontale centrale
+        for x in (left_x + 1)..right_x {
             if x != mid_x {
                 queue!(
                     w,
@@ -615,62 +861,69 @@ impl App {
             }
         }
 
-        // Ligne de séparation verticale centrale (entre la gauche et la droite)
-        for y in 1..bottom_y {
-            queue!(
-                w,
-                cursor::MoveTo(mid_x, y),
-                SetForegroundColor(Color::DarkGrey),
-                Print("│")
-            )?;
+        // Ligne de séparation verticale centrale
+        for y in (top_y + 1)..bottom_y {
+            if y != mid_y {
+                queue!(
+                    w,
+                    cursor::MoveTo(mid_x, y),
+                    SetForegroundColor(Color::DarkGrey),
+                    Print("│")
+                )?;
+            }
         }
-        // Intersections des bordures extérieures avec la croix centrale
+
+        // Intersections
         queue!(
             w,
-            cursor::MoveTo(0, mid_y),
+            cursor::MoveTo(left_x, mid_y),
             Print("├"),
             cursor::MoveTo(right_x, mid_y),
             Print("┤"),
-            cursor::MoveTo(mid_x, 0),
+            cursor::MoveTo(mid_x, top_y),
             Print("┬"),
             cursor::MoveTo(mid_x, bottom_y),
             Print("┴"),
             cursor::MoveTo(mid_x, mid_y),
             Print("┼")
         )?;
-        // 3. Dessiner le contenu de chaque panneau
-        // 2. Définir les zones (x_départ, y_départ, largeur, hauteur) en protégeant les bordures
+
+        // ==========================================
+        // 2. DÉFINIR LES ZONES DES PANNEAUX
+        // ==========================================
+        // Les dimensions s'adaptent désormais parfaitement aux marges
         let panes_bounds = [
             (
                 PaneFocus::TopLeft,
-                1,
-                1,
-                mid_x.saturating_sub(1),
-                mid_y.saturating_sub(1),
+                left_x + 1,
+                top_y + 1,
+                (mid_x - left_x).saturating_sub(1),
+                (mid_y - top_y).saturating_sub(1),
             ),
             (
                 PaneFocus::TopRight,
                 mid_x + 1,
-                1,
-                self.width.saturating_sub(mid_x + 2),
-                mid_y.saturating_sub(1),
+                top_y + 1,
+                (right_x - mid_x).saturating_sub(1),
+                (mid_y - top_y).saturating_sub(1),
             ),
             (
                 PaneFocus::BottomLeft,
-                1,
+                left_x + 1,
                 mid_y + 1,
-                mid_x.saturating_sub(1),
-                self.height.saturating_sub(mid_y + 2),
+                (mid_x - left_x).saturating_sub(1),
+                (bottom_y - mid_y).saturating_sub(1),
             ),
             (
                 PaneFocus::BottomRight,
                 mid_x + 1,
                 mid_y + 1,
-                self.width.saturating_sub(mid_x + 2),
-                self.height.saturating_sub(mid_y + 2),
+                (right_x - mid_x).saturating_sub(1),
+                (bottom_y - mid_y).saturating_sub(1),
             ),
         ];
 
+        // 3. Dessiner le contenu de chaque panneau
         for (i, &(pane_focus, start_x, start_y, p_width, p_height)) in
             panes_bounds.iter().enumerate()
         {
@@ -681,7 +934,6 @@ impl App {
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
                 && node.is_file
             {
-                // On passe le curseur propre de ce panneau spécifique
                 let _ = self.preview(
                     node,
                     start_x,
@@ -692,7 +944,6 @@ impl App {
                 );
             }
 
-            // Calcul du pourcentage basé sur le curseur de CE panneau
             let percentage_str = if let Some(view) = self.views.get(i)
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
                 && node.is_file
@@ -731,22 +982,24 @@ impl App {
                 )?;
             }
         }
+
+        // ==========================================
+        // DESSINER DMENU / FINDER
+        // ==========================================
         if self.is_finder_open() {
             self.draw_finder(w)?;
         } else if self.mode == Mode::Dmenu {
+            // Modification ici pour s'aligner sur les nouvelles colonnes restreintes
             let (start_x, start_y, pane_width) = match self.focus {
-                PaneFocus::TopLeft => (0, 0, mid_x),
-                PaneFocus::TopRight => (mid_x + 1, 0, self.width.saturating_sub(mid_x + 1)),
-                PaneFocus::BottomLeft => (0, mid_y + 1, mid_x),
-                PaneFocus::BottomRight => {
-                    (mid_x + 1, mid_y + 1, self.width.saturating_sub(mid_x + 1))
-                }
+                PaneFocus::TopLeft => (left_x, top_y, (mid_x - left_x)),
+                PaneFocus::TopRight => (mid_x + 1, top_y, (right_x - mid_x)),
+                PaneFocus::BottomLeft => (left_x, mid_y + 1, (mid_x - left_x)),
+                PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, (right_x - mid_x)),
             };
 
             let prompt = format!(" {} ", self.dmenu_input);
             let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
 
-            // Palette d'inspiration océan sombre pour l'interface de commande
             queue!(
                 w,
                 cursor::MoveTo(start_x, start_y),
@@ -755,6 +1008,36 @@ impl App {
                 Print(padded_prompt),
                 ResetColor
             )?;
+        }
+
+        // ==========================================
+        // POSITIONNEMENT DU CURSEUR EN MODE ÉDITEUR
+        // ==========================================
+        if self.mode == Mode::Editor {
+            queue!(w, Show)?;
+            let active_bounds = panes_bounds
+                .iter()
+                .find(|(focus, _, _, _, _)| *focus == self.focus);
+
+            if let Some(&(_, start_x, start_y, p_width, p_height)) = active_bounds {
+                let active_pane = self.panes[self.focus as usize];
+                let scroll_y = active_pane.cursor as usize;
+
+                let line_idx = self.editor.rope.char_to_line(self.editor.cursor_idx);
+                let line_start_char = self.editor.rope.line_to_char(line_idx);
+                let col_idx = self.editor.cursor_idx.saturating_sub(line_start_char);
+
+                if line_idx >= scroll_y && line_idx < scroll_y + (p_height as usize) {
+                    let screen_y = start_y + (line_idx - scroll_y) as u16;
+                    let screen_x = start_x + (col_idx as u16).min(p_width.saturating_sub(1));
+
+                    queue!(w, cursor::MoveTo(screen_x, screen_y), cursor::Show)?;
+                } else {
+                    queue!(w, Hide)?;
+                }
+            }
+        } else {
+            queue!(w, Hide)?;
         }
         queue!(w, ResetColor)?;
         w.flush()?;
