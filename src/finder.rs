@@ -159,6 +159,52 @@ impl FinderLayout {
     }
 }
 
+pub fn deep_search_recursive(query: &str, results: &mut Vec<String>) {
+    let query_lower = query.to_lowercase();
+    results.clear();
+
+    let (modifier, target) = if let Some(t) = query_lower.strip_prefix('=') {
+        ('=', t)
+    } else if let Some(t) = query_lower.strip_prefix('^') {
+        ('^', t)
+    } else if let Some(t) = query_lower.strip_prefix('$') {
+        ('$', t)
+    } else if let Some(t) = query_lower.strip_prefix('!') {
+        ('!', t)
+    } else {
+        ('*', query_lower.as_str())
+    };
+
+    let walk = ignore::WalkBuilder::new(".")
+        .threads(num_cpus::get())
+        .standard_filters(true)
+        .add_custom_ignore_filename(".gitignore")
+        .add_custom_ignore_filename(".awqignore")
+        .add_custom_ignore_filename(".hgignore")
+        .add_custom_ignore_filename(".dockerignore")
+        .build();
+    for entry in walk.flatten() {
+        let path = entry.path();
+        if path.is_file()
+            && let Some(name) = path.file_name().and_then(|n| n.to_str())
+        {
+            let name_lower = name.to_lowercase();
+
+            // On applique la bonne règle de filtrage selon le modificateur
+            let is_match = match modifier {
+                '=' => name_lower == target,
+                '^' => name_lower.starts_with(target),
+                '$' => name_lower.ends_with(target),
+                '!' => !name_lower.contains(target),
+                _ => name_lower.contains(target),
+            };
+            if is_match {
+                results.push(name.to_string().replace("./", ""));
+            }
+        }
+    }
+}
+
 pub fn list_files(path: &Path) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     for entry in WalkDir::new(path)
@@ -237,6 +283,7 @@ pub struct Finder {
     sub_directories: Vec<String>,
     sub_files: Vec<String>,
     files: Vec<String>,
+    deep_search_cache: Option<(String, Vec<String>)>,
     pub selected_dir: usize,
     pub selected_sub_dir: usize,
     pub selected_sub_file: usize,
@@ -257,6 +304,7 @@ impl Finder {
             selected_dir: 0,
             selected_sub_dir: 0,
             selected_sub_file: 0,
+            deep_search_cache: None,
             width: w,
             height: h,
         }
@@ -290,42 +338,103 @@ impl Finder {
     pub fn filter(&mut self, path: &Path, research: String) -> (Vec<String>, Vec<String>) {
         let files = list_files(path);
         let dirs = list_dirs(path);
-        let sub_dirs = list_sub_dirs(path); // <-- Ajout ici pour recharger la liste complète
-
+        let sub_dirs = list_sub_dirs(path);
         let research_lower = research.to_lowercase();
 
-        // Closure contenant notre logique de filtrage avancée
-        let matcher = |item_name: &String| -> bool {
-            let item_lower = item_name.to_lowercase();
+        if let Some(deep_query) = research_lower.strip_prefix('?') {
+            // On sépare la recherche par des espaces pour faire du multi-filtres (ex: "?toml $rust !lock")
+            let queries: Vec<&str> = deep_query.split_whitespace().collect();
 
-            if let Some(target) = research_lower.strip_prefix('=') {
-                // Recherche exacte (eq)
-                item_lower == target
-            } else if let Some(target) = research_lower.strip_prefix('^') {
-                // Commence par (starts_with)
-                item_lower.starts_with(target)
-            } else if let Some(target) = research_lower.strip_prefix('$') {
-                // Finit par (ends_with) - Pratique pour filtrer par extension (.rs, .c)
-                item_lower.ends_with(target)
-            } else if let Some(target) = research_lower.strip_prefix('!') {
-                !item_lower.contains(target)
+            if queries.is_empty() {
+                self.files.clear();
+                self.deep_search_cache = None;
             } else {
-                // Comportement par défaut : contient (contains)
-                item_lower.contains(&research_lower)
+                let primary_query = queries[0]; // Le premier mot sert à la recherche sur le disque
+
+                // 1. On vérifie si on peut utiliser le cache en mémoire (si on ajoute juste des lettres)
+                let mut needs_disk_scan = true;
+                if let Some((cached_query, _)) = &self.deep_search_cache
+                    && primary_query.starts_with(cached_query)
+                {
+                    needs_disk_scan = false;
+                }
+
+                // 2. Si on a effacé des lettres ou changé de base, on refait un vrai scan
+                if needs_disk_scan {
+                    let mut new_results = Vec::new();
+                    deep_search_recursive(primary_query, &mut new_results);
+                    self.deep_search_cache = Some((primary_query.to_string(), new_results));
+                }
+
+                // 3. On récupère la base depuis le cache
+                let mut current_results = self.deep_search_cache.as_ref().unwrap().1.clone();
+
+                // Helper pour appliquer tes modificateurs (=, ^, $, !) sur la liste en mémoire
+                let apply_modifier = |results: &mut Vec<String>, query: &str| {
+                    let (modifier, target) = if let Some(t) = query.strip_prefix('=') {
+                        ('=', t)
+                    } else if let Some(t) = query.strip_prefix('^') {
+                        ('^', t)
+                    } else if let Some(t) = query.strip_prefix('$') {
+                        ('$', t)
+                    } else if let Some(t) = query.strip_prefix('!') {
+                        ('!', t)
+                    } else {
+                        ('*', query)
+                    };
+
+                    results.retain(|name| {
+                        let name_lower = name.to_lowercase();
+                        match modifier {
+                            '=' => name_lower == target,
+                            '^' => name_lower.starts_with(target),
+                            '$' => name_lower.ends_with(target),
+                            '!' => !name_lower.contains(target),
+                            _ => name_lower.contains(target),
+                        }
+                    });
+                };
+
+                // 4. Si on a affiné le premier mot, on filtre le cache
+                if primary_query != self.deep_search_cache.as_ref().unwrap().0 {
+                    apply_modifier(&mut current_results, primary_query);
+                }
+
+                // 5. On applique tous les autres mots tapés comme des filtres supplémentaires !
+                for q in queries.iter().skip(1) {
+                    apply_modifier(&mut current_results, q);
+                }
+                self.files = current_results;
             }
-        };
 
-        // On applique la closure 'matcher' à toutes les listes
-        self.files = files.into_iter().filter(&matcher).collect();
+            self.directories.clear();
+            self.sub_directories.clear();
+            self.sub_files.clear();
+            (self.get_directories(), self.get_files())
+        } else {
+            self.deep_search_cache = None; // On nettoie le cache si on repasse en recherche normale
 
-        self.directories = dirs.into_iter().filter(&matcher).collect();
+            let matcher = |item_name: &String| -> bool {
+                let item_lower = item_name.to_lowercase();
+                if let Some(target) = research_lower.strip_prefix('=') {
+                    item_lower == target
+                } else if let Some(target) = research_lower.strip_prefix('^') {
+                    item_lower.starts_with(target)
+                } else if let Some(target) = research_lower.strip_prefix('$') {
+                    item_lower.ends_with(target)
+                } else if let Some(target) = research_lower.strip_prefix('!') {
+                    !item_lower.contains(target)
+                } else {
+                    item_lower.contains(&research_lower)
+                }
+            };
 
-        // Filtrage sur la liste fraîche, pas sur l'ancienne !
-        self.sub_directories = sub_dirs.into_iter().filter(&matcher).collect();
-
-        (self.get_directories(), self.get_files())
+            self.files = files.into_iter().filter(&matcher).collect();
+            self.directories = dirs.into_iter().filter(&matcher).collect();
+            self.sub_directories = sub_dirs.into_iter().filter(&matcher).collect();
+            (self.get_directories(), self.get_files())
+        }
     }
-
     pub fn draw<W: Write>(
         &self,
         w: &mut W,
@@ -335,12 +444,6 @@ impl Finder {
         width: u16,   // Largeur restreinte (ex: 180 max)
         height: u16,  // Hauteur totale
     ) -> Result<()> {
-        // ==========================================
-        // CORRECTION 1 : NETTOYAGE DU FOND
-        // ==========================================
-        // On remplit la zone exacte du Finder avec des espaces.
-        // Cela crée un "fond opaque" qui masque le code de l'éditeur
-        // situé en dessous, sans faire clignoter le reste du terminal.
         let empty_line = " ".repeat(width as usize);
         for y in start_y..(start_y + height) {
             queue!(w, MoveTo(start_x, y), Print(&empty_line))?;
@@ -353,11 +456,6 @@ impl Finder {
                 research.as_str()
             };
 
-            // ==========================================
-            // CORRECTION 2 : ALIGNEMENT DU MILIEU
-            // ==========================================
-            // On a retiré le `+ 1`. La ligne centrale du Finder va
-            // maintenant s'emboîter parfaitement avec celle de l'App.
             let mid_x = start_x + (width / 2);
             let right_x = start_x + width.saturating_sub(1);
 

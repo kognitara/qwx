@@ -873,8 +873,10 @@ impl App {
                             }
                             (KeyModifiers::NONE, KeyCode::Enter) => {
                                 if let Some(filename) = self.finder.get_files().first() {
+                                    // 1. On construit le chemin complet du fichier sélectionné
                                     let full_path = self.current_dir.join(filename);
 
+                                    // 2. On charge le noeud (le cache visuel)
                                     let node_id = if let Some(existing_node) =
                                         self.nodes.iter().find(|n| n.name == *filename)
                                     {
@@ -903,13 +905,33 @@ impl App {
                                         view.active_node_id = node_id;
                                     }
 
-                                    // ✨ LA CORRECTION EST ICI : Réinitialiser le scroll pour le nouveau fichier
+                                    // Réinitialiser le scroll pour le nouveau fichier
                                     self.panes[active_idx].cursor = 0;
+
+                                    // ==========================================
+                                    // ✨ NOUVEAUTÉ : BASCULE DIRECTE EN ÉDITION
+                                    // ==========================================
+                                    if let Some(path_str) = full_path.to_str() {
+                                        if let Ok(editor) = Ji::open(path_str) {
+                                            // On charge le fichier dans le moteur d'édition
+                                            self.editor = editor;
+
+                                            // On place l'application en mode Éditeur !
+                                            self.mode = Mode::Editor;
+                                        } else {
+                                            // Fallback de sécurité si le fichier n'est pas lisible
+                                            self.mode = Mode::Normal;
+                                        }
+                                    } else {
+                                        self.mode = Mode::Normal;
+                                    }
+                                } else {
+                                    // Si on appuie sur Enter avec une liste vide
+                                    self.mode = Mode::Normal;
                                 }
 
-                                // 4. On nettoie la barre de recherche et on quitte le finder
+                                // 4. On nettoie la barre de recherche dans tous les cas
                                 self.finder_recherch.clear();
-                                self.mode = Mode::Normal;
                             }
                             (KeyModifiers::NONE, KeyCode::Backspace) => {
                                 self.finder_recherch.pop();
