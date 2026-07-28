@@ -183,23 +183,31 @@ pub fn deep_search_recursive(query: &str, results: &mut Vec<String>) {
         .add_custom_ignore_filename(".hgignore")
         .add_custom_ignore_filename(".dockerignore")
         .build();
+
     for entry in walk.flatten() {
         let path = entry.path();
-        if path.is_file()
-            && let Some(name) = path.file_name().and_then(|n| n.to_str())
-        {
-            let name_lower = name.to_lowercase();
+        if path.is_file() {
+            let path_str = path.to_string_lossy().to_string().replace("./", "");
+            let name_lower = path_str.to_lowercase();
 
             // On applique la bonne règle de filtrage selon le modificateur
             let is_match = match modifier {
-                '=' => name_lower == target,
+                '=' => {
+                    name_lower == target
+                        || path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|n| n.to_lowercase() == target)
+                            .unwrap_or(false)
+                }
                 '^' => name_lower.starts_with(target),
                 '$' => name_lower.ends_with(target),
                 '!' => !name_lower.contains(target),
                 _ => name_lower.contains(target),
             };
-            if is_match {
-                results.push(name.to_string().replace("./", ""));
+
+            if is_match && !results.contains(&path_str) {
+                results.push(path_str);
             }
         }
     }
@@ -214,15 +222,12 @@ pub fn list_files(path: &Path) -> Vec<String> {
         .flatten()
     {
         if entry.path().is_file() {
-            // On extrait uniquement le nom du fichier (ex: "evaluate.c")
-            if let Some(name) = entry.file_name().to_str() {
-                files.push(name.to_string());
-            }
+            let path_str = entry.path().to_string_lossy().to_string().replace("./", "");
+            files.push(path_str);
         }
     }
     files
 }
-
 pub fn list_dirs(path: &Path) -> Vec<String> {
     let mut dirs: Vec<String> = Vec::new();
     for entry in WalkDir::new(path)
@@ -283,6 +288,11 @@ pub struct Finder {
     sub_directories: Vec<String>,
     sub_files: Vec<String>,
     files: Vec<String>,
+    base_directories: Vec<String>,
+    base_sub_directories: Vec<String>,
+    base_sub_files: Vec<String>,
+    pub selected_file: usize,
+    base_files: Vec<String>,
     deep_search_cache: Option<(String, Vec<String>)>,
     pub selected_dir: usize,
     pub selected_sub_dir: usize,
@@ -295,18 +305,43 @@ impl Finder {
     #[must_use]
     pub fn new(path: &Path, layout: FinderLayout) -> Self {
         let (w, h) = size().unwrap_or((80, 100));
+        let dirs = list_dirs(path);
+        let files = list_files(path);
+        let s_dirs = list_sub_dirs(path);
+        let s_files = list_sub_files(path);
         Self {
             layout,
-            directories: list_dirs(path),
-            files: list_files(path),
-            sub_directories: list_sub_dirs(path),
-            sub_files: list_sub_files(path),
+            directories: dirs.clone(),
+            files: files.clone(),
+            sub_directories: s_dirs.clone(),
+            sub_files: s_files.clone(),
             selected_dir: 0,
             selected_sub_dir: 0,
             selected_sub_file: 0,
+            selected_file: 0,
             deep_search_cache: None,
             width: w,
             height: h,
+            base_directories: dirs,
+            base_files: files,
+            base_sub_directories: s_dirs,
+            base_sub_files: s_files,
+        }
+    }
+
+    pub fn next_file(&mut self) {
+        if !self.files.is_empty() {
+            self.selected_file = (self.selected_file + 1) % self.files.len();
+        }
+    }
+
+    pub fn prev_file(&mut self) {
+        if !self.files.is_empty() {
+            self.selected_file = if self.selected_file > 0 {
+                self.selected_file - 1
+            } else {
+                self.files.len() - 1
+            };
         }
     }
     pub fn resize(&mut self, width: u16, height: u16) {
@@ -334,24 +369,20 @@ impl Finder {
             };
         }
     }
-
-    pub fn filter(&mut self, path: &Path, research: String) -> (Vec<String>, Vec<String>) {
-        let files = list_files(path);
-        let dirs = list_dirs(path);
-        let sub_dirs = list_sub_dirs(path);
-        let research_lower = research.to_lowercase();
+    pub fn filter(&mut self, research: String) -> (Vec<String>, Vec<String>) {
+        self.selected_file = 0;
+        self.selected_dir = 0;
+        let research_lower = research.to_ascii_lowercase();
 
         if let Some(deep_query) = research_lower.strip_prefix('?') {
-            // On sépare la recherche par des espaces pour faire du multi-filtres (ex: "?toml $rust !lock")
             let queries: Vec<&str> = deep_query.split_whitespace().collect();
 
             if queries.is_empty() {
                 self.files.clear();
                 self.deep_search_cache = None;
             } else {
-                let primary_query = queries[0]; // Le premier mot sert à la recherche sur le disque
+                let primary_query = queries[0];
 
-                // 1. On vérifie si on peut utiliser le cache en mémoire (si on ajoute juste des lettres)
                 let mut needs_disk_scan = true;
                 if let Some((cached_query, _)) = &self.deep_search_cache
                     && primary_query.starts_with(cached_query)
@@ -359,17 +390,14 @@ impl Finder {
                     needs_disk_scan = false;
                 }
 
-                // 2. Si on a effacé des lettres ou changé de base, on refait un vrai scan
                 if needs_disk_scan {
                     let mut new_results = Vec::new();
                     deep_search_recursive(primary_query, &mut new_results);
                     self.deep_search_cache = Some((primary_query.to_string(), new_results));
                 }
 
-                // 3. On récupère la base depuis le cache
                 let mut current_results = self.deep_search_cache.as_ref().unwrap().1.clone();
 
-                // Helper pour appliquer tes modificateurs (=, ^, $, !) sur la liste en mémoire
                 let apply_modifier = |results: &mut Vec<String>, query: &str| {
                     let (modifier, target) = if let Some(t) = query.strip_prefix('=') {
                         ('=', t)
@@ -395,12 +423,10 @@ impl Finder {
                     });
                 };
 
-                // 4. Si on a affiné le premier mot, on filtre le cache
                 if primary_query != self.deep_search_cache.as_ref().unwrap().0 {
                     apply_modifier(&mut current_results, primary_query);
                 }
 
-                // 5. On applique tous les autres mots tapés comme des filtres supplémentaires !
                 for q in queries.iter().skip(1) {
                     apply_modifier(&mut current_results, q);
                 }
@@ -412,7 +438,7 @@ impl Finder {
             self.sub_files.clear();
             (self.get_directories(), self.get_files())
         } else {
-            self.deep_search_cache = None; // On nettoie le cache si on repasse en recherche normale
+            self.deep_search_cache = None;
 
             let matcher = |item_name: &String| -> bool {
                 let item_lower = item_name.to_lowercase();
@@ -429,9 +455,30 @@ impl Finder {
                 }
             };
 
-            self.files = files.into_iter().filter(&matcher).collect();
-            self.directories = dirs.into_iter().filter(&matcher).collect();
-            self.sub_directories = sub_dirs.into_iter().filter(&matcher).collect();
+            self.files = self
+                .base_files
+                .iter()
+                .filter(|f| matcher(f))
+                .cloned()
+                .collect();
+            self.directories = self
+                .base_directories
+                .iter()
+                .filter(|d| matcher(d))
+                .cloned()
+                .collect();
+            self.sub_directories = self
+                .base_sub_directories
+                .iter()
+                .filter(|d| matcher(d))
+                .cloned()
+                .collect();
+            self.sub_directories = self
+                .base_sub_files
+                .iter()
+                .filter(|d| matcher(d))
+                .cloned()
+                .collect();
             (self.get_directories(), self.get_files())
         }
     }
@@ -450,7 +497,7 @@ impl Finder {
         }
 
         if self.layout == FinderLayout::Grid {
-            let search_placeholder = if research.is_empty() {
+            let display_text = if research.is_empty() {
                 "Type to search"
             } else {
                 research.as_str()
@@ -465,9 +512,7 @@ impl Finder {
             let main_y_start = start_y + header_h;
             let main_h = height.saturating_sub(header_h + footer_h);
             let mid_y = main_y_start + (main_h / 2);
-
-            let research_x = start_x + (width.saturating_sub(search_placeholder.len() as u16) / 2);
-
+            let text_x = start_x + (width.saturating_sub(display_text.len() as u16) / 2);
             // ==========================================
             // 1. DESSIN DE L'EN-TÊTE (RESEARCH)
             // ==========================================
@@ -481,9 +526,9 @@ impl Finder {
                 )),
                 MoveTo(start_x, start_y + 1),
                 Print("│"),
-                MoveTo(research_x, start_y + 1),
+                MoveTo(text_x, start_y + 1),
                 SetForegroundColor(FINDER_TEXT_MUTED),
-                Print(search_placeholder),
+                Print(display_text),
                 SetForegroundColor(FINDER_BORDER),
                 MoveTo(right_x, start_y + 1),
                 Print("│"),
@@ -567,7 +612,7 @@ impl Finder {
             // ==========================================
             for (i, dir) in self.directories.iter().take(max_dirs_display).enumerate() {
                 let padded_name = format_padded(dir, pane_width);
-                if i == 0 {
+                if i == self.selected_dir {
                     queue!(
                         w,
                         MoveTo(start_x + 4, main_y_start + 2 + i as u16),
@@ -585,13 +630,26 @@ impl Finder {
                     )?;
                 }
             }
-
             // ==========================================
             // AFFICHAGE DES FICHIERS
             // ==========================================
+            // 1. On récupère le chemin absolu du dossier racine où qwx a été lancé
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let cwd_str = cwd.to_str().unwrap_or("");
+
             for (i, file) in self.files.iter().take(max_files_display).enumerate() {
-                let padded_name = format_padded(file, pane_width);
-                if i == 0 {
+                // 2. MAGIE DE L'INTERFACE : On ampute le préfixe absolu juste pour l'affichage
+                let display_name = if let Some(stripped) = file.strip_prefix(cwd_str) {
+                    stripped.trim_start_matches(['/', '\\'])
+                } else {
+                    // Fallback de sécurité si le fichier n'est pas dans le dossier courant
+                    file.as_str()
+                };
+
+                // 3. On utilise notre nom formaté 'display_name' au lieu du 'file' complet
+                let padded_name = format_padded(display_name, pane_width);
+
+                if i == self.selected_file {
                     queue!(
                         w,
                         MoveTo(start_x + 4, mid_y + 2 + i as u16),
@@ -604,7 +662,7 @@ impl Finder {
                         w,
                         MoveTo(start_x + 4, mid_y + 2 + i as u16),
                         ResetColor,
-                        SetForegroundColor(FINDER_FILE_COLOR), // Le blanc argenté pour les fichiers standards
+                        SetForegroundColor(FINDER_FILE_COLOR),
                         Print(padded_name)
                     )?;
                 }
@@ -759,7 +817,6 @@ impl Finder {
                 Print(file_count_str)
             )?;
         }
-
         queue!(w, ResetColor)?;
         Ok(())
     }

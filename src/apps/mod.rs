@@ -13,7 +13,6 @@ use crossterm::{
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::io::Write;
-use std::time::Duration;
 use std::{
     fs::File,
     fs::create_dir_all,
@@ -316,7 +315,7 @@ impl App {
         queue!(stdout, Clear(ClearType::All))?;
         while self.running {
             self.draw(&mut stdout)?;
-            self.handle_events()?;
+            self.handle_events(&mut stdout)?;
         }
         // Nettoyage en quittant
         execute!(stdout, LeaveAlternateScreen, cursor::Show)?;
@@ -406,128 +405,62 @@ impl App {
         }
         Ok(())
     }
-    fn handle_events(&mut self) -> Result<()> {
-        if event::poll(Duration::from_millis(16))? {
-            match event::read()? {
-                Event::Key(key) if key.kind.is_press() => {
-                    match self.mode {
-                        Mode::Editor => {
-                            match key.code {
-                                KeyCode::Char('k')
-                                    if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                                {
-                                    let current_line = self.editor.cursor_line;
-                                    let total_lines = self.editor.rope.len_lines();
+    fn handle_events<W: Write>(&mut self, w: &mut W) -> Result<()> {
+        match event::read()? {
+            Event::Key(key) => {
+                match self.mode {
+                    Mode::Editor => {
+                        match key.code {
+                            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                let current_line = self.editor.cursor_line;
+                                let total_lines = self.editor.rope.len_lines();
 
-                                    if current_line < total_lines {
-                                        // 1. On récupère le nombre exact de caractères sur la ligne (incluant le \n)
-                                        let chars_to_delete =
-                                            self.editor.rope.line(current_line).len_chars();
+                                if current_line < total_lines {
+                                    // 1. On récupère le nombre exact de caractères sur la ligne (incluant le \n)
+                                    let chars_to_delete =
+                                        self.editor.rope.line(current_line).len_chars();
 
-                                        // 2. On place le curseur au tout début de la ligne
-                                        self.editor.cursor_col = 0;
-
-                                        // 3. On supprime proprement via l'API de `Ji` pour garder Tree-sitter à jour !
-                                        for _ in 0..chars_to_delete {
-                                            self.editor.delete();
-                                        }
-
-                                        // 4. Si on vient de supprimer la toute dernière ligne du fichier, on remonte le curseur
-                                        if current_line >= self.editor.rope.len_lines()
-                                            && current_line > 0
-                                        {
-                                            self.editor.cursor_line -= 1;
-                                        }
-
-                                        // 5. On synchronise l'affichage avec le nouveau cache
-                                        self.sync_node_content();
-                                    }
-                                }
-                                // Sauvegarder (Ctrl + S)
-                                KeyCode::Char('s')
-                                    if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                                {
-                                    if self.editor.save().is_err() {
-                                        eprintln!("Erreur lors de la sauvegarde");
-                                    }
-                                }
-
-                                // Quitter le mode édition (Echap)
-                                KeyCode::Esc => {
-                                    self.mode = Mode::Normal;
-                                    queue!(stdout(), Hide)?; // On cache le curseur en sortant
-                                }
-
-                                // ==========================================
-                                // DÉPLACEMENTS DU CURSEUR (Flèches)
-                                // ==========================================
-                                KeyCode::Left => {
-                                    if self.editor.cursor_col > 0 {
-                                        self.editor.cursor_col -= 1;
-                                    } else if self.editor.cursor_line > 0 {
-                                        // Remonte à la fin de la ligne précédente
-                                        self.editor.cursor_line -= 1;
-                                        self.editor.cursor_col = self
-                                            .editor
-                                            .rope
-                                            .line(self.editor.cursor_line)
-                                            .len_chars()
-                                            .saturating_sub(1);
-                                    }
-                                }
-
-                                KeyCode::Right => {
-                                    let max_col = self
-                                        .editor
-                                        .rope
-                                        .line(self.editor.cursor_line)
-                                        .len_chars()
-                                        .saturating_sub(1);
-                                    if self.editor.cursor_col < max_col {
-                                        self.editor.cursor_col += 1;
-                                    } else if self.editor.cursor_line + 1
-                                        < self.editor.rope.len_lines()
-                                    {
-                                        // Passe au début de la ligne suivante
-                                        self.editor.cursor_line += 1;
-                                        self.editor.cursor_col = 0;
-                                    }
-                                }
-
-                                KeyCode::Up => {
-                                    if self.editor.cursor_line > 0 {
-                                        self.editor.cursor_line -= 1;
-                                        // On s'assure que la colonne ne dépasse pas la taille de la nouvelle ligne
-                                        let max_col = self
-                                            .editor
-                                            .rope
-                                            .line(self.editor.cursor_line)
-                                            .len_chars()
-                                            .saturating_sub(1);
-                                        self.editor.cursor_col =
-                                            self.editor.cursor_col.min(max_col);
-                                    }
-                                }
-
-                                KeyCode::Down => {
-                                    if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
-                                        self.editor.cursor_line += 1;
-                                        let max_col = self
-                                            .editor
-                                            .rope
-                                            .line(self.editor.cursor_line)
-                                            .len_chars()
-                                            .saturating_sub(1);
-                                        self.editor.cursor_col =
-                                            self.editor.cursor_col.min(max_col);
-                                    }
-                                }
-
-                                KeyCode::Home => {
+                                    // 2. On place le curseur au tout début de la ligne
                                     self.editor.cursor_col = 0;
-                                }
 
-                                KeyCode::End => {
+                                    // 3. On supprime proprement via l'API de `Ji` pour garder Tree-sitter à jour !
+                                    for _ in 0..chars_to_delete {
+                                        self.editor.delete();
+                                    }
+
+                                    // 4. Si on vient de supprimer la toute dernière ligne du fichier, on remonte le curseur
+                                    if current_line >= self.editor.rope.len_lines()
+                                        && current_line > 0
+                                    {
+                                        self.editor.cursor_line -= 1;
+                                    }
+
+                                    // 5. On synchronise l'affichage avec le nouveau cache
+                                    self.sync_node_content();
+                                }
+                            }
+                            // Sauvegarder (Ctrl + S)
+                            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                if self.editor.save().is_err() {
+                                    eprintln!("Erreur lors de la sauvegarde");
+                                }
+                            }
+
+                            // Quitter le mode édition (Echap)
+                            KeyCode::Esc => {
+                                self.mode = Mode::Normal;
+                                queue!(stdout(), Hide)?; // On cache le curseur en sortant
+                            }
+
+                            // ==========================================
+                            // DÉPLACEMENTS DU CURSEUR (Flèches)
+                            // ==========================================
+                            KeyCode::Left => {
+                                if self.editor.cursor_col > 0 {
+                                    self.editor.cursor_col -= 1;
+                                } else if self.editor.cursor_line > 0 {
+                                    // Remonte à la fin de la ligne précédente
+                                    self.editor.cursor_line -= 1;
                                     self.editor.cursor_col = self
                                         .editor
                                         .rope
@@ -535,426 +468,490 @@ impl App {
                                         .len_chars()
                                         .saturating_sub(1);
                                 }
+                            }
 
-                                // ==========================================
-                                // ACTIONS D'ÉDITION
-                                // ==========================================
-                                KeyCode::Backspace => {
-                                    self.editor.backspace();
-                                    self.sync_node_content();
-                                }
-
-                                KeyCode::Delete => {
-                                    self.editor.delete();
-                                    self.sync_node_content();
-                                }
-
-                                KeyCode::Enter => {
-                                    self.editor.insert_char('\n');
-                                    self.sync_node_content();
-                                }
-
-                                // Tabulation propre (convertie en 4 espaces pour le code)
-                                KeyCode::Tab => {
-                                    for _ in 0..4 {
-                                        self.editor.insert_char(' ');
-                                    }
-                                    self.sync_node_content();
-                                }
-
-                                // Saisie des caractères (Majuscule ou Minuscule)
-                                KeyCode::Char(c)
-                                    if key.modifiers.is_empty()
-                                        || key.modifiers == KeyModifiers::SHIFT =>
+                            KeyCode::Right => {
+                                let max_col = self
+                                    .editor
+                                    .rope
+                                    .line(self.editor.cursor_line)
+                                    .len_chars()
+                                    .saturating_sub(1);
+                                if self.editor.cursor_col < max_col {
+                                    self.editor.cursor_col += 1;
+                                } else if self.editor.cursor_line + 1 < self.editor.rope.len_lines()
                                 {
-                                    self.editor.insert_char(c);
-                                    self.sync_node_content();
+                                    // Passe au début de la ligne suivante
+                                    self.editor.cursor_line += 1;
+                                    self.editor.cursor_col = 0;
                                 }
-
-                                _ => {}
                             }
-                            let cursor_line = self.editor.cursor_line;
-                            // On recalcule la hauteur de la vue actuelle
-                            let mid_y = self.height / 2;
-                            let bottom_y = self.height.saturating_sub(1);
-                            let p_height = match self.focus {
-                                PaneFocus::TopLeft | PaneFocus::TopRight => mid_y.saturating_sub(1),
-                                PaneFocus::BottomLeft | PaneFocus::BottomRight => {
-                                    (bottom_y - mid_y).saturating_sub(1)
+
+                            KeyCode::Up => {
+                                if self.editor.cursor_line > 0 {
+                                    self.editor.cursor_line -= 1;
+                                    // On s'assure que la colonne ne dépasse pas la taille de la nouvelle ligne
+                                    let max_col = self
+                                        .editor
+                                        .rope
+                                        .line(self.editor.cursor_line)
+                                        .len_chars()
+                                        .saturating_sub(1);
+                                    self.editor.cursor_col = self.editor.cursor_col.min(max_col);
                                 }
-                            } as usize;
-
-                            let pane = self.active_pane_mut();
-                            let scroll_y = pane.cursor as usize;
-
-                            // Si le curseur monte plus haut que la vue, on remonte le scroll
-                            if cursor_line < scroll_y {
-                                pane.cursor = cursor_line as u16;
                             }
-                            // Si le curseur descend plus bas que la vue, on descend le scroll
-                            else if cursor_line >= scroll_y + p_height {
-                                pane.cursor =
-                                    (cursor_line.saturating_sub(p_height.saturating_sub(1))) as u16;
+
+                            KeyCode::Down => {
+                                if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
+                                    self.editor.cursor_line += 1;
+                                    let max_col = self
+                                        .editor
+                                        .rope
+                                        .line(self.editor.cursor_line)
+                                        .len_chars()
+                                        .saturating_sub(1);
+                                    self.editor.cursor_col = self.editor.cursor_col.min(max_col);
+                                }
                             }
+
+                            KeyCode::Home => {
+                                self.editor.cursor_col = 0;
+                            }
+
+                            KeyCode::End => {
+                                self.editor.cursor_col = self
+                                    .editor
+                                    .rope
+                                    .line(self.editor.cursor_line)
+                                    .len_chars()
+                                    .saturating_sub(1);
+                            }
+
+                            // ==========================================
+                            // ACTIONS D'ÉDITION
+                            // ==========================================
+                            KeyCode::Backspace => {
+                                self.editor.backspace();
+                                self.sync_node_content();
+                            }
+
+                            KeyCode::Delete => {
+                                self.editor.delete();
+                                self.sync_node_content();
+                            }
+
+                            KeyCode::Enter => {
+                                self.editor.insert_char('\n');
+                                self.sync_node_content();
+                            }
+
+                            // Tabulation propre (convertie en 4 espaces pour le code)
+                            KeyCode::Tab => {
+                                for _ in 0..4 {
+                                    self.editor.insert_char(' ');
+                                }
+                                self.sync_node_content();
+                            }
+
+                            // Saisie des caractères (Majuscule ou Minuscule)
+                            KeyCode::Char(c)
+                                if key.modifiers.is_empty()
+                                    || key.modifiers == KeyModifiers::SHIFT =>
+                            {
+                                self.editor.insert_char(c);
+                                self.sync_node_content();
+                            }
+
+                            _ => {}
                         }
-                        // ==========================================
-                        // MODE NORMAL : Navigation et Raccourcis
-                        // ==========================================
-                        Mode::Normal => {
-                            match (key.modifiers, key.code) {
-                                (KeyModifiers::NONE, KeyCode::Char('q'))
-                                | (KeyModifiers::NONE, KeyCode::Esc) => self.running = false,
+                        let cursor_line = self.editor.cursor_line;
+                        // On recalcule la hauteur de la vue actuelle
+                        let mid_y = self.height / 2;
+                        let bottom_y = self.height.saturating_sub(1);
+                        let p_height = match self.focus {
+                            PaneFocus::TopLeft | PaneFocus::TopRight => mid_y.saturating_sub(1),
+                            PaneFocus::BottomLeft | PaneFocus::BottomRight => {
+                                (bottom_y - mid_y).saturating_sub(1)
+                            }
+                        } as usize;
 
-                                // --- CHANGEMENT DE FACE (Cube F1 à F6) ---
-                                (KeyModifiers::NONE, KeyCode::F(n)) if (1..=6).contains(&n) => {
-                                    // On stocke la face active (de 0 à 5 en interne)
+                        let pane = self.active_pane_mut();
+                        let scroll_y = pane.cursor as usize;
+
+                        // Si le curseur monte plus haut que la vue, on remonte le scroll
+                        if cursor_line < scroll_y {
+                            pane.cursor = cursor_line as u16;
+                        }
+                        // Si le curseur descend plus bas que la vue, on descend le scroll
+                        else if cursor_line >= scroll_y + p_height {
+                            pane.cursor =
+                                (cursor_line.saturating_sub(p_height.saturating_sub(1))) as u16;
+                        }
+                    }
+
+                    // ==========================================
+                    // MODE NORMAL : Navigation et Raccourcis
+                    // ==========================================
+                    Mode::Normal => {
+                        match (key.modifiers, key.code) {
+                            (KeyModifiers::NONE, KeyCode::Char('q'))
+                            | (KeyModifiers::NONE, KeyCode::Esc) => self.running = false,
+
+                            // --- CHANGEMENT DE FACE (Cube F1 à F6) ---
+                            (KeyModifiers::NONE, KeyCode::F(n)) if (1..=6).contains(&n) => {
+                                // On stocke la face active (de 0 à 5 en interne)
+                            }
+                            // --- DÉFILEMENT RAPIDE (PageUp / PageDown) ---
+                            (KeyModifiers::NONE, KeyCode::PageDown) => {
+                                let active_idx = self.focus as usize;
+                                let node_len = if let Some(view) = self.views.get(active_idx) {
+                                    self.nodes
+                                        .get(view.active_node_id)
+                                        .map(|n| n.content.len())
+                                        .unwrap_or(0)
+                                } else {
+                                    0
+                                };
+
+                                let active_pane = self.active_pane_mut();
+                                let step = 15; // Nombre de lignes sautées
+
+                                if (active_pane.cursor as usize) + step < node_len {
+                                    active_pane.cursor += step as u16;
+                                } else {
+                                    // Sécurité pour ne pas dépasser la fin du fichier
+                                    active_pane.cursor = node_len.saturating_sub(1) as u16;
                                 }
-                                // --- DÉFILEMENT RAPIDE (PageUp / PageDown) ---
-                                (KeyModifiers::NONE, KeyCode::PageDown) => {
-                                    let active_idx = self.focus as usize;
-                                    let node_len = if let Some(view) = self.views.get(active_idx) {
-                                        self.nodes
-                                            .get(view.active_node_id)
-                                            .map(|n| n.content.len())
-                                            .unwrap_or(0)
-                                    } else {
-                                        0
-                                    };
+                            }
+                            (KeyModifiers::NONE, KeyCode::PageUp) => {
+                                let active_pane = self.active_pane_mut();
+                                let step = 15; // Nombre de lignes sautées
 
-                                    let active_pane = self.active_pane_mut();
-                                    let step = 15; // Nombre de lignes sautées
+                                // saturating_sub empêche de descendre en dessous de 0
+                                active_pane.cursor = active_pane.cursor.saturating_sub(step);
+                            }
+                            (KeyModifiers::NONE, KeyCode::Char('e')) => {
+                                let active_idx = self.focus as usize;
 
-                                    if (active_pane.cursor as usize) + step < node_len {
-                                        active_pane.cursor += step as u16;
-                                    } else {
-                                        // Sécurité pour ne pas dépasser la fin du fichier
-                                        active_pane.cursor = node_len.saturating_sub(1) as u16;
-                                    }
-                                }
-                                (KeyModifiers::NONE, KeyCode::PageUp) => {
-                                    let active_pane = self.active_pane_mut();
-                                    let step = 15; // Nombre de lignes sautées
+                                if let Some(view) = self.views.get(active_idx)
+                                    && let Some(node) = self.nodes.get(view.active_node_id)
+                                    && node.is_file
+                                {
+                                    let full_path = self.current_dir.join(&node.name);
 
-                                    // saturating_sub empêche de descendre en dessous de 0
-                                    active_pane.cursor = active_pane.cursor.saturating_sub(step);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('e')) => {
-                                    let active_idx = self.focus as usize;
-
-                                    if let Some(view) = self.views.get(active_idx)
-                                        && let Some(node) = self.nodes.get(view.active_node_id)
-                                        && node.is_file
+                                    if let Some(path_str) = full_path.to_str()
+                                        && let Ok(editor) = Ji::open(path_str)
                                     {
-                                        let full_path = self.current_dir.join(&node.name);
-
-                                        if let Some(path_str) = full_path.to_str()
-                                            && let Ok(editor) = Ji::open(path_str)
-                                        {
-                                            let scroll_y = self.panes[active_idx].cursor as usize;
-                                            if scroll_y < self.editor.rope.len_lines() {
-                                                self.editor.cursor_line = scroll_y;
-                                                self.editor.cursor_col = 0;
-                                            }
-                                            self.editor = editor;
-                                            self.mode = Mode::Editor;
+                                        let scroll_y = self.panes[active_idx].cursor as usize;
+                                        if scroll_y < self.editor.rope.len_lines() {
+                                            self.editor.cursor_line = scroll_y;
+                                            self.editor.cursor_col = 0;
                                         }
+                                        self.editor = editor;
+                                        self.mode = Mode::Editor;
                                     }
                                 }
-                                (KeyModifiers::NONE, KeyCode::Char('j')) => {
-                                    // 1. ON LIT (Immutable)
-                                    let active_idx = self.focus as usize;
-                                    let node_len = if let Some(view) = self.views.get(active_idx) {
-                                        self.nodes
-                                            .get(view.active_node_id)
-                                            .map(|n| n.content.len())
-                                            .unwrap_or(0)
-                                    } else {
-                                        0
-                                    };
-
-                                    // 2. ON MODIFIE (Mutable) après avoir terminé la lecture
-                                    let active_pane = self.active_pane_mut();
-                                    if (active_pane.cursor as usize) < node_len.saturating_sub(1) {
-                                        active_pane.cursor += 1;
-                                    }
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('k')) => {
-                                    let active_pane = self.active_pane_mut();
-                                    // On soustrait 1 pour remonter, sans jamais descendre sous zéro
-                                    active_pane.cursor = active_pane.cursor.saturating_sub(1);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Right) => {
-                                    self.focus = match self.focus {
-                                        PaneFocus::TopLeft => PaneFocus::TopRight,
-                                        PaneFocus::BottomLeft => PaneFocus::BottomRight,
-                                        _ => self.focus,
-                                    };
-                                }
-                                (KeyModifiers::ALT, KeyCode::Char('f')) => {
-                                    self.mode = Mode::Finder;
-                                }
-                                (KeyModifiers::NONE, KeyCode::Left) => {
-                                    self.focus = match self.focus {
-                                        PaneFocus::TopRight => PaneFocus::TopLeft,
-                                        PaneFocus::BottomRight => PaneFocus::BottomLeft,
-                                        _ => self.focus,
-                                    };
-                                }
-                                (KeyModifiers::NONE, KeyCode::Down) => {
-                                    self.focus = match self.focus {
-                                        PaneFocus::TopLeft => PaneFocus::BottomLeft,
-                                        PaneFocus::TopRight => PaneFocus::BottomRight,
-                                        _ => self.focus,
-                                    };
-                                }
-                                (KeyModifiers::NONE, KeyCode::Up) => {
-                                    self.focus = match self.focus {
-                                        PaneFocus::BottomLeft => PaneFocus::TopLeft,
-                                        PaneFocus::BottomRight => PaneFocus::TopRight,
-                                        _ => self.focus,
-                                    };
-                                }
-
-                                // --- CYCLAGE WORKSPACES (Alt + Gauche / Droite) ---
-                                (KeyModifiers::ALT, KeyCode::Left) => {
-                                    let pane = self.active_pane_mut();
-                                    pane.workspace = if pane.workspace > 1 {
-                                        pane.workspace - 1
-                                    } else {
-                                        9
-                                    };
-                                }
-                                (KeyModifiers::ALT, KeyCode::Right) => {
-                                    let pane = self.active_pane_mut();
-                                    pane.workspace = if pane.workspace < 9 {
-                                        pane.workspace + 1
-                                    } else {
-                                        1
-                                    };
-                                }
-
-                                // --- CYCLAGE VIEWS (Alt + Haut / Bas) ---
-                                (KeyModifiers::ALT, KeyCode::Up) => {
-                                    let pane = self.active_pane_mut();
-                                    pane.view = if pane.view < 9 { pane.view + 1 } else { 1 };
-                                }
-                                (KeyModifiers::ALT, KeyCode::Down) => {
-                                    let pane = self.active_pane_mut();
-                                    pane.view = if pane.view > 1 { pane.view - 1 } else { 9 };
-                                }
-
-                                // --- LANCEMENT DU DMENU (Alt + d) ---
-                                (KeyModifiers::ALT, KeyCode::Char('d')) => {
-                                    self.mode = Mode::Dmenu;
-                                    self.dmenu_input.clear();
-                                }
-
-                                _ => {}
                             }
-                        }
+                            (KeyModifiers::NONE, KeyCode::Char('j')) => {
+                                // 1. ON LIT (Immutable)
+                                let active_idx = self.focus as usize;
+                                let node_len = if let Some(view) = self.views.get(active_idx) {
+                                    self.nodes
+                                        .get(view.active_node_id)
+                                        .map(|n| n.content.len())
+                                        .unwrap_or(0)
+                                } else {
+                                    0
+                                };
 
-                        // ==========================================
-                        // MODE DMENU : Saisie de texte
-                        // ==========================================
-                        Mode::Dmenu => {
-                            match (key.modifiers, key.code) {
-                                // --- ANNULER ET QUITTER LE MENU ---
-                                (KeyModifiers::NONE, KeyCode::Esc) => {
-                                    self.mode = Mode::Normal;
-                                    self.dmenu_input.clear();
+                                // 2. ON MODIFIE (Mutable) après avoir terminé la lecture
+                                let active_pane = self.active_pane_mut();
+                                if (active_pane.cursor as usize) < node_len.saturating_sub(1) {
+                                    active_pane.cursor += 1;
                                 }
-
-                                // --- VALIDER LA RECHERCHE OU LANCER UNE COMMANDE ---
-                                (KeyModifiers::NONE, KeyCode::Enter) => {
-                                    if let Some(cmd) = self.dmenu_input.strip_prefix('!') {
-                                        let cmd_clean = cmd.trim();
-
-                                        if let Some(dir_name) = cmd_clean.strip_prefix("mkdir ") {
-                                            // On combine le dossier actuel avec le nom saisi
-                                            let target_path =
-                                                self.current_dir.join(dir_name.trim());
-                                            let _ = create_directory(&target_path);
-                                        } else if let Some(file_name) =
-                                            cmd_clean.strip_prefix("touch ")
-                                        {
-                                            // Pareil pour touch
-                                            let target_path =
-                                                self.current_dir.join(file_name.trim());
-                                            let _ = create_empty_file(&target_path);
-                                        } else {
-                                            // 1. Exécuter la commande de façon bloquante (ex: cargo fmt)
-                                            let _ = std::process::Command::new("sh")
-                                                .arg("-c")
-                                                .arg(cmd_clean)
-                                                .stdout(std::process::Stdio::null())
-                                                .stderr(std::process::Stdio::null())
-                                                .status();
-
-                                            // 2. Mettre à jour les fichiers en mémoire SANS casser les vues
-                                            for node in self.nodes.iter_mut() {
-                                                if node.is_file {
-                                                    let full_path =
-                                                        self.current_dir.join(&node.name);
-
-                                                    // On recharge le fichier silencieusement
-                                                    if let Ok(fresh_node) =
-                                                        load_node(node.id, &full_path)
-                                                    {
-                                                        node.content = fresh_node.content;
-                                                        node.colored_lines =
-                                                            fresh_node.colored_lines;
-                                                    }
-                                                }
-                                            }
-                                            let mut w = std::io::stdout();
-                                            let _ = queue!(w, Clear(ClearType::All));
-                                        }
-                                    } else {
-                                        // TODO : Scan dmenu normal avec jwalk/walkdir
-                                    }
-                                    self.mode = Mode::Normal;
-                                    self.dmenu_input.clear();
-                                }
-                                (KeyModifiers::NONE, KeyCode::Backspace) => {
-                                    self.dmenu_input.pop();
-                                }
-
-                                (_, KeyCode::Char(c)) => {
-                                    self.dmenu_input.push(c);
-                                }
-                                _ => {}
                             }
-                        }
-                        Mode::Finder => match (key.modifiers, key.code) {
-                            (KeyModifiers::ALT, KeyCode::Down) => {
-                                self.finder.next_dir();
+                            (KeyModifiers::NONE, KeyCode::Char('k')) => {
+                                let active_pane = self.active_pane_mut();
+                                // On soustrait 1 pour remonter, sans jamais descendre sous zéro
+                                active_pane.cursor = active_pane.cursor.saturating_sub(1);
                             }
-                            (KeyModifiers::ALT, KeyCode::Up) => {
-                                self.finder.prev_dir();
+                            (KeyModifiers::NONE, KeyCode::Right) => {
+                                self.focus = match self.focus {
+                                    PaneFocus::TopLeft => PaneFocus::TopRight,
+                                    PaneFocus::BottomLeft => PaneFocus::BottomRight,
+                                    _ => self.focus,
+                                };
                             }
-                            (KeyModifiers::NONE, KeyCode::F(5)) => {
-                                self.finder = Finder::new(Path::new("."), FinderLayout::Grid);
+                            (KeyModifiers::ALT, KeyCode::Char('f')) => {
+                                self.mode = Mode::Finder;
                             }
-                            (KeyModifiers::NONE, KeyCode::Esc) => {
-                                self.mode = Mode::Normal;
-                                self.finder_recherch.clear();
+                            (KeyModifiers::NONE, KeyCode::Left) => {
+                                self.focus = match self.focus {
+                                    PaneFocus::TopRight => PaneFocus::TopLeft,
+                                    PaneFocus::BottomRight => PaneFocus::BottomLeft,
+                                    _ => self.focus,
+                                };
+                            }
+                            (KeyModifiers::NONE, KeyCode::Down) => {
+                                self.focus = match self.focus {
+                                    PaneFocus::TopLeft => PaneFocus::BottomLeft,
+                                    PaneFocus::TopRight => PaneFocus::BottomRight,
+                                    _ => self.focus,
+                                };
+                            }
+                            (KeyModifiers::NONE, KeyCode::Up) => {
+                                self.focus = match self.focus {
+                                    PaneFocus::BottomLeft => PaneFocus::TopLeft,
+                                    PaneFocus::BottomRight => PaneFocus::TopRight,
+                                    _ => self.focus,
+                                };
+                            }
+
+                            // --- CYCLAGE WORKSPACES (Alt + Gauche / Droite) ---
+                            (KeyModifiers::ALT, KeyCode::Left) => {
+                                let pane = self.active_pane_mut();
+                                pane.workspace = if pane.workspace > 1 {
+                                    pane.workspace - 1
+                                } else {
+                                    9
+                                };
                             }
                             (KeyModifiers::ALT, KeyCode::Right) => {
-                                // On récupère le premier dossier de la liste filtrée
-                                if let Some(dirname) = self.finder.get_directories().first() {
-                                    let new_path = self.current_dir.join(dirname);
+                                let pane = self.active_pane_mut();
+                                pane.workspace = if pane.workspace < 9 {
+                                    pane.workspace + 1
+                                } else {
+                                    1
+                                };
+                            }
 
-                                    // On met à jour le chemin actuel de l'application
-                                    self.current_dir = new_path.clone().into();
+                            // --- CYCLAGE VIEWS (Alt + Haut / Bas) ---
+                            (KeyModifiers::ALT, KeyCode::Up) => {
+                                let pane = self.active_pane_mut();
+                                pane.view = if pane.view < 9 { pane.view + 1 } else { 1 };
+                            }
+                            (KeyModifiers::ALT, KeyCode::Down) => {
+                                let pane = self.active_pane_mut();
+                                pane.view = if pane.view > 1 { pane.view - 1 } else { 9 };
+                            }
 
-                                    // On recrée le Finder pour qu'il scanne ce nouveau dossier
-                                    self.finder =
-                                        Finder::new(&new_path, self.finder_layout.clone());
+                            // --- LANCEMENT DU DMENU (Alt + d) ---
+                            (KeyModifiers::ALT, KeyCode::Char('d')) => {
+                                self.mode = Mode::Dmenu;
+                                self.dmenu_input.clear();
+                            }
 
-                                    // On nettoie la barre de recherche
-                                    self.finder_recherch.clear();
-                                }
+                            _ => {}
+                        }
+                    }
+
+                    // ==========================================
+                    // MODE DMENU : Saisie de texte
+                    // ==========================================
+                    Mode::Dmenu => {
+                        match (key.modifiers, key.code) {
+                            // --- ANNULER ET QUITTER LE MENU ---
+                            (KeyModifiers::NONE, KeyCode::Esc) => {
+                                self.mode = Mode::Normal;
+                                self.dmenu_input.clear();
                             }
-                            // --- REMONTER AU DOSSIER PARENT ---
-                            (KeyModifiers::ALT, KeyCode::Left) => {
-                                // On utilise .parent() pour remonter d'un niveau en toute sécurité
-                                if let Some(parent) = self.current_dir.parent() {
-                                    self.current_dir = parent.into();
-                                    self.finder =
-                                        Finder::new(&self.current_dir, self.finder_layout.clone());
-                                    self.finder_recherch.clear();
-                                }
-                            }
-                            (KeyModifiers::META, KeyCode::Left) => {
-                                self.previous_finder_layout();
-                            }
-                            (KeyModifiers::META, KeyCode::Right) => {
-                                self.next_finder_layout();
-                            }
+
+                            // --- VALIDER LA RECHERCHE OU LANCER UNE COMMANDE ---
                             (KeyModifiers::NONE, KeyCode::Enter) => {
-                                if let Some(filename) = self.finder.get_files().first() {
-                                    // 1. On construit le chemin complet du fichier sélectionné
-                                    let full_path = self.current_dir.join(filename);
+                                if let Some(cmd) = self.dmenu_input.strip_prefix('!') {
+                                    let cmd_clean = cmd.trim();
 
-                                    // 2. On charge le noeud (le cache visuel)
-                                    let node_id = if let Some(existing_node) =
-                                        self.nodes.iter().find(|n| n.name == *filename)
+                                    if let Some(dir_name) = cmd_clean.strip_prefix("mkdir ") {
+                                        // On combine le dossier actuel avec le nom saisi
+                                        let target_path = self.current_dir.join(dir_name.trim());
+                                        let _ = create_directory(&target_path);
+                                    } else if let Some(file_name) = cmd_clean.strip_prefix("touch ")
                                     {
-                                        existing_node.id
+                                        // Pareil pour touch
+                                        let target_path = self.current_dir.join(file_name.trim());
+                                        let _ = create_empty_file(&target_path);
                                     } else {
-                                        let new_id = self.nodes.len();
-                                        if let Ok(node) = load_node(new_id, &full_path) {
-                                            self.nodes.push(node);
-                                            new_id
-                                        } else {
-                                            self.finder_recherch.clear();
-                                            return Ok(());
+                                        // 1. Exécuter la commande de façon bloquante (ex: cargo fmt)
+                                        let _ = std::process::Command::new("sh")
+                                            .arg("-c")
+                                            .arg(cmd_clean)
+                                            .stdout(std::process::Stdio::null())
+                                            .stderr(std::process::Stdio::null())
+                                            .status();
+
+                                        // 2. Mettre à jour les fichiers en mémoire SANS casser les vues
+                                        for node in self.nodes.iter_mut() {
+                                            if node.is_file {
+                                                let full_path = self.current_dir.join(&node.name);
+
+                                                // On recharge le fichier silencieusement
+                                                if let Ok(fresh_node) =
+                                                    load_node(node.id, &full_path)
+                                                {
+                                                    node.content = fresh_node.content;
+                                                    node.colored_lines = fresh_node.colored_lines;
+                                                }
+                                            }
                                         }
-                                    };
-                                    let active_idx = self.focus as usize;
-
-                                    // Sécurité pour s'assurer que la vue existe bien
-                                    if self.views.len() <= active_idx {
-                                        self.views.resize_with(active_idx + 1, || View {
-                                            active_node_id: 0,
-                                        });
+                                        let mut w = std::io::stdout();
+                                        let _ = queue!(w, Clear(ClearType::All));
                                     }
+                                } else {
+                                    // TODO : Scan dmenu normal avec jwalk/walkdir
+                                }
+                                self.mode = Mode::Normal;
+                                self.dmenu_input.clear();
+                            }
+                            (KeyModifiers::NONE, KeyCode::Backspace) => {
+                                self.dmenu_input.pop();
+                            }
 
-                                    // On assigne le nouvel ID de fichier à afficher
-                                    if let Some(view) = self.views.get_mut(active_idx) {
-                                        view.active_node_id = node_id;
-                                    }
+                            (_, KeyCode::Char(c)) => {
+                                self.dmenu_input.push(c);
+                            }
+                            _ => {}
+                        }
+                    }
+                    Mode::Finder => match (key.modifiers, key.code) {
+                        (KeyModifiers::NONE, KeyCode::F(5)) => {
+                            self.finder = Finder::new(Path::new("."), FinderLayout::Grid);
+                        }
+                        (KeyModifiers::NONE, KeyCode::Esc) => {
+                            self.mode = Mode::Normal;
+                            self.finder_recherch.clear();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Right) => {
+                            let dirs = self.finder.get_directories();
 
-                                    // Réinitialiser le scroll pour le nouveau fichier
-                                    self.panes[active_idx].cursor = 0;
+                            // On s'assure que la liste contient des dossiers et que le curseur est valide
+                            if !dirs.is_empty() && self.finder.selected_dir < dirs.len() {
+                                let dirname = &dirs[self.finder.selected_dir];
+                                let new_path = self.current_dir.join(dirname);
 
-                                    // ==========================================
-                                    // ✨ NOUVEAUTÉ : BASCULE DIRECTE EN ÉDITION
-                                    // ==========================================
-                                    if let Some(path_str) = full_path.to_str() {
-                                        if let Ok(editor) = Ji::open(path_str) {
-                                            // On charge le fichier dans le moteur d'édition
-                                            self.editor = editor;
+                                // On met à jour le chemin actuel de l'application
+                                self.current_dir = new_path.clone().into();
 
-                                            // On place l'application en mode Éditeur !
-                                            self.mode = Mode::Editor;
-                                        } else {
-                                            // Fallback de sécurité si le fichier n'est pas lisible
-                                            self.mode = Mode::Normal;
-                                        }
+                                // On recrée le Finder pour qu'il scanne ce nouveau dossier
+                                self.finder = Finder::new(&new_path, self.finder_layout.clone());
+
+                                // On nettoie la barre de recherche
+                                self.finder_recherch.clear();
+                            }
+                        }
+                        (KeyModifiers::ALT, KeyCode::Left) => {
+                            // On utilise .parent() pour remonter d'un niveau en toute sécurité
+                            if let Some(parent) = self.current_dir.parent() {
+                                self.current_dir = parent.into();
+                                self.finder =
+                                    Finder::new(&self.current_dir, self.finder_layout.clone());
+                                self.finder_recherch.clear();
+                            }
+                        }
+                        (KeyModifiers::META, KeyCode::Left) => {
+                            self.previous_finder_layout();
+                        }
+                        (KeyModifiers::META, KeyCode::Right) => {
+                            self.next_finder_layout();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('j')) => {
+                            self.finder.next_file();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('k')) => {
+                            self.finder.prev_file();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Down) => {
+                            self.finder.next_dir();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Up) => {
+                            self.finder.prev_dir();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Enter) => {
+                            let files = self.finder.get_files();
+                            if !files.is_empty() && self.finder.selected_file < files.len() {
+                                let filename = &files[self.finder.selected_file];
+
+                                // 1. On construit le chemin complet du fichier sélectionné
+                                let full_path = self.current_dir.join(filename);
+
+                                // 2. On charge le noeud (le cache visuel)
+                                let node_id = if let Some(existing_node) =
+                                    self.nodes.iter().find(|n| n.name == *filename)
+                                {
+                                    existing_node.id
+                                } else {
+                                    let new_id = self.nodes.len();
+                                    if let Ok(node) = load_node(new_id, &full_path) {
+                                        self.nodes.push(node);
+                                        new_id
                                     } else {
+                                        self.finder_recherch.clear();
+                                        return Ok(());
+                                    }
+                                };
+                                let active_idx = self.focus as usize;
+
+                                // Sécurité pour s'assurer que la vue existe bien
+                                if self.views.len() <= active_idx {
+                                    self.views
+                                        .resize_with(active_idx + 1, || View { active_node_id: 0 });
+                                }
+
+                                // On assigne le nouvel ID de fichier à afficher
+                                if let Some(view) = self.views.get_mut(active_idx) {
+                                    view.active_node_id = node_id;
+                                }
+
+                                // Réinitialiser le scroll pour le nouveau fichier
+                                self.panes[active_idx].cursor = 0;
+
+                                // ==========================================
+                                // ✨ NOUVEAUTÉ : BASCULE DIRECTE EN ÉDITION
+                                // ==========================================
+                                if let Some(path_str) = full_path.to_str() {
+                                    if let Ok(editor) = Ji::open(path_str) {
+                                        // On charge le fichier dans le moteur d'édition
+                                        self.editor = editor;
+
+                                        // On place l'application en mode Éditeur !
+                                        self.mode = Mode::Editor;
+                                    } else {
+                                        // Fallback de sécurité si le fichier n'est pas lisible
                                         self.mode = Mode::Normal;
                                     }
                                 } else {
-                                    // Si on appuie sur Enter avec une liste vide
                                     self.mode = Mode::Normal;
                                 }
+                            } else {
+                                // Si on appuie sur Enter avec une liste vide
+                                self.mode = Mode::Normal;
+                            }
 
-                                // 4. On nettoie la barre de recherche dans tous les cas
-                                self.finder_recherch.clear();
-                            }
-                            (KeyModifiers::NONE, KeyCode::Backspace) => {
-                                self.finder_recherch.pop();
-                                self.finder
-                                    .filter(&self.current_dir, self.finder_recherch.clone());
-                            }
-                            (_, KeyCode::Char(c)) => {
-                                self.finder_recherch.push(c);
-                                self.finder
-                                    .filter(&self.current_dir, self.finder_recherch.clone());
-                            }
-                            _ => {}
-                        },
-                    }
+                            // 4. On nettoie la barre de recherche dans tous les cas
+                            self.finder_recherch.clear();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Backspace) => {
+                            self.finder_recherch.pop();
+                            self.draw(w)?;
+                            w.flush()?;
+                            self.finder.filter(self.finder_recherch.clone());
+                        }
+                        (_, KeyCode::Char(c)) => {
+                            self.finder_recherch.push(c);
+                            self.draw(w)?;
+                            w.flush()?;
+                            self.finder.filter(self.finder_recherch.clone());
+                        }
+                        _ => {}
+                    },
                 }
-                Event::Resize(columns, rows) => {
-                    self.width = columns;
-                    self.height = rows;
-                    self.finder.resize(columns, rows);
-                    queue!(stdout(), Clear(ClearType::All))?;
-                }
-                _ => {}
             }
+            Event::Resize(columns, rows) => {
+                self.width = columns;
+                self.height = rows;
+                self.finder.resize(columns, rows);
+                queue!(stdout(), Clear(ClearType::All))?;
+            }
+            _ => {}
         }
         Ok(())
     }
