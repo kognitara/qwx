@@ -9,6 +9,7 @@ use tree_sitter::{Parser, Tree};
 use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
 pub mod theme;
+
 fn create_config(
     scope: &str,
     lang: Language,
@@ -364,9 +365,54 @@ pub struct Ji {
     pub parser: Parser,
     pub syntax_tree: Option<Tree>,
     pub lang_config: Option<LangConfig>,
+    pub selection: Option<(usize, usize)>,
 }
 
 impl Ji {
+    pub fn select_line(&mut self) {
+        if let Some((start, end)) = self.selection {
+            if end + 1 < self.rope.len_lines() {
+                self.selection = Some((start, end + 1));
+                self.cursor_line = end + 1; // Le curseur descend visuellement
+            }
+        } else {
+            self.selection = Some((self.cursor_line, self.cursor_line));
+        }
+    }
+
+    /// Mimétisme de Helix 'd' : Supprime toutes les lignes sélectionnées
+    pub fn delete_selection(&mut self) {
+        if let Some((start, end)) = self.selection {
+            let start_char = self.rope.line_to_char(start);
+            let end_char = if end + 1 < self.rope.len_lines() {
+                self.rope.line_to_char(end + 1)
+            } else {
+                self.rope.len_chars()
+            };
+
+            let start_byte = self.rope.char_to_byte(start_char);
+            let end_byte = self.rope.char_to_byte(end_char);
+
+            // Mise à jour chirurgicale de Tree-sitter pour ne pas casser la coloration
+            if let Some(ref mut tree) = self.syntax_tree {
+                let edit = InputEdit {
+                    start_byte,
+                    old_end_byte: end_byte,
+                    new_end_byte: start_byte,
+                    start_position: Point::new(start, 0),
+                    old_end_position: Point::new(end + 1, 0),
+                    new_end_position: Point::new(start, 0),
+                };
+                tree.edit(&edit);
+            }
+
+            self.rope.remove(start_char..end_char);
+            self.cursor_line = start;
+            self.cursor_col = 0;
+            self.selection = None;
+            self.update_syntax_tree();
+        }
+    }
     /// Supprime le caractère situé sous le curseur (Touche Suppr)
     pub fn delete(&mut self) {
         // 1. Calculer l'index absolu du curseur
@@ -485,6 +531,7 @@ impl Ji {
             syntax_tree: None,
             lang_config: None,
             query: None,
+            selection: None,
         };
 
         // ✨ 3. On tente d'appliquer la surcouche Tree-sitter si le langage est connu

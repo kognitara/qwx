@@ -6,6 +6,5 @@ mod editor;
 mod finder;
 
 fn main() -> Result<()> {
-    let mut app = App::new(Path::new("."))?;
-    app.run()
+    App::new(Path::new("."))?.run()
 }
