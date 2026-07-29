@@ -611,15 +611,15 @@ impl Finder {
             let max_files_display =
                 (start_y + height.saturating_sub(footer_h) - mid_y - 2) as usize;
             let max_dirs_display = (mid_y - main_y_start - 2) as usize;
+            let max_sub_dirs_display = (mid_y - main_y_start - 2) as usize;
+            let max_sub_files_display =
+                (start_y + height.saturating_sub(footer_h) - mid_y - 2) as usize;
 
-            // Ajustement de la largeur de la zone en prenant en compte l'offset X
             let pane_width = (mid_x.saturating_sub(start_x + 5)) as usize;
 
             let format_padded = |text: &str, total_w: usize| -> String {
                 let safe_text = text.replace('\t', "    ").replace(['\n', '\t'], "");
-
                 let max_text_w = total_w.saturating_sub(1);
-
                 let mut acc = 0;
                 let mut truncated = String::new();
                 for c in safe_text.chars() {
@@ -633,16 +633,46 @@ impl Finder {
                 truncated
             };
 
+            let dir_offset = if max_dirs_display > 0 {
+                (self.selected_dir / max_dirs_display) * max_dirs_display
+            } else {
+                0
+            };
+            let file_offset = if max_files_display > 0 {
+                (self.selected_file / max_files_display) * max_files_display
+            } else {
+                0
+            };
+            let sub_dir_offset = if max_sub_dirs_display > 0 {
+                (self.selected_sub_dir / max_sub_dirs_display) * max_sub_dirs_display
+            } else {
+                0
+            };
+            let sub_file_offset = if max_sub_files_display > 0 {
+                (self.selected_sub_file / max_sub_files_display) * max_sub_files_display
+            } else {
+                0
+            };
+
             // ==========================================
             // AFFICHAGE DES DOSSIERS
             // ==========================================
-            for (i, dir) in self.directories.iter().take(max_dirs_display).enumerate() {
+            // ✨ Ajout de .skip(dir_offset) pour glisser la vue vers le bas
+            for (i, dir) in self
+                .directories
+                .iter()
+                .skip(dir_offset)
+                .take(max_dirs_display)
+                .enumerate()
+            {
+                let actual_idx = i + dir_offset; // L'index réel dans ton vecteur global
                 let padded_name = format_padded(dir, pane_width);
-                if i == self.selected_dir {
+                if actual_idx == self.selected_dir {
+                    // On compare avec l'index réel
                     queue!(
                         w,
                         MoveTo(start_x + 4, main_y_start + 2 + i as u16),
-                        SetForegroundColor(FINDER_ACTIVE_SELECT), // Met en valeur le premier/actif en violet cosmique
+                        SetForegroundColor(FINDER_ACTIVE_SELECT),
                         Print(padded_name),
                         ResetColor
                     )?;
@@ -651,31 +681,35 @@ impl Finder {
                         w,
                         MoveTo(start_x + 4, main_y_start + 2 + i as u16),
                         ResetColor,
-                        SetForegroundColor(FINDER_DIR_COLOR), // Le bleu doux pour les dossiers
+                        SetForegroundColor(FINDER_DIR_COLOR),
                         Print(padded_name)
                     )?;
                 }
             }
+
             // ==========================================
             // AFFICHAGE DES FICHIERS
             // ==========================================
-            // 1. On récupère le chemin absolu du dossier racine où qwx a été lancé
             let cwd = std::env::current_dir().unwrap_or_default();
             let cwd_str = cwd.to_str().unwrap_or("");
 
-            for (i, file) in self.files.iter().take(max_files_display).enumerate() {
-                // 2. MAGIE DE L'INTERFACE : On ampute le préfixe absolu juste pour l'affichage
+            for (i, file) in self
+                .files
+                .iter()
+                .skip(file_offset)
+                .take(max_files_display)
+                .enumerate()
+            {
+                let actual_idx = i + file_offset;
                 let display_name = if let Some(stripped) = file.strip_prefix(cwd_str) {
                     stripped.trim_start_matches(['/', '\\'])
                 } else {
-                    // Fallback de sécurité si le fichier n'est pas dans le dossier courant
                     file.as_str()
                 };
 
-                // 3. On utilise notre nom formaté 'display_name' au lieu du 'file' complet
                 let padded_name = format_padded(display_name, pane_width);
 
-                if i == self.selected_file {
+                if actual_idx == self.selected_file {
                     queue!(
                         w,
                         MoveTo(start_x + 4, mid_y + 2 + i as u16),
@@ -697,17 +731,18 @@ impl Finder {
             // ==========================================
             // AFFICHAGE DES SOUS-DOSSIERS (Haut Droite)
             // ==========================================
-            let max_sub_dirs_display = (mid_y - main_y_start - 2) as usize;
             let right_pane_x = mid_x + 4;
 
             for (i, sub_dir) in self
                 .sub_directories
                 .iter()
+                .skip(sub_dir_offset)
                 .take(max_sub_dirs_display)
                 .enumerate()
             {
+                let actual_idx = i + sub_dir_offset;
                 let padded_name = format_padded(sub_dir, pane_width);
-                if i == self.selected_sub_dir {
+                if actual_idx == self.selected_sub_dir {
                     queue!(
                         w,
                         MoveTo(right_pane_x, main_y_start + 2 + i as u16),
@@ -729,17 +764,16 @@ impl Finder {
             // ==========================================
             // AFFICHAGE DES SOUS-FICHIERS (Bas Droite)
             // ==========================================
-            let max_sub_files_display =
-                (start_y + height.saturating_sub(footer_h) - mid_y - 2) as usize;
-
             for (i, sub_file) in self
                 .sub_files
                 .iter()
+                .skip(sub_file_offset)
                 .take(max_sub_files_display)
                 .enumerate()
             {
+                let actual_idx = i + sub_file_offset;
                 let padded_name = format_padded(sub_file, pane_width);
-                if i == self.selected_sub_file {
+                if actual_idx == self.selected_sub_file {
                     queue!(
                         w,
                         MoveTo(right_pane_x, mid_y + 2 + i as u16),
@@ -758,9 +792,6 @@ impl Finder {
                 }
             }
 
-            // ==========================================
-            // 4. ZONE FOOTER : STATISTIQUES ET RÉSULTATS
-            // ==========================================
             let footer_y = start_y + height.saturating_sub(footer_h);
             let bottom_y = start_y + height.saturating_sub(1);
 

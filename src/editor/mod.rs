@@ -426,6 +426,7 @@ impl Ji {
         }
         Ok(())
     }
+
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let path_ref = path.as_ref();
         let file = File::open(path_ref)?;
@@ -474,32 +475,31 @@ impl Ji {
         let filename = path_ref.file_name().expect("");
         let ext = path_ref.extension().unwrap_or(filename);
 
+        // ✨ 2. On initialise l'éditeur avec le texte et le chemin dans TOUS LES CAS
+        let mut ji = Self {
+            rope,
+            file_path: Some(path_ref.to_path_buf()),
+            cursor_line: 0,
+            cursor_col: 0,
+            parser: Parser::new(),
+            syntax_tree: None,
+            lang_config: None,
+            query: None,
+        };
+
+        // ✨ 3. On tente d'appliquer la surcouche Tree-sitter si le langage est connu
         if let Some(config) = detect_langage(ext.to_str().expect(""), &theme_keys) {
-            // On prépare la Query proprement avec les règles SCM transportées par config
-            let query_obj = Query::new(&config.ts_config.language, config.query_string).ok();
+            ji.query = Query::new(&config.ts_config.language, config.query_string).ok();
+            let _ = ji.parser.set_language(&config.ts_config.language);
+            ji.lang_config = Some(config);
 
-            let mut parser = Parser::new();
-            // Note : Si ton compilateur râle à cause du "&", retire-le simplement.
-            let _ = parser.set_language(&config.ts_config.language);
-            let mut ji = Self {
-                rope,
-                file_path: Some(path_ref.to_path_buf()),
-                cursor_line: 0,
-                cursor_col: 0,
-                parser,
-                syntax_tree: None,
-                lang_config: Some(config),
-                query: query_obj, // C'est parfait !
-            };
-
-            if ji.lang_config.is_some() {
-                ji.update_syntax_tree();
-            }
-            return Ok(ji);
+            // On génère l'arbre syntaxique
+            ji.update_syntax_tree();
         }
-        Ok(Ji::default())
-    }
 
+        // 4. On retourne l'éditeur (avec ou sans coloration, mais toujours avec le bon texte !)
+        Ok(ji)
+    }
     /// Insère un caractère à la position actuelle du curseur (ligne, col)
     pub fn insert_char(&mut self, ch: char) {
         // 1. Calculer l'index absolu en caractères et en octets (bytes)
