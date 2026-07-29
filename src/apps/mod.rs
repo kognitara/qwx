@@ -813,6 +813,34 @@ impl App {
                         }
                     }
                     Mode::Finder => match (key.modifiers, key.code) {
+                        (KeyModifiers::SHIFT, KeyCode::Down) => {
+                            self.finder.next_sub_dir();
+                        }
+                        (KeyModifiers::SHIFT, KeyCode::Up) => {
+                            self.finder.prev_sub_dir();
+                        }
+                        (KeyModifiers::SHIFT, KeyCode::Right) => {
+                            let sub_dirs = self.finder.get_sub_directories();
+
+                            // On vérifie que la liste n'est pas vide et que l'index est valide
+                            if !sub_dirs.is_empty() && self.finder.selected_sub_dir < sub_dirs.len()
+                            {
+                                let dirname = &sub_dirs[self.finder.selected_sub_dir];
+
+                                // On construit le chemin en fusionnant le dossier actuel avec le sous-dossier ciblé
+                                let new_path = self.current_dir.join(dirname);
+
+                                // On met à jour le chemin actuel de l'application
+                                self.current_dir = new_path.clone().into();
+
+                                // On recrée le Finder pour qu'il scanne ce nouveau dossier
+                                self.finder = Finder::new(&new_path, self.finder_layout.clone());
+
+                                // On nettoie la barre de recherche
+                                self.finder_recherch.clear();
+                            }
+                        }
+
                         (KeyModifiers::NONE, KeyCode::F(5)) => {
                             self.finder = Finder::new(Path::new("."), FinderLayout::Grid);
                         }

@@ -222,7 +222,13 @@ pub fn list_files(path: &Path) -> Vec<String> {
         .flatten()
     {
         if entry.path().is_file() {
-            let path_str = entry.path().to_string_lossy().to_string().replace("./", "");
+            let path_str = entry
+                .path()
+                .canonicalize()
+                .expect("")
+                .to_string_lossy()
+                .to_string()
+                .replace("./", "");
             files.push(path_str);
         }
     }
@@ -328,7 +334,25 @@ impl Finder {
             base_sub_files: s_files,
         }
     }
+    pub fn get_sub_directories(&self) -> Vec<String> {
+        self.sub_directories.to_vec()
+    }
 
+    pub fn next_sub_dir(&mut self) {
+        if !self.sub_directories.is_empty() {
+            self.selected_sub_dir = (self.selected_sub_dir + 1) % self.sub_directories.len();
+        }
+    }
+
+    pub fn prev_sub_dir(&mut self) {
+        if !self.sub_directories.is_empty() {
+            self.selected_sub_dir = if self.selected_sub_dir > 0 {
+                self.selected_sub_dir - 1
+            } else {
+                self.sub_directories.len() - 1
+            };
+        }
+    }
     pub fn next_file(&mut self) {
         if !self.files.is_empty() {
             self.selected_file = (self.selected_file + 1) % self.files.len();
@@ -513,9 +537,11 @@ impl Finder {
             let main_h = height.saturating_sub(header_h + footer_h);
             let mid_y = main_y_start + (main_h / 2);
             let text_x = start_x + (width.saturating_sub(display_text.len() as u16) / 2);
+
             // ==========================================
             // 1. DESSIN DE L'EN-TÊTE (RESEARCH)
             // ==========================================
+
             queue!(
                 w,
                 MoveTo(start_x, start_y),

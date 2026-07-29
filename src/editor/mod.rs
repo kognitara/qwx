@@ -9,7 +9,6 @@ use tree_sitter::{Parser, Tree};
 use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
 pub mod theme;
-///
 fn create_config(
     scope: &str,
     lang: Language,
@@ -30,6 +29,54 @@ fn detect_langage(extension: &str, theme_keys: &[&'static str]) -> Option<LangCo
         "ada" | "adb" => create_config(
             "ada",
             Language::from(tree_sitter_ada::LANGUAGE),
+            "",
+            theme_keys,
+        ),
+        "ps1" | "psm1" | "psd1" => create_config(
+            "powershell",
+            Language::from(tree_sitter_powershell::LANGUAGE),
+            tree_sitter_powershell::HIGHLIGHTS_QUERY,
+            theme_keys,
+        ),
+        "scss" | "sass" => create_config(
+            "scss",
+            Language::from(tree_sitter_sas::LANGUAGE),
+            tree_sitter_sas::HIGHLIGHTS_QUERY,
+            theme_keys,
+        ),
+        "Kconfig" => create_config(
+            "kconfig",
+            Language::from(tree_sitter_kconfig::LANGUAGE),
+            tree_sitter_kconfig::HIGHLIGHTS_QUERY,
+            theme_keys,
+        ),
+        "vhdl" => create_config(
+            "vhdl",
+            Language::from(tree_sitter_vhdl::LANGUAGE),
+            tree_sitter_vhdl::HIGHLIGHTS_QUERY,
+            theme_keys,
+        ),
+        "jinja2" => create_config(
+            "jinja2",
+            Language::from(tree_sitter_jinja2::LANGUAGE),
+            tree_sitter_jinja2::HIGHLIGHTS_QUERY,
+            theme_keys,
+        ),
+        "nginx" => create_config(
+            "nginx",
+            Language::from(tree_sitter_nginx::LANGUAGE),
+            "",
+            theme_keys,
+        ),
+        "zsh" => create_config(
+            "zsh",
+            Language::from(tree_sitter_zsh::LANGUAGE),
+            tree_sitter_zsh::HIGHLIGHT_QUERY,
+            theme_keys,
+        ),
+        "md" => create_config(
+            "md",
+            Language::from(tree_sitter_md::LANGUAGE),
             "",
             theme_keys,
         ),
@@ -424,13 +471,13 @@ impl Ji {
             "punctuation.special",
         ];
 
-        if let Some(extension) = path_ref.extension().and_then(|ext| ext.to_str())
-            && let Some(config) = detect_langage(&extension.to_lowercase(), &theme_keys)
-        {
+        let filename = path_ref.file_name().expect("");
+        let ext = path_ref.extension().unwrap_or(filename);
+
+        if let Some(config) = detect_langage(ext.to_str().expect(""), &theme_keys) {
             // On prépare la Query proprement avec les règles SCM transportées par config
             let query_obj = Query::new(&config.ts_config.language, config.query_string).ok();
 
-            // ✨ CORRECTION ICI : On instancie le parseur ET on lui donne le langage !
             let mut parser = Parser::new();
             // Note : Si ton compilateur râle à cause du "&", retire-le simplement.
             let _ = parser.set_language(&config.ts_config.language);
