@@ -1,14 +1,480 @@
-# Qwx
+```txt
+NAME
 
-## Show manual
+        qwx - Quaternary Walk eXtended
 
-```bash
-qwx --help | less
-```
+DESCRIPTION
+
+        qwx is an ultra-fast, modal terminal application designed for developers, system administrators,
+        and teams looking to optimize their workflow without ever leaving the command line.
+
+        Developed to eliminate distractions, qwx renders heavy graphical IDEs unnecessary by merging
+        code editing, server management, and collaboration into a single, cohesive, and lightning
+        fast text-based interface.
+
+        More than just a text editor, qwx is a multidimensional environment engine.
+
+        It strictly separates the physical display from the logical data.
+
+        This decoupling allows you to display, manipulate, and link any type of data across multiple
+        perspectives without ever duplicating information in memory.
+
+PHILOSOPHY
+
+        To master qwx you must embrace its core philosophy:
+        
+                1. Keep your hands on the keyboard's home row. Every action should be natural.
+                2. No mouse, no pop-ups, no context switching, no friction.
+                3. The interface must never stand between the developer and their code.
+                4. Designed for absolute speed, latency is not tolerated.
+                5. A structured visual grid system for instant navigation between workspaces.
+                6. A single tool to unify your engineering processes under one standard.
+                7. Mergeable panels to shape the interface to your needs.
+                8. The workspace adapts instantly to the task's cognitive load.
+                9. Maintain a state of deep focus.
+
+WHY
+
+        Modern software development is fragmented. Constantly juggling between a text editor,
+        a database client, a task manager, and multiple terminal windows disrupts concentration.
+
+        Graphical interfaces impose their own logic, consume unnecessary resources, and force mouse
+        usage, breaking the flow of thought.
+
+        Inspired by the mathematical rigor of tiling window managers and the efficiency of modal
+        editors, qwx was created to offer a radical solution a universal, generic system.
+
+        It was built because there was no environment capable of treating data not merely as a file
+        trapped in a window but as a particle of pure information.
+
+        By utilizing a Tesseract-based architecture, qwx allows you to view a single source of truth
+        from infinite angles (Views) and within infinite contexts (Workspaces), all while ensuring
+        absolute control over the interface via atomic keyboard commands.
+
+        qwx was not created for just text editing, it was created to manipulate information
+        at the speed of thought.
+
+ARCHITECTURE
+
+        The qwx mental model is based on an absolute decoupling of the physical interface from data.
+
+        Your screen is merely a 2D projection: a grid composed of blank panels.
+
+        The true power lies in the Tesseract running invisibly in the background.
+
+        The keyboard is not used to move files, but to project a precise coordinate from this
+        Tesseract onto a physical panel.
+
+        You navigate through pure data...the interface simply adapts to it.
+
+NAVIGATION
+
+        KEYBOARD
+
+                KEYS
+                        CTRL
+                                Represents controls dedicated to Physical Space.
+
+                                These keys manage screen geometry, container focus, and interface
+                                layout without ever altering the underlying data.
+
+                        ALT
+                                Represents controls dedicated to Quantum Depth.
+
+                                These keys allow you to traverse higher dimensions:
+                                
+                                        1. Navigating through project layers
+                                        2. Rotating the viewing angle of your data.
+                        H
+
+                                Represent the directional mapping for leftward navigation within
+                                the home row matrix, shifting focus or moving the active cursor
+                                to the preceding horizontal element.
+
+                        J
+
+                                Represent the directional mapping for downward navigation within
+                                the home row matrix, shifting focus or moving the active cursor
+                                to the succeeding vertical element.
+
+                        K
+
+                                Represent the directional mapping for upward navigation within
+                                the home row matrix, shifting focus or moving the active cursor
+                                to the preceding vertical element.
+
+                        L
+
+                                Represent the directional mapping for rightward navigation within
+                                the home row matrix, shifting focus or moving the active cursor
+                                to the succeeding horizontal element.
+       
+        CURSOR
+
+                Cursor movement is the atomic unit of navigation in qwx.
+
+                Your fingers never leave the baseline, ensuring maximum typing speed and efficiency.
+
+                The keyboard shortcuts to manipulate cursor:
+
+                     ^                     The k key is at the top and move top.
+                     k              Tips:  The h key is at the left and moves left.
+               < h       l >               The l key is at the right and moves right.
+                     j                     The j key is at the down and move down.
+                     v
+
+        PANEL
+
+                It's the structural unit and fundamental visual container that makes up the qwx grid.
+
+                The keyboard shortcuts to manipulate panel:
+                
+                        Ctrl+h moves focus to the left panel.
+                        Ctrl+l moves focus to the right panel.
+                        Ctrl+j moves focus to the bottom panel.
+                        Ctrl+k moves focus to the top panel.
+        ENVIRONMENT
+
+                It's a comprehensive, themed work ecosystem dedicated to a specific engineering
+                process.
+
+                The keyboard shortcuts to manipulate environment:
+                
+                        Alt+[1-9] jumps directly to the corresponding environment index.
+                        Alt+e opens an interactive menu to search and switch environments.
+
+        GRID
+
+                It's the structural and dynamic matrix that orchestrates the spatial arrangement of
+                the panels.
+                                       
+                The keyboard shortcuts to manipulate the grid:
+
+                        Ctrl+g enable the grid mode and then:
+                        
+                                h splits the current panel horizontally.
+                                v splits the current panel vertically.
+                                x destroys the current panel.
+
+                         Ctrl+x enable the grid resize mode and then:
+                        
+                                h shifts the border left.
+                                l shifts the border right.
+                                j shifts the border down.
+                                k shifts the border up.
+                                q redraws the original grid and exits the mode.
+
+       VIEW
+
+                The View defines the viewing angle of a given Workspace.
+                
+                The keyboard shortcuts to manipulate view:
+                
+                        Alt+k moves focus to the next view.
+                        Alt+j moves focus to the previous view.
+
+        WORKSPACE
+
+                It represents the depth of your environment.
+                
+                Navigating them enables horizontal cycling through the 3D volume of your active projects.
+
+                The keyboard shortcuts to manipulate workspace:
+
+                        Alt+w prints a tree to display workspace info.
+                        Alt+l moves focus to the next workspace.
+                        Alt+h moves focus to the previous workspace.
+        FACE
+
+                It's the overall structural configuration of the visual interface at a given moment.
+
+                The keyboard shortcuts to manipulate the face:
+                
+                        Alt+n moves focus to the next face.
+                        Alt+p moves focus to the previous face.
+        FACET
+
+                It's one of the two opposing virtual sides the front or the back of a single Face.
+
+                The keyboard shortcuts to manipulate facet:
+
+                        Alt+x toggle between the primary facet and the secondary facet of the Face.
+                        Alt+a force display of the front facet.
+                        Alt+z force display of the back facet.
+
+        MODE               
+
+                FUSION
+
+                        Fusion mode is your tool for reshaping your workspace.
+
+                        Designed to adapt to the complexity of your tasks, it allows you to break
+                        free from the standard four-panel grid.
+
+                        By merging an active panel with its neighbor, you absorb its space to
+                        provide an expanded display area for resource-intensive environments—such
+                        as analyzing a long log file or a large Git dashboard.
+                        
+                        The architecture remains structured, yet the grid geometry instantly
+                        adjusts to your needs, without ever requiring a mouse.
+                       
+                        The keyboard shortcuts to manipulate fusion:
+                        
+                                Ctrl+f enable the fusion mode and then:
+
+                                        h merges the current panel into the left panel.
+                                        l merges the current panel into the right panel.
+                                        j merges the current panel into the bottom panel.
+                                        k merges the current panel into the top panel.
+                                        q redraws the original grid and exit the mode.
+
+                ZEN
+
+                        Zen mode represents the ultimate state of immersion.
+
+                        Unlike merging, this mode neither destroys nor alters the grid,
+                        instead, it masks it.
+
+                        Activating it isolates the current panel and centers it on the screen,
+                        eliminating visual distractions so you can focus entirely on your code.
+
+                        The true power of Zen mode lies in its "phantom grid":
+                        the other panels continue running in the background.
+
+                        Using standard directional keys, you can glide smoothly to another panel
+                        which instantly takes center without ever breaking your concentration.
+     
+                        The keyboard shortcuts to manipulate zen:
+                        
+                                Ctrl+z enable the zen mode and then:
+
+                                        h shifts the Zen focus to the left panel.
+                                        l shifts the Zen focus to the right panel.
+                                        j shifts the Zen focus to the bottom panel.
+                                        k shifts the Zen focus to the top panel.
+                                        q redraws the original grid and exit the mode.
+                RESCUE
+
+                        This emergency mode instantly freezes higher dimensions, complex rendering,
+                        and background parsing.
+
+                        qwx reverts to a pure, stripped-down interface to ensure the connection
+                        survives, even under extreme latency.
+
+                        The keyboard shortcuts to manipulate rescue:
+
+                                Ctrl+r enable the rescue mode.
+                BROADCAST
+
+                        Broadcast Mode transforms your terminal into a native collaboration space.
+
+                        Leveraging the Sessions architecture, this mode allows multiple developers
+                        to connect to the same interface.
+
+                        It synchronizes cursors in real time and manages permissions.
+
+                        It is the ultimate pair-programming experience, without requiring another
+                        tool, directly within the SSH session.
+
+                        The keyboard shortcuts to manipulate broadcast:
+
+                                Ctrl+b enable the broadcast mode.
+                EPHEMERAL
+
+                        Ephemeral Mode is your ultimate, secure scratchpad. It instantly summons
+                        a floating layer over your workspace to jot down temporary data.
+                                                
+                        Its golden rule is strict: absolutely nothing is stored in memory.
+
+                        As soon as the mode is closed, the buffer is instantly destroyed, leaving
+                        not the slightest trace in the system's quantum memory.
+               
+                        The keyboard shortcuts to manipulate ephemeral:
+
+                                Ctrl+e enable the ephemeral mode.
+        VOCABULARY
+
+                BANK
+
+                        The highest-level logical anchor point within the qwx architecture. 
+
+                        It is a root instance that centralizes and isolates a comprehensive set of
+                        software resources, configurations, and technical assets specific to a major
+                        engineering domain.
+                
+                SESSION
+
+                        A logical, bidirectional projection of a system environment, acting as an
+                        unified view.
+
+                        It locally represents the state, directory structure, and resources of a
+                        target machine.
+
+                ENVIRONMENT               
+
+                        It encompasses a dedicated configuration of the graphical user interface,
+                        coordinating and orchestrating the views, facets, and allocation of hardware
+                        resources required to execute that particular workflow.
+
+                FACE
+                        The overall macroscopic layout of the interface projected on the screen.
+
+                        It represents the total spatial footprint of your work environment at a given moment.
+
+                FACET
+                        One of the two opposing virtual sides of a Face.
+
+                        Switching between two Facets allows for an instant 180-degree rotation of
+                        the workspace, revealing a second geometry of panels without consuming
+                        additional rendering resources.
+
+                PANEL
+
+                        The 2D structural unit, the physical window anchored to the grid.
+
+                        The panel contains no data in itself; it is a simple geometric projector
+                        that illuminates a precise coordinate of the hypercube to display it on
+                        the screen.
+
+                WORKSPACE
+
+                        The first dimension of immersion. A Workspace is a 3D volume containing
+                        a logical group of data.
+
+                        Navigating between Workspaces allows you to move through different layers
+                        of your work environments without altering the layout of your physical grid.
+
+                VIEW
+
+                        The dimensional pivot.
+
+                        The View defines the viewing angle of a given Workspace.
+                        
+                        Switching Views applies a rotation along the 4th dimension to reveal a new
+                        perspective or role for the existing data, without ever duplicating it in
+                        memory. 
+                NODE
+
+                        The absolute atomic unit of qwx.
+
+                        The Node represents the in-memory quantum state of a file, log or system
+                        resource.
+                        
+                        It exists independently of the interface. Multiple panels can point to and
+                        manipulate the same Node simultaneously without any desynchronization.
+
+                LAYER
+
+                        An isolated persistence state representing a specific point in a
+                        document's timeline and modification history.
+
+                        It allows for stacking, comparing, and restoring successive changes made
+                        to text streams without altering the original source file.
+
+                GRID
+
+                        It is not a rigid or empty structure, but is defined exclusively by the
+                        assembly, splitting, and merging of the panels that compose it.
+
+                        This system manages the geometric adjacency relationships between each panel,
+                        instantly redistributing the lines of force and proportions of the overall
+                        display surface whenever a container is added, resized, or removed.
+
+                MENU
+
+                        The contextual panel overlay control interface designed for rapid interaction.
+
+        COORDINATES
+
+                The visual grid system uses a strict spatial notation to ensure you always know your
+                location within the Tesseract.
+
+                Each panel displays a coordinate in algebraic form:
+
+                        percentage
+
+                                Represents the state of the active Node.
+                                
+                        number
+
+                                Indicates the active Workspace.
+                                
+                        exponent
+
+                                Indicates the active View.
+        SCHEMAS
+
+                The visual grid system ensures you always know your exact spatial location.
+
+ 
+                        +-------------------------------------------------------+
+                        |                           f                           |
+                        |    +-------------------+     +-------------------+    |
+                        |    | p                 |     | p                 |    |
+                        |    |                   |     |                   |    |
+                        |    |       ~~~~~       |     |       ~~~~~       |    |
+                        |    |       ~~~~~       |     |       ~~~~~       |    |
+                        |    |                   |     |                   |    |
+                        |    |              % 1¹ |     |              % 1¹ |    |
+                        |    +-------------------+     +-------------------+    |
+                        |                                                       |
+                        |    +-------------------+     +-------------------+    |
+                        |    | p                 |     | p                 |    |
+                        |    |                   |     |                   |    |
+                        |    |       ~~~~~       |     |       ~~~~~       |    |
+                        |    |       ~~~~~       |     |       ~~~~~       |    |
+                        |    |                   |     |                   |    |
+                        |    |              % 1¹ |     |              % 1¹ |    |
+                        |    +-------------------+     +-------------------+    |
+                        |                                                       |
+                        +-------------------------------------------------------+
+
+                        ~ The panel data
+                        f The current visible face of an Environment.
+                        % The current cursor position percentage for an opened file.
+                        1 The panel current workspace.
+                        ¹ The panel current view.
+                        p A fusionable panel
+                        
+SEE ALSO
+
+        LICENSE https://raw.githubusercontent.com/kognitara/qwx/refs/heads/master/LICENSE
+         SOURCE https://github.com/kognitara/qwx
+        RELEASE https://github.com/kognitara/qwx/releases
+        REQUEST https://github.com/kognitara/qwx/pulls
+     BUG REPORT https://github.com/kognitara/qwx/issues
+        ROADMAP https://github.com/users/kognitara/projects/2
+     DISCUSSION https://github.com/kognitara/qwx/discussions
+           WIKI https://github.com/kognitara/qwx/wiki
+          CRATE https://crates.io/crates/qwx
+        FREEBSD https://github.com/kognitara/qwx/wiki/freebsd
+         NETBSD https://github.com/kognitara/qwx/wiki/netbsd
+        OPENBSD https://github.com/kognitara/qwx/wiki/openbsd
+           ARCH https://github.com/kognitara/qwx/wiki/archlinux
+         FEDORA https://github.com/kognitara/qwx/wiki/fedora
+         UBUNTU https://github.com/kognitara/qwx/wiki/ubuntu
+         DEBIAN https://github.com/kognitara/qwx/wiki/debian
+
+BORN DATE
+
+        Jul 26, 2026
+        
+AUTHOR
+
+        Written by Saigo Ekitae.
 
 
-# Use qwx
 
-```bash
-qwx open -p <directory> # no homedir
+Usage: qwx [COMMAND]
+
+Commands:
+  open  Open a directory
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 ```
