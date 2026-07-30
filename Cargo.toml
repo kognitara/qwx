@@ -2,7 +2,7 @@
 name = "qwx"
 version = "0.0.1"
 edition = "2024"
-description = "Data Walk eXtended"
+description = "Quaternary Walk eXtended"
 license = "AGPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/kognitara/qwx.git"
