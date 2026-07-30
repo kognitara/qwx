@@ -271,7 +271,7 @@ impl App {
                     cursor: 0,
                 },
             ],
-            mode: Mode::Finder,
+            mode: Mode::Normal,
             dmenu_input: String::new(),
             nodes: nodes.clone(),
             views,
@@ -1015,6 +1015,7 @@ impl App {
     }
 
     fn handle_events<W: Write>(&mut self, w: &mut W) -> Result<()> {
+        queue!(w, Clear(ClearType::All))?;
         match self.mode {
             Mode::Normal => self.handle_normal(w),
             Mode::Finder => self.handle_finder(w),

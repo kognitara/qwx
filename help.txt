@@ -1,0 +1,303 @@
+NAME
+        qwx - The extended data walk workspace
+
+DESCRIPTION
+
+        qwx is an ultra-fast, modal terminal application designed for developers, system admins,
+        teams looking to optimize their workflow, without ever leaving the command line.
+
+        Developed in Rust, it eliminates the need for heavy graphical IDEs by consolidating code
+        editing, server management, and team collaboration into a single, cohesive, and
+        lightning-fast text-based interface.
+
+PHILOSOPHY
+
+        To master qwx, you must embrace its core philosophy:
+
+                1. Keep your hands on the keyboard's home row.
+                2. No mouse, no popup, no context switching, no friction.
+                3. Built for speed.
+                4. A structured visual grid system for instant navigation between workspaces.
+                5. A single tool to replace your current ones.
+                6. A visual grid system to streamline your workflow.
+                7. Fusionable panels to mold the interface to your needs.
+                8. Maintain deep focus.
+
+NAVIGATION
+
+        KEYBOARD
+
+                KEYS
+
+                        Ctrl represent a control action.
+                        Alt represent a change data action.
+
+        MOVEMENT
+
+                Movement in qwx is modal and spatial, relying on standard home-row mechanics.
+
+                     ^                     The k key is at the top and move top.
+                     k              Tips:  The h key is at the left and moves left.
+               < h       l >               The l key is at the right and moves right.
+                     j                     The j key is at the down and move down.
+                     v
+        
+        CURSOR
+
+                Cursor movement is the atomic unit of navigation in qwx.
+
+                By strictly adhering to the standard home-row bindings, you traversetext, logs,
+                and lists with zero friction.
+
+                Your fingers never leave the baseline, ensuring maximum typing speed and efficiency.
+
+                The keyboard shortcuts to manipulate cursor:
+
+                        The 'h' key moves left.
+                        The 'l' key moves right.
+                        The 'j' key moves down.
+                        The 'k' key moves up.
+
+        PANEL
+
+                A panel..
+
+                The keyboard shortcuts to manipulate panel:
+                
+                        Ctrl+h moves focus to the left panel.
+                        Ctrl+l moves focus to the right panel.
+                        Ctrl+j moves focus to the bottom panel.
+                        Ctrl+k moves focus to the top panel.
+        GRID
+        
+                A grid
+
+        VIEW
+        
+                A View...
+
+                The keyboard shortcuts to manipulate view:
+                
+                        Alt+k moves focus to the next view.
+                        Alt+j moves focus to the prev view.
+
+        WORKSPACE
+        
+                A Workspace...
+
+                Workspaces are dedicated groups of tabs contained within a panel.
+
+                Workspace Focus enables horizontal cycling through your opened environments.
+
+                Think of it as paginating through different active projects.
+
+                You can also summon a visual tree to map your topology.
+
+                The keyboard shortcuts to manipulate workspace:
+                
+                        Alt+w print a tree to display workspaces infos.
+                        Alt+l moves focus to the next workspace.
+                        Alt+h moves focus to the prev workspace.
+        FACE
+
+                A Face...
+
+                Face represents a high-level layout of your Environment.
+
+                The keyboard shortcuts to manipulate face:
+                
+                        Alt+n moves focus to the next face.
+                        Alt+p moves focus to the previews face.
+        FACET
+
+                A Facet...
+
+                Facets are the two opposing sides of a Face—a recto and a verso.
+
+                The keyboard shortcuts to manipulate facet:
+
+                        Alt+x toggle between the primary facet (A) and the secondary facet (B) of the current Face.
+                        Alt+a force display of the facet A (front/recto).
+                        Alt+z force display of the facet Z (back/verso).
+
+        MODE
+
+                FUSION
+
+                        Fusion mode is your tool for reshaping your workspace.
+
+                        Designed to adapt to the complexity of your tasks, it allows you to break
+                        free from the standard four-panel grid. By merging an active panel with
+                        its neighbor, you absorb its space to provide an expanded display area for
+                        resource-intensive environments—such as analyzing a long log file or a large
+                        Git dashboard.
+
+                        The architecture remains structured, yet the grid geometry instantly adjusts
+                        to your needs, without ever requiring a mouse.
+                       
+                        The keyboard shortcuts to manipulate fusion:
+                        
+                                Ctrl+f enable the fusion mode and then:
+
+                                        h merges the current panel into the left panel.
+                                        l merges the current panel into the right panel.
+                                        j merges the current panel into the bottom panel.
+                                        k merges the current panel into the top panel.
+                                        q redraws the original grid and exit the mode.
+
+                ZEN
+
+                        Zen mode represents the ultimate state of immersion.
+
+                        Unlike merging, this mode neither destroys nor alters the grid,
+                        instead, it masks it.
+
+                        Activating it isolates the current panel and centers it on the screen,
+                        eliminating visual distractions so you can focus entirely on your code.
+
+                        The true power of Zen mode lies in its "phantom grid":
+                        the other panels continue running in the background.
+
+                        Using standard directional keys, you can glide smoothly to another
+                        panel—which instantly takes center without ever breaking your concentration.
+     
+                        The keyboard shortcuts to manipulate fusion:
+
+                                Ctrl+z enable the zen mode and then:
+                                
+                                        h shifts the Zen focus to the left panel.
+                                        l shifts the Zen focus to the right panel.
+                                        j shifts the Zen focus to the bottom panel.
+                                        k shifts the Zen focus to the top panel.
+                                        q redraws the original grid and exit the mode.
+                RESCUE
+
+                        Rescue mode...
+
+                        To serves as your safety net for compromised environments.
+
+                        Designed for unstable SSH connections or overloaded servers, this emergency
+                        mode instantly disables resource-intensive features—such as continuous
+                        syntax analysis, advanced graphical rendering, and secondary network request.
+
+                        Qwx reverts to a pure, raw, and ultra-responsive text-based interface,
+                        ensuring you remain in control even under conditions of extreme latency.
+
+                        The keyboard shortcuts to manipulate rescue:
+
+                                Ctrl+r enable the rescue mode.
+                BROADCAST
+
+                        Broadcast mode...
+
+                        Brodcast Mode transforms your terminal into a native collaboration space.
+
+                        Leveraging the Sessions architecture, this mode allows multiple developers
+                        to connect to the same interface.
+
+                        It synchronizes cursors in real time and manages permissions.
+
+                        It is the ultimate pair-programming experience whithout require an another
+                        tool, directly within the SSH session.
+
+                        The keyboard shortcuts to manipulate broadcast:
+
+                                Ctrl+b enable the broadcast mode.
+                EPHEMERAL
+                
+                        Ephemeral mode...
+
+                        Ephemeral Mode is your ultimate, secure scratchpad.
+
+                        It instantly summons a floating layer over your workspace, allowing you
+                        to jot down a quick note, format a snippet of code, or isolate a temporary
+                        query.
+
+                        Its golden rule is strict: absolutely nothing is stored in memory.
+                        As soon as the mode is closed, the buffer is completely and irretrievably
+                        destroyed.
+
+                        It is the perfect space for handling volatile data without cluttering
+                        your history or leaving any traces.
+                        
+                        The keyboard shortcuts to manipulate ephemeral:
+
+                                Ctrl+e enable the ephemeral mode.
+
+        VOCABULARY
+
+                BANK
+
+                       The Bank Represent a high-level domain for a specific engineering area.
+                
+                SESSION
+
+                        The sessions represent ssh connection  
+                        The Sessions represents remote connections.
+
+                ENVIRONMENT
+                
+                        The Environment represents a contextual workspace for a specific workflow.
+
+                FACE
+
+                        The Face represents two distinct layouts or views of an Environment.
+
+                FACET
+
+                        The Facet represents a oposite view of an Face.
+        
+                PANEL
+
+                        The Panel represents a human-machine interface for project management.
+
+                WORKSPACE
+                
+                        The Workspace represents a dedicated group of tabs in a panel. 
+
+                VIEW
+
+                        The View represents a role-specific perspective.
+
+                LAYER
+
+                        The Layer represents a state in the document history.
+
+                NODE
+
+                        The Node represent a file open INSIDE a panel.
+
+                MENU
+
+                        The Menu represents the tool for executing quick actions.
+
+        SCHEMAS
+
+                The visual grid system ensures you always know your exact spatial location.
+
+ 
+                        +-------------------------------------------------------+
+                        |                           f                           |
+                        |    +-------------------+     +-------------------+    |
+                        |    | 1                 |     | 2                 |    |
+                        |    |                   |     |                   |    |
+                        |    |                   |     |                   |    |
+                        |    |                   |     |                   |    |
+                        |    |              % a¹ |     |              % b¹ |    |
+                        |    +-------------------+     +-------------------+    |
+                        |                                                       |
+                        |    +-------------------+     +-------------------+    |
+                        |    | 3                 |     | 4                 |    |
+                        |    |                   |     |                   |    |
+                        |    |                   |     |                   |    |
+                        |    |                   |     |                   |    |
+                        |    |              % c¹ |     |              % d¹ |    |
+                        |    +-------------------+     +-------------------+    |
+                        |                                                       |
+                        +-------------------------------------------------------+
+
+                        f     The current visible face of an Environment.
+                        %     The current cursor position percentage for an opened file.
+                        [a-d] The panel current workspace (max 9 workspace by panel).
+                        ¹     The panel current view (max 9 views by workspace).
+                        [1-4] One fusionable panel.
