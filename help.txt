@@ -434,3 +434,31 @@ NAVIGATION
                         1 The panel current workspace.
                         ¹ The panel current view.
                         p A fusionable panel
+                        
+SEE ALSO
+
+        LICENSE https://raw.githubusercontent.com/kognitara/qwx/refs/heads/master/LICENSE
+         SOURCE https://github.com/kognitara/qwx
+        RELEASE https://github.com/kognitara/qwx/releases
+        REQUEST https://github.com/kognitara/qwx/pulls
+     BUG REPORT https://github.com/kognitara/qwx/issues
+        ROADMAP https://github.com/users/kognitara/projects/2
+     DISCUSSION https://github.com/kognitara/qwx/discussions
+           WIKI https://github.com/kognitara/qwx/wiki
+          CRATE https://crates.io/crates/qwx
+        FREEBSD https://github.com/kognitara/qwx/wiki/freebsd
+         NETBSD https://github.com/kognitara/qwx/wiki/netbsd
+        OPENBSD https://github.com/kognitara/qwx/wiki/openbsd
+           ARCH https://github.com/kognitara/qwx/wiki/archlinux
+         FEDORA https://github.com/kognitara/qwx/wiki/fedora
+         UBUNTU https://github.com/kognitara/qwx/wiki/ubuntu
+         DEBIAN https://github.com/kognitara/qwx/wiki/debian
+
+BORN DATE
+
+        Jul 26, 2026
+        
+AUTHOR
+
+        Written by Saigo Ekitae.
+
