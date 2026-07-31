@@ -1,5 +1,6 @@
 use crate::apps::App;
-use clap::{Arg, Command, value_parser};
+use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
+use git2::Repository;
 use std::io;
 use std::path::Path;
 
@@ -21,6 +22,34 @@ fn cli() -> Command {
                     .default_value("."),
             ),
         )
+        .subcommand(
+            Command::new("get")
+                .about("Get a git repository in a directory and open it in qwx")
+                .arg(
+                    Arg::new("url")
+                        .required(true)
+                        .action(ArgAction::Set)
+                        .value_parser(value_parser!(String)),
+                )
+                .arg(
+                    Arg::new("destination")
+                        .required(true)
+                        .action(ArgAction::Set)
+                        .value_parser(value_parser!(String)),
+                ),
+        )
+}
+fn mount_and_open(sub: &ArgMatches) -> io::Result<()> {
+    let url = sub.get_one::<String>("url").expect("url is required");
+    let destination = sub
+        .get_one::<String>("destination")
+        .expect("destination is required");
+    let dest = Path::new(destination.as_str());
+    if Repository::clone(url, dest).is_ok() {
+        App::new(dest)?.run()
+    } else {
+        Ok(())
+    }
 }
 
 fn main() -> io::Result<()> {
@@ -38,6 +67,7 @@ fn main() -> io::Result<()> {
                 Ok(())
             }
         }
+        Some(("mount", sub)) => mount_and_open(sub),
         _ => {
             app.clone().print_long_help()?;
             Ok(())

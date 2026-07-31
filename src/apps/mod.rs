@@ -5,7 +5,6 @@ use crate::{
     },
     finder::{Finder, FinderLayout, list_files},
 };
-use arboard::Clipboard;
 use crossterm::{
     cursor::{self, Hide, SetCursorStyle, Show},
     event::{Event, KeyCode, KeyModifiers, read},
@@ -93,7 +92,6 @@ pub struct App {
     mode: Mode,
     dmenu_input: String,
     editor: Ji,
-    xclip: Clipboard,
     search_input: String,
 }
 
@@ -281,7 +279,6 @@ impl App {
             current_dir: path.into(),
             editor: Ji::default(),
             search_input: String::new(),
-            xclip: Clipboard::new().expect("failed to get cliboard"),
         })
     }
     /// Synchronise le Rope de l'éditeur vers le Vec<String> du Nœud actif
@@ -514,32 +511,6 @@ impl App {
                             self.editor.cursor_line -= 1;
                         }
                         self.sync_node_content();
-                    }
-                }
-                (KeyModifiers::ALT, KeyCode::Char('y')) => {
-                    let text_to_copy = if let Some((start, end)) = self.editor.selection {
-                        let start_char = self.editor.rope.line_to_char(start);
-                        let end_char = if end + 1 < self.editor.rope.len_lines() {
-                            self.editor.rope.line_to_char(end + 1)
-                        } else {
-                            self.editor.rope.len_chars()
-                        };
-                        self.editor.rope.slice(start_char..end_char).to_string()
-                    } else {
-                        self.editor.rope.to_string()
-                    };
-                    self.xclip
-                        .set_text(text_to_copy.as_str())
-                        .expect("failed to copy");
-                    self.editor.selection = None;
-                }
-                (KeyModifiers::ALT, KeyCode::Char('p')) => {
-                    if let Ok(text) = self.xclip.get_text() {
-                        for ch in text.chars() {
-                            self.editor.insert_char(ch);
-                        }
-                        self.sync_node_content();
-                        self.follow_cursor();
                     }
                 }
                 (KeyModifiers::NONE, KeyCode::Backspace) => {
@@ -902,32 +873,6 @@ impl App {
                 (KeyModifiers::NONE, KeyCode::Char('d')) => {
                     if self.editor.selection.is_some() {
                         self.editor.delete_selection();
-                        self.sync_node_content();
-                        self.follow_cursor();
-                    }
-                }
-                (KeyModifiers::NONE, KeyCode::Char('y')) => {
-                    let text_to_copy = if let Some((start, end)) = self.editor.selection {
-                        let start_char = self.editor.rope.line_to_char(start);
-                        let end_char = if end + 1 < self.editor.rope.len_lines() {
-                            self.editor.rope.line_to_char(end + 1)
-                        } else {
-                            self.editor.rope.len_chars()
-                        };
-                        self.editor.rope.slice(start_char..end_char).to_string()
-                    } else {
-                        self.editor.rope.to_string()
-                    };
-                    self.xclip
-                        .set_text(text_to_copy.as_str())
-                        .expect("failed to copy selection");
-                    self.editor.selection = None;
-                }
-                (KeyModifiers::NONE, KeyCode::Char('p')) => {
-                    if let Ok(text) = self.xclip.get_text() {
-                        for ch in text.chars() {
-                            self.editor.insert_char(ch);
-                        }
                         self.sync_node_content();
                         self.follow_cursor();
                     }
