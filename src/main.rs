@@ -8,6 +8,7 @@ mod apps;
 mod editor;
 mod finder;
 const HELP_CONTENT: &str = include_str!("../help.txt");
+
 fn cli() -> Command {
     Command::new(env!("CARGO_PKG_NAME"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
@@ -39,7 +40,7 @@ fn cli() -> Command {
                 ),
         )
 }
-fn mount_and_open(sub: &ArgMatches) -> io::Result<()> {
+fn get_and_open(sub: &ArgMatches) -> io::Result<()> {
     let url = sub.get_one::<String>("url").expect("url is required");
     let destination = sub
         .get_one::<String>("destination")
@@ -67,7 +68,7 @@ fn main() -> io::Result<()> {
                 Ok(())
             }
         }
-        Some(("mount", sub)) => mount_and_open(sub),
+        Some(("get", sub)) => get_and_open(sub),
         _ => {
             app.clone().print_long_help()?;
             Ok(())
