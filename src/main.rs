@@ -1,6 +1,7 @@
 use crate::apps::App;
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 use git2::Repository;
+use std::env::{current_dir, set_current_dir};
 use std::io;
 use std::path::Path;
 
@@ -46,10 +47,18 @@ fn get_and_open(sub: &ArgMatches) -> io::Result<()> {
         .get_one::<String>("destination")
         .expect("destination is required");
     let dest = Path::new(destination.as_str());
-    if Repository::clone(url, dest).is_ok() {
-        App::new(dest)?.run()
+    let x = current_dir()?;
+    let p = x.join(destination);
+    if p.is_dir() {
+        set_current_dir(p.as_path())?;
+        App::new(p.as_path())?.run()
     } else {
-        Ok(())
+        if Repository::clone(url, dest).is_ok() {
+            set_current_dir(p.as_path())?;
+            App::new(p.as_path())?.run()
+        } else {
+            Ok(())
+        }
     }
 }
 
