@@ -1,86 +1,43 @@
-use crate::apps::App;
-use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
-use git2::Repository;
-use std::env::{current_dir, set_current_dir};
-use std::io;
-use std::path::Path;
+use crossterm::event::{KeyCode, KeyModifiers};
+use crossterm::style::{Attribute, Color};
+use crossterm::terminal::WindowSize;
+use qwx::terminal::core::QwxEvent;
+use qwx::terminal::core::QwxTerminal;
+use qwx::terminal::echo::Echo;
+use qwx::terminal::style::QwxStyle;
+use std::io::{Result, Write, stdout};
+pub mod terminal;
 
-mod apps;
-mod editor;
-mod finder;
-const HELP_CONTENT: &str = include_str!("../help.txt");
-
-fn cli() -> Command {
-    Command::new(env!("CARGO_PKG_NAME"))
-        .about(env!("CARGO_PKG_DESCRIPTION"))
-        .version(env!("CARGO_PKG_VERSION"))
-        .long_about(HELP_CONTENT)
-        .subcommand(
-            Command::new("open").about("Open a directory").arg(
-                Arg::new("path")
-                    .short('p')
-                    .required(false)
-                    .value_parser(value_parser!(String))
-                    .default_value("."),
-            ),
-        )
-        .subcommand(
-            Command::new("get")
-                .about("Get a git repository in a directory and open it in qwx")
-                .arg(
-                    Arg::new("url")
-                        .required(true)
-                        .action(ArgAction::Set)
-                        .value_parser(value_parser!(String)),
-                )
-                .arg(
-                    Arg::new("destination")
-                        .required(true)
-                        .action(ArgAction::Set)
-                        .value_parser(value_parser!(String)),
-                ),
-        )
-}
-fn get_and_open(sub: &ArgMatches) -> io::Result<()> {
-    let url = sub.get_one::<String>("url").expect("url is required");
-    let destination = sub
-        .get_one::<String>("destination")
-        .expect("destination is required");
-    let dest = Path::new(destination.as_str());
-    let x = current_dir()?;
-    let p = x.join(destination);
-    if p.is_dir() {
-        set_current_dir(p.as_path())?;
-        App::new(p.as_path())?.run()
-    } else {
-        if Repository::clone(url, dest).is_ok() {
-            set_current_dir(p.as_path())?;
-            App::new(p.as_path())?.run()
-        } else {
-            Ok(())
-        }
-    }
+fn draw<W: Write>(
+    w: &mut W,
+    window: &WindowSize,
+    _k: Option<KeyCode>,
+    _m: Option<KeyModifiers>,
+    _e: QwxEvent,
+    echo: Echo,
+) -> Result<()> {
+    echo.rect(
+        w,
+        0,
+        0,
+        window.columns,
+        window.rows,
+        qwx::terminal::style::QwxBorders::ROUNDED,
+        QwxStyle {
+            fg: Some(Color::Blue),
+            bg: Some(Color::Black),
+            attr: Some(Attribute::Bold),
+        },
+    )?;
+    w.flush()?;
+    Ok(())
 }
 
-fn main() -> io::Result<()> {
-    let app = cli();
-    let matches = app.clone().get_matches();
-    match matches.subcommand() {
-        Some(("open", sub)) => {
-            let p = sub.get_one::<String>("path").expect("required");
-            if Path::new(p.as_str()).is_dir() {
-                App::new(Path::new(p.as_str()))?.run()
-            } else if dirs::home_dir().ne(&Some(Path::new(".").to_path_buf())) {
-                App::new(Path::new("."))?.run()
-            } else {
-                app.clone().print_long_help()?;
-                Ok(())
-            }
-        }
-        Some(("get", sub)) => get_and_open(sub),
-        _ => {
-            app.clone().print_long_help()?;
-            Ok(())
-        }
-    }
+fn main() {
+    let mut w = stdout();
+    let window = crossterm::terminal::window_size().expect("");
+    QwxTerminal::new(window.rows, window.columns)
+        .open(&mut w)
+        .interact(&mut w, &window, KeyCode::F(12), draw)
+        .close(&mut w);
 }
