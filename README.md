@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="qwx.png" alt="qwx logo - a black feather in an inkwell" width="180" />
+  <img src="Qwx.png" alt="qwx logo - a black feather in an inkwell" width="180" />
   
   <p><em>The deliberate ink of instant creation.</em></p>
 </div>
