@@ -1,39 +1,33 @@
-use crate::terminal::component::Component;
+use crate::terminal::component::App;
 use crate::terminal::echo::Echo;
 use crate::terminal::style::QwxStyle;
 use crossterm::cursor::Hide;
 use crossterm::cursor::Show;
 use crossterm::event::Event;
-use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
-use crossterm::event::MouseEvent;
+use crossterm::event::KeyEventKind;
 use crossterm::event::read;
 use crossterm::execute;
+use crossterm::queue;
+use crossterm::terminal::Clear;
+use crossterm::terminal::ClearType;
 use crossterm::terminal::EnterAlternateScreen;
 use crossterm::terminal::LeaveAlternateScreen;
-use crossterm::terminal::WindowSize;
 use crossterm::terminal::disable_raw_mode;
 use crossterm::terminal::enable_raw_mode;
+use std::io::Result;
 use std::io::Write;
 
 #[derive(Debug)]
 pub struct QwxEvent {
-    key: Option<KeyEvent>,
-    mouse: Option<MouseEvent>,
-    paste: Option<String>,
-    focus: Option<bool>,
-    lost_focus: Option<bool>,
-    resize: Option<(u16, u16)>,
+    pub key: Option<KeyEvent>,
+    pub paste: Option<String>,
 }
 
 impl Drop for QwxEvent {
     fn drop(&mut self) {
         self.key = None;
-        self.mouse = None;
         self.paste = None;
-        self.focus = None;
-        self.lost_focus = None;
-        self.resize = None;
     }
 }
 
@@ -42,7 +36,6 @@ pub struct QwxTerminal {
     height: u16,
     event: Option<Event>,
     style: QwxStyle,
-    components: Vec<Box<dyn Component>>,
 }
 impl Drop for QwxTerminal {
     fn drop(&mut self) {
@@ -54,7 +47,6 @@ impl Drop for QwxTerminal {
             bg: None,
             attr: None,
         };
-        self.components.clear();
     }
 }
 impl QwxTerminal {
@@ -69,105 +61,56 @@ impl QwxTerminal {
                 bg: None,
                 attr: None,
             },
-            components: Vec::new(),
         }
     }
-    pub fn add(&mut self, mut component: Box<dyn Component>) -> &mut Self {
-        component.on_mount(); // On déclenche le hook au montage
-        self.components.push(component);
-        self
+    pub fn run<A: App, W: Write>(&mut self, w: &mut W, app: &mut A) -> Result<()> {
+        let echo = Echo;
+        // 1. On récupère la taille actuelle de la fenêtre
+        let window = crossterm::terminal::window_size().expect("Failed to get window size");
+
+        // 2. On dessine l'application
+        app.render(w, &echo, &window)?;
+        w.flush()?;
+
+        // 3. On écoute les événements
+        match read().expect("Failed to read event") {
+            Event::Mouse(_e) => {}
+            Event::Paste(x) => {
+                let evt = QwxEvent {
+                    key: None,
+                    paste: Some(x),
+                };
+                app.on_event(&evt);
+            }
+            Event::Key(e) => {
+                if e.kind == KeyEventKind::Press {
+                    let evt = QwxEvent {
+                        key: Some(e),
+                        paste: None,
+                    };
+                    app.on_event(&evt);
+                }
+            }
+            Event::FocusLost => {}
+            Event::FocusGained => {}
+            Event::Resize(width, height) => {
+                queue!(w,Clear(ClearType::All))?;
+                self.resize(width, height);
+            }
+        }
+        Ok(())
     }
-    pub fn open<W: Write>(&mut self, w: &mut W) -> &mut Self {
+    pub fn open<W: Write>(&mut self, w: &mut W) {
         enable_raw_mode().expect("failed to enable raw mode");
         execute!(w, EnterAlternateScreen, Hide).expect("failed to enter to ealternate screen");
-        self
     }
 
     pub fn close<W: Write>(&mut self, w: &mut W) {
-        // Ajout de "Show"
         execute!(w, LeaveAlternateScreen, Show).expect("failed to quit");
         disable_raw_mode().expect("failed to disable raw mode");
     }
     pub fn resize(&mut self, width: u16, height: u16) {
         self.width = width;
         self.height = height;
-    }
-
-    pub fn interact<W: Write>(
-        &mut self,
-        w: &mut W,
-        window: &WindowSize,
-        exit_code: KeyCode,
-    ) -> &mut Self {
-        let echo = Echo;
-
-        loop {
-            let e = match read().expect("") {
-                Event::Key(e) => QwxEvent {
-                    key: Some(e),
-                    mouse: None,
-                    paste: None,
-                    focus: None,
-                    lost_focus: None,
-                    resize: None,
-                },
-                Event::Mouse(e) => QwxEvent {
-                    key: None,
-                    mouse: Some(e),
-                    paste: None,
-                    focus: None,
-                    lost_focus: None,
-                    resize: None,
-                },
-                Event::Paste(x) => QwxEvent {
-                    key: None,
-                    mouse: None,
-                    paste: Some(x),
-                    focus: None,
-                    lost_focus: None,
-                    resize: None,
-                },
-                Event::FocusLost => QwxEvent {
-                    key: None,
-                    mouse: None,
-                    paste: None,
-                    focus: None,
-                    lost_focus: Some(true),
-                    resize: None,
-                },
-                Event::FocusGained => QwxEvent {
-                    key: None,
-                    mouse: None,
-                    paste: None,
-                    focus: Some(true),
-                    lost_focus: None,
-                    resize: None,
-                },
-                Event::Resize(cols, rows) => QwxEvent {
-                    key: None,
-                    mouse: None,
-                    paste: None,
-                    focus: None,
-                    lost_focus: None,
-                    resize: Some((cols, rows)),
-                },
-            };
-            if e.key.is_some() && e.key.expect("").code.eq(&exit_code) {
-                return self;
-            } else {
-                for comp in &self.components {
-                    // Le `w as &mut dyn Write` convertit la référence générique
-                    // en référence dynamique (vtable) à la volée !
-                    let _ = comp.render(
-                        w as &mut dyn Write,
-                        &echo,
-                        0,
-                        0,
-                        window.columns,
-                        window.rows,
-                    );
-                }
-            }
-        }
     }
 }

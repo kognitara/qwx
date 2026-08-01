@@ -1,28 +1,10 @@
 use crate::terminal::core::QwxEvent;
 use crate::terminal::echo::Echo;
+use crossterm::terminal::WindowSize;
 use std::io::{Result, Write};
 
-pub enum EventResult {
-    Consumed,
-    Ignored,
-}
+pub trait App {
+    fn on_event(&mut self, event: &QwxEvent);
 
-pub trait Component {
-    fn on_mount(&mut self) {}
-
-    fn on_event(&mut self, _event: &QwxEvent) -> EventResult {
-        EventResult::Ignored
-    }
-
-    // Le changement magique est ici : on remplace <W: Write>(w: &mut W)
-    // par directement w: &mut dyn Write
-    fn render(
-        &self,
-        w: &mut dyn Write,
-        echo: &Echo,
-        x: u16,
-        y: u16,
-        width: u16,
-        height: u16,
-    ) -> Result<()>;
+    fn render<W: Write>(&self, w: &mut W, echo: &Echo, window: &WindowSize) -> Result<()>;
 }
