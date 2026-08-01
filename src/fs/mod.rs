@@ -124,12 +124,11 @@ impl QwxFileSystem {
     }
 
     pub fn create(&self, p: &Path) -> bool {
-        OpenOptions::new().create(true).open(p).is_ok()
+        OpenOptions::new().write(true).open(p).is_ok()
     }
 
     pub fn add(&self, p: &Path, content: String) -> bool {
         let file = OpenOptions::new()
-            .write(true)
             .append(true)
             .open(p)
             .expect("failed to open file");
