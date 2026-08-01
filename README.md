@@ -1,3 +1,11 @@
+<div align="center">
+  <img src="qwx.png" alt="qwx logo - a black feather in an inkwell" width="180" />
+  
+  <h1>qwx</h1>
+  
+  <p><em>"The deliberate ink of instant creation."</em></p>
+</div>
+
 # Quaternary Walk eXtended
 
 `qwx` is an ultra-fast, modal terminal application designed for developers, system administrators,
