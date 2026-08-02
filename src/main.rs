@@ -1,19 +1,71 @@
 use crossterm::event::KeyCode;
 use crossterm::style::{Attribute, Color};
 use crossterm::terminal::WindowSize;
-use qwx::terminal::component::App;
+use qwx::terminal::component::{App, Editor, Finder};
 use qwx::terminal::core::{QwxEvent, QwxTerminal};
 use qwx::terminal::echo::Echo;
 use qwx::terminal::style::{QwxBorders, QwxStyle};
 use std::io::{Result, Write, stdout};
 pub mod terminal;
+pub mod finder;
+pub mod editor;
 
-// 1. Notre structure globale d'application
+
 struct Workspace {
     pub should_quit: bool, // Demain, on mettra ici :
                            // pub finder: FinderState,
 }
 
+
+impl Finder for Workspace {
+    fn find(&mut self, query: &str) {
+        todo!()
+    }
+
+    fn finder_results(&self) -> Vec<String> {
+        todo!()
+    }
+
+    fn finder_layout(&self) -> qwx::finder::layout::FinderLayout {
+        todo!()
+    }
+
+    fn set_finder_layout(&mut self, layout: qwx::finder::layout::FinderLayout) {
+        todo!()
+    }
+    
+    fn finder_search_kind(&self) -> qwx::finder::search::FinderSearchKind {
+        todo!()
+    }
+    
+    fn finder_search_order(&self) -> qwx::finder::search::FinderSearchOrder {
+        todo!()
+    }
+    
+    fn finder_filter_kind(&self) -> qwx::finder::search::FilterKind {
+        todo!()
+    }
+    
+    fn set_finder_search_kind(&mut self, kind: qwx::finder::search::FinderSearchKind) {
+        todo!()
+    }
+    
+    fn set_finder_search_order(&mut self, order: qwx::finder::search::FinderSearchOrder) {
+        todo!()
+    }
+    
+    fn set_finder_filter_kind(&mut self, kind: qwx::finder::search::FilterKind) {
+        todo!()
+    }
+    
+    fn finder_capture(&mut self, input: char) {
+        todo!()
+    }
+}
+
+impl Editor for Workspace {
+    
+}
 // 2. On implémente le comportement de notre application
 impl App for Workspace {
     fn on_event(&mut self, event: &QwxEvent) {

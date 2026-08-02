@@ -19,6 +19,7 @@ use std::io::Result;
 use std::io::Write;
 
 #[derive(Debug)]
+/// Represents an event in the Qwx terminal application, which can be either a key press or a paste action.
 pub struct QwxEvent {
     pub key: Option<KeyEvent>,
     pub paste: Option<String>,
@@ -37,6 +38,7 @@ pub struct QwxTerminal {
     event: Option<Event>,
     style: QwxStyle,
 }
+/// A struct representing the Qwx terminal
 impl Drop for QwxTerminal {
     fn drop(&mut self) {
         self.width = 0;

@@ -32,54 +32,54 @@ pub const FINDER_ACTIVE_SELECT: Color = Color::Rgb {
     b: 190,
 }; // Le violet cosmique pour la sélection active
 // ✨ Nouvelles couleurs pour la palette :
-const CONSTANTS: Color = Color::Rgb {
+pub const CONSTANTS: Color = Color::Rgb {
     r: 230,
     g: 190,
     b: 100,
 }; // Un Or doux, très lisible
-const NAMESPACES: Color = Color::Rgb {
+pub const NAMESPACES: Color = Color::Rgb {
     r: 150,
     g: 180,
     b: 200,
 }; // Un gris-bleu pour les modules
-const DIRECTIVES: Color = Color::Rgb {
+pub const DIRECTIVES: Color = Color::Rgb {
     r: 200,
     g: 120,
     b: 180,
 }; // Un rose/magenta pastel
 // Ton fameux "Bleu Noir" pour les commentaires (discret mais lisible)
-const COMMENTS: Color = Color::Rgb {
+pub const COMMENTS: Color = Color::Rgb {
     r: 50,
     g: 70,
     b: 100,
 };
 
 // Un bleu clair/cyan très pur pour les types
-const TYPES: Color = Color::Rgb {
+pub const TYPES: Color = Color::Rgb {
     r: 100,
     g: 170,
     b: 255,
 };
 
 // Un bleu électrique pastel pour les fonctions, qui reste dans ton thème
-const FUNCTIONS: Color = Color::Rgb {
+pub const FUNCTIONS: Color = Color::Rgb {
     r: 80,
     g: 200,
     b: 240,
 };
 
 // Pour contraster un peu sans casser l'ambiance froide :
-const KEYWORDS: Color = Color::Rgb {
+pub const KEYWORDS: Color = Color::Rgb {
     r: 180,
     g: 150,
     b: 255,
 }; // Violet doux
-const STRINGS: Color = Color::Rgb {
+pub const STRINGS: Color = Color::Rgb {
     r: 120,
     g: 200,
     b: 160,
 }; // Vert d'eau/Menthe
-const NUMBERS: Color = Color::Rgb {
+pub const NUMBERS: Color = Color::Rgb {
     r: 240,
     g: 160,
     b: 120,

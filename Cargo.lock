@@ -818,6 +818,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "git2",
+ "glob",
  "ignore",
  "is_executable",
  "num_cpus",

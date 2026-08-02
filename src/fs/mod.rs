@@ -8,6 +8,7 @@ use std::{
 };
 
 #[derive(Debug)]
+/// A struct representing the Qwx file system, which provides methods for interacting with files and directories.
 pub struct QwxFileSystem {
     pub files: Vec<String>,
     pub dirs: Vec<String>,
@@ -85,7 +86,11 @@ impl QwxFileSystem {
     pub fn get_files(&self) -> Vec<String> {
         self.files.to_vec()
     }
-
+    /// get all executables in the given path
+    pub fn get_executables(&self) -> Vec<String> {
+        self.executables.to_vec()
+    }
+    /// check if the given path has the file or dir or symlink or executable
     pub fn has(&self, x: &String) -> bool {
         let files_founded = self.files.contains(x);
         let dirs_founded = self.dirs.contains(x);
@@ -93,6 +98,7 @@ impl QwxFileSystem {
         let symlink_founded = self.symlinks.contains(x);
         files_founded || dirs_founded || executable_founded || symlink_founded
     }
+    /// create a new file if it does not exist, return true if created, false if already exists
     pub fn touch(&self, p: &Path) -> bool {
         if p.exists() {
             false
@@ -104,7 +110,7 @@ impl QwxFileSystem {
                 .is_ok()
         }
     }
-
+    /// create a new file with content if it does not exist, return true if created, false if already exists
     pub fn touch_with_content(&self, p: &Path, content: String) -> bool {
         if p.exists() {
             false
@@ -122,11 +128,11 @@ impl QwxFileSystem {
             true
         }
     }
-
+    /// create a new file if it does not exist, return true if created, false if already exists
     pub fn create(&self, p: &Path) -> bool {
         OpenOptions::new().write(true).open(p).is_ok()
     }
-
+    /// append content to the file, return true if successful, false if file does not exist
     pub fn add(&self, p: &Path, content: String) -> bool {
         let file = OpenOptions::new()
             .append(true)
@@ -141,7 +147,7 @@ impl QwxFileSystem {
         writer.flush().expect("failed to Write");
         true
     }
-
+    /// overwrite content to the file, return true if successful, false if file does not exist
     pub fn erase(&self, p: &Path, new_content: String) -> bool {
         if p.exists() && new_content.is_empty() {
             OpenOptions::new()
@@ -165,6 +171,7 @@ impl QwxFileSystem {
             false
         }
     }
+    /// remove a directory and all its contents, return true if successful, false if directory does not exist
     pub fn remove_dir(&self, p: &Path) -> bool {
         if p.is_dir() {
             std::fs::remove_dir_all(p).is_ok()
@@ -172,6 +179,7 @@ impl QwxFileSystem {
             false
         }
     }
+    /// remove a file, return true if successful, false if file does not exist
     pub fn remove_file(&self, p: &Path) -> bool {
         if p.is_file() {
             std::fs::remove_file(p).is_ok()
@@ -179,7 +187,23 @@ impl QwxFileSystem {
             false
         }
     }
-
+    /// remove a symlink, return true if successful, false if symlink does not exist
+    pub fn remove_symlink(&self, p: &Path) -> bool {
+        if p.is_symlink() {
+            std::fs::remove_file(p).is_ok()
+        } else {
+            false   
+        }
+    }
+    /// remove an executable, return true if successful, false if executable does not exist
+    pub fn remove_executable(&self, p: &Path) -> bool {
+        if p.is_executable() {      
+            std::fs::remove_file(p).is_ok()
+        } else {
+            false
+        }
+    }
+    /// get the content of the file, return empty string if file does not exist
     pub fn file_content(&self, p: &Path) -> String {
         if p.exists() {
             read_to_string(p).expect("failed to read file content")
@@ -187,7 +211,7 @@ impl QwxFileSystem {
             String::new()
         }
     }
-
+    /// get the content of the file, return empty string if file does not exist
     pub fn push_content(&self, p: &Path) -> String {
         if p.exists() {
             read_to_string(p).expect("failed to read file content")
@@ -195,6 +219,7 @@ impl QwxFileSystem {
             String::new()
         }
     }
+    /// get the content of the file by index, return empty string if file does not exist
     pub fn get_file_content(&self, index: usize) -> String {
         if let Some(x) = self.files.get(index) {
             read_to_string(x).expect("failed to read file content")
@@ -202,13 +227,13 @@ impl QwxFileSystem {
             String::new()
         }
     }
-
+    /// load the content of the files by indexes, return self
     pub fn load(&mut self, indexes: Vec<usize>) -> &mut Self {
         for i in indexes {
             if let Some(x) = self.files.get(i) {
                 self.loaded.insert(
                     x.to_string(),
-                    read_to_string(x).expect("failed to read file ontent"),
+                    read_to_string(x).expect("failed to read file content"),
                 );
             }
         }

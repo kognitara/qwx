@@ -6,6 +6,7 @@ pub enum QwxDirection {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[doc = "A struct representing a style for a terminal UI component."]
 pub struct QwxStyle {
     pub fg: Option<Color>,
     pub bg: Option<Color>,
@@ -13,6 +14,7 @@ pub struct QwxStyle {
 }
 
 #[derive(Clone, Copy)]
+#[doc = "A struct representing a set of borders for a terminal UI component."]
 pub struct QwxBorders {
     pub top_left: &'static str,
     pub top_right: &'static str,
@@ -23,7 +25,7 @@ pub struct QwxBorders {
 }
 
 impl QwxBorders {
-    /// A pre-defined set of smooth, rounded borders often used in modern TUIs.
+    /// A pre-defined set of rounded borders.
     pub const ROUNDED: Self = Self {
         top_left: "╭",
         top_right: "╮",
@@ -41,5 +43,50 @@ impl QwxBorders {
         bottom_right: "┘",
         horizontal: "─",
         vertical: "│",
+    };
+    /// A pre-defined set of double-line borders.
+    pub const DOUBLE: Self = Self {
+        top_left: "╔",
+        top_right: "╗",
+        bottom_left: "╚",
+        bottom_right: "╝",
+        horizontal: "═",
+        vertical: "║",
+    };
+    /// A pre-defined set of heavy-line borders.
+    pub const HEAVY: Self = Self {
+        top_left: "┏",
+        top_right: "┓",
+        bottom_left: "┗",
+        bottom_right: "┛",
+        horizontal: "━",
+        vertical: "┃",
+    };
+    /// A pre-defined set of dotted-line borders.
+    pub const DOTTED: Self = Self {
+        top_left: "┌",
+        top_right: "┐",
+        bottom_left: "└",
+        bottom_right: "┘",
+        horizontal: "┄",
+        vertical: "┆",
+    };
+    //// A pre-defined set of dashed-line borders.
+    pub const DASHED: Self = Self {
+        top_left: "┌",
+        top_right: "┐",
+        bottom_left: "└",
+        bottom_right: "┘",
+        horizontal: "╌",
+        vertical: "╎",
+    };
+    /// A pre-defined set of no borders (empty).
+    pub const NONE: Self = Self {
+        top_left: " ",
+        top_right: " ",
+        bottom_left: " ",
+        bottom_right: " ",
+        horizontal: " ",
+        vertical: " ",
     };
 }

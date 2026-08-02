@@ -8,6 +8,7 @@ use std::io::{Result, Write};
 use crate::terminal::style::{QwxBorders, QwxDirection, QwxStyle};
 
 #[derive(Debug)]
+#[doc = "A struct representing the Qwx terminal echo functionality"]
 pub struct Echo;
 
 impl Drop for Echo {
@@ -15,6 +16,27 @@ impl Drop for Echo {
 }
 #[allow(clippy::too_many_arguments)]
 impl Echo {
+    /// Draws a rectangle with specified borders and style directly to the given writer.
+    ///
+    /// This method is optimized for terminal rendering. It avoids memory allocation
+    /// by queuing the rendering instructions directly into the provided output buffer.
+    ///
+    /// Terminal state (colors and attributes) is automatically cleaned up and reset
+    /// after the rectangle is drawn to prevent styling leaks across the UI.
+    ///
+    /// # Arguments
+    ///
+    /// * `w` - A mutable reference to a type implementing the `Write` trait (e.g., `stdout` or a `Vec<u8>`).
+    /// * `start_x` - The 0-based column index where the rectangle begins.
+    /// * `start_y` - The 0-based row index where the rectangle begins.
+    /// * `width` - The width of the rectangle in characters.
+    /// * `height` - The height of the rectangle in characters.
+    /// * `borders` - The `QwxBorders` struct defining the characters used for the rectangle's borders.
+    /// * `style` - The `QwxStyle` (foreground, background, and attributes) applied to the rectangle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `std::io::Error` if the underlying writer fails to queue the terminal instructions (e.g., broken pipe or I/O failure).
     pub fn rect<W: Write>(
         &self,
         w: &mut W,
