@@ -5,6 +5,7 @@ use crate::terminal::echo::Echo;
 
 use crossterm::terminal::WindowSize;
 use std::io::{Result, Write};
+use std::path::Path;
 
 #[doc = "The main application trait, combining Editor and Finder functionality"]
 pub trait App: Editor + Finder {
@@ -84,7 +85,7 @@ pub trait Finder {
     /// This method returns the current search kind, which determines how the Finder component searches for files and directories. Implementations of this trait should define how the search kind is managed and retrieved.
     ///
     fn finder_search_kind(&self) -> FinderSearchKind;
-    
+
     /// Get the current search order for the Finder component.
     ///
     /// This method returns the current search order, which determines the order in which search results are displayed. Implementations of this trait should define how the search order is managed and retrieved.
@@ -157,7 +158,142 @@ pub trait Finder {
     /// * `layout` - A `FinderLayout` enum value representing the desired layout for the Finder component. This could be one of several predefined layouts that determine how information is organized and displayed in the terminal.
     ///
     fn set_finder_layout(&mut self, layout: FinderLayout);
+
+    fn finder_next_result(&mut self);
+
+    fn finder_previous_result(&mut self);
+
+    fn finder_get_selected(&self) -> Option<String>;
 }
 
 #[doc = "The Editor trait, representing the text-editing functionality of the application"]
-pub trait Editor {}
+pub trait Editor {
+
+    fn editor_insert_char(&mut self, c: char);
+
+    fn editor_backspace(&mut self);
+
+    fn editor_delete_char(&mut self);
+
+    fn editor_scroll(&mut self, delta_y: isize);
+
+    fn editor_get_viewport(&self) -> (usize, usize);
+
+    fn editor_move_cursor(&mut self, dx: isize, dy: isize);
+    
+    /// Select a line in the editor.
+    ///
+    /// This method is called to select a line of text within the editor. Implementations of this trait should define how the application handles line selection and how it affects the state of the editor.
+    fn editor_select_line(&mut self);
+
+    /// Insert a line of text into the editor.
+    ///
+    /// This method is called to insert a line of text into the editor. Implementations of this trait should define how the application handles text insertion and how it affects the state of the editor.
+    fn editor_insert_line(&mut self, line: &str);
+
+    /// Delete a line from the editor.
+    ///
+    /// This method is called to delete a line of text from the editor. Implementations of this trait should define how the application handles text deletion and how it affects the state of the editor.
+    fn editor_delete_line(&mut self, line_number: usize);
+
+    /// Retrieve the current lines of text in the editor.
+    ///
+    /// This method returns a vector of strings representing the current lines of text in the editor. Implementations of this trait should define how the lines of text are stored and retrieved.
+    ///
+    fn editor_get_lines(&self) -> Vec<String>;
+    /// Open a file in the editor.
+    ///
+    /// This method is called to open a file in the editor. Implementations of this trait should define how the application handles file opening and how it affects the state of the editor.
+    ///
+    /// # Arguments
+    /// * `file` - A reference to a `Path` representing the file to be opened in the editor. This could be any file path relevant to the application's context, and the implementation  
+    fn editor_open(&self, file: &Path);
+
+    /// Save the current content of the editor to a file.
+    ///
+    /// This method is called to save the current content of the editor to a specified file. Implementations of this trait should define how the application handles file saving and how it affects the state of
+    fn editor_save(&self, file: &Path);
+
+    /// Close a file in the editor.
+    ///
+    /// This method is called to close a file in the editor. Implementations of this trait should define how the application handles file closing and how it affects the state of the editor.
+    ///
+    /// # Arguments
+    /// * `file` - A reference to a `Path` representing the file to be closed in the editor.
+    fn editor_close(&self, file: &Path);
+
+    /// Undo the last action in the editor.
+    ///
+    /// This method is called to undo the last action performed in the editor. Implementations of this trait should define how the application handles undo operations and how it affects the state of the editor.  
+    fn editor_undo(&mut self);
+
+    /// Redo the last undone action in the editor.
+    ///
+    /// This method is called to redo the last undone action in the editor. Implementations of this trait should define how the application handles redo operations and how it affects the state of the editor.     
+    fn editor_redo(&mut self);
+    /// Cut the selected text in the editor.
+    ///
+    /// This method is called to cut the selected text in the editor. Implementations of this trait should define how the application handles cut operations and how it affects the state of the editor.
+    fn editor_cut(&mut self);
+
+    /// Copy the selected text in the editor.
+    ///
+    /// This method is called to copy the selected text in the editor. Implementations of this trait should define how the application handles copy operations and how it affects the state of the editor.
+    fn editor_copy(&mut self);
+    /// Paste the copied or cut text into the editor.
+    ///
+    /// This method is called to paste the copied or cut text into the editor. Implementations of this trait should define how the application handles paste operations and how it affects the state of the editor.
+    ///
+    fn editor_paste(&mut self);
+
+    /// Find text in the editor.
+    ///
+    /// This method is called to find text in the editor. Implementations of this trait should define how the application handles text search operations and how it affects the state of the editor.
+    ///
+    fn editor_find(&mut self, query: &str);
+
+    /// Replace text in the editor.
+    ///
+    /// This method is called to replace text in the editor. Implementations of this trait should define how the application handles text replacement operations and how it affects the state of the editor.
+    ///
+    /// # Arguments
+    /// * `query` - A string slice representing the text to be replaced in the editor. This could be any text relevant to the application's context, and the implementation should define how the search for this text is performed within the editor's content.
+    /// * `replacement` - A string slice representing the text that will replace the found occurrences of the `query` in the editor. This could be any text relevant to the application's context, and the implementation should define how the replacement is performed within the editor's content.
+    ///
+    fn editor_replace(&mut self, query: &str, replacement: &str);
+
+    /// Replace all occurrences of a query with a replacement in the editor.
+    ///
+    /// This method is called to replace all occurrences of a specified query with a replacement string in the editor. Implementations of this trait should define how the application handles bulk text replacement operations and how it affects the state of the editor.
+    ///
+    /// # Arguments
+    /// * `query` - A string slice representing the text to be replaced in the editor. This could be any text relevant to the application's context, and the implementation should define how the search for this text is performed within the editor's content.
+    /// * `replacement` - A string slice representing the text that will replace the found occurrences of the `query` in the editor. This could be any text relevant to the application's context, and the implementation should define how the replacement is performed within the editor's content.
+    ///
+    fn editor_replace_all(&mut self, query: &str, replacement: &str);
+
+    /// Get the current position of the cursor in the editor.
+    ///
+    /// This method is called to retrieve the current position of the cursor in the editor. Implementations of this trait should define how the application handles cursor position retrieval and how it affects the state of the editor.
+    ///
+    fn editor_get_cursor_position(&self) -> (usize, usize);
+
+    /// Set the position of the cursor in the editor.
+    ///
+    /// This method is called to set the position of the cursor in the editor. Implementations of this trait should define how the application handles cursor position setting and how it affects the state of the  editor.
+    ///
+    fn editor_set_cursor_position(&mut self, line: usize, column: usize);
+
+    /// Get the current selection in the editor.
+    ///
+    /// This method is called to retrieve the current selection in the editor. Implementations of this trait should define how the application handles selection retrieval and how it affects the state of the editor.
+    ///
+    fn editor_get_selection(&self) -> Option<(usize, usize, usize, usize)>;
+    fn editor_set_selection(
+        &mut self,
+        start_line: usize,
+        start_column: usize,
+        end_line: usize,
+        end_column: usize,
+    );
+}

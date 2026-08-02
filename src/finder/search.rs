@@ -1,7 +1,5 @@
 pub const DEFAULT_FINDER_SEARCH_KIND: FinderSearchKind = FinderSearchKind::Name;
-
 pub const DEFAULT_FINDER_SEARCH_ORDER: FinderSearchOrder = FinderSearchOrder::Ascending;
-
 pub const DEFAULT_FILTER_FOR_EQUALITY: char = '=';
 pub const DEFAULT_FILTER_FOR_INEQUALITY: char = '!';
 pub const DEFAULT_FILTER_FOR_GREATER_THAN: char = '>';
@@ -31,6 +29,7 @@ pub const DEFAULT_FILTER_FOR_PERMISSIONS: char = 'p';
 
 // Default values for the FinderSearch struct
 pub const DEFAULT_FINDER_SEARCH_PATH: &str = ".";
+#[derive(Clone)]
 
 /// A struct representing a search operation in the Finder component.
 pub enum FinderSearchKind {
@@ -46,6 +45,7 @@ pub enum FinderSearchKind {
 }
 
 /// A struct representing a search operation in the Finder component.
+#[derive(Clone)]
 pub enum FilterKind {
     Equal,
     NotEqual,
@@ -60,12 +60,15 @@ pub enum FilterKind {
     EqualTo,
     Extension(&'static str),
 }
+#[derive(Clone)]
 
 /// A struct representing a search operation in the Finder component.
 pub enum FinderSearchOrder {
     Ascending,
     Descending,
 }
+#[derive(Clone)]
+
 /// A struct representing the result of a search operation in the Finder component.
 pub enum FinderSearchResult {
     Found(
@@ -74,6 +77,7 @@ pub enum FinderSearchResult {
     NotFound,
 }
 /// A struct representing a search operation in the Finder component.
+#[derive(Clone)]
 pub struct FinderSearch {
     pub path: String,
     pub filters: Vec<FilterKind>,

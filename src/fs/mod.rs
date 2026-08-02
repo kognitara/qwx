@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 /// A struct representing the Qwx file system, which provides methods for interacting with files and directories.
 pub struct QwxFileSystem {
     pub files: Vec<String>,

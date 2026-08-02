@@ -15,6 +15,7 @@ use crossterm::terminal::EnterAlternateScreen;
 use crossterm::terminal::LeaveAlternateScreen;
 use crossterm::terminal::disable_raw_mode;
 use crossterm::terminal::enable_raw_mode;
+use crossterm::terminal::window_size;
 use std::io::Result;
 use std::io::Write;
 
@@ -31,18 +32,16 @@ impl Drop for QwxEvent {
         self.paste = None;
     }
 }
-
+#[derive(Clone)]
 pub struct QwxTerminal {
-    width: u16,
-    height: u16,
     event: Option<Event>,
     style: QwxStyle,
+    width: u16,
+    height: u16,
 }
 /// A struct representing the Qwx terminal
 impl Drop for QwxTerminal {
     fn drop(&mut self) {
-        self.width = 0;
-        self.height = 0;
         self.event = None;
         self.style = QwxStyle {
             fg: None,
@@ -55,23 +54,23 @@ impl QwxTerminal {
     #[must_use]
     pub fn new(width: u16, height: u16) -> Self {
         Self {
-            width,
-            height,
             event: None,
             style: QwxStyle {
                 fg: None,
                 bg: None,
                 attr: None,
             },
+            width,
+            height,
         }
     }
+
     pub fn run<A: App, W: Write>(&mut self, w: &mut W, app: &mut A) -> Result<()> {
         let echo = Echo;
         // 1. On récupère la taille actuelle de la fenêtre
-        let window = crossterm::terminal::window_size().expect("Failed to get window size");
 
         // 2. On dessine l'application
-        app.render(w, &echo, &window)?;
+        app.render(w, &echo, &window_size().expect("msg"))?;
         w.flush()?;
 
         // 3. On écoute les événements
@@ -96,7 +95,7 @@ impl QwxTerminal {
             Event::FocusLost => {}
             Event::FocusGained => {}
             Event::Resize(width, height) => {
-                queue!(w,Clear(ClearType::All))?;
+                queue!(w, Clear(ClearType::All))?;
                 self.resize(width, height);
             }
         }
