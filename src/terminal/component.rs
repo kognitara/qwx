@@ -168,7 +168,6 @@ pub trait Finder {
 
 #[doc = "The Editor trait, representing the text-editing functionality of the application"]
 pub trait Editor {
-
     fn editor_insert_char(&mut self, c: char);
 
     fn editor_backspace(&mut self);
@@ -180,7 +179,7 @@ pub trait Editor {
     fn editor_get_viewport(&self) -> (usize, usize);
 
     fn editor_move_cursor(&mut self, dx: isize, dy: isize);
-    
+
     /// Select a line in the editor.
     ///
     /// This method is called to select a line of text within the editor. Implementations of this trait should define how the application handles line selection and how it affects the state of the editor.

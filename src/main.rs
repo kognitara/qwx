@@ -15,18 +15,18 @@ pub mod terminal;
 
 #[derive(Clone)]
 pub struct Zuu {
-    pub should_quit: bool, // Demain, on mettra ici :
+    pub should_quit: bool,
     pub fs: QwxFileSystem,
     pub search_state: FinderSearch,
     pub finder_selected_index: usize,
     pub is_finder_open: bool,
     pub terminal: QwxTerminal,
-    // L'état de l'Éditeur
     pub current_file: Option<String>,
     pub editor_cursor_x: usize,
     pub editor_cursor_y: usize,
 }
 
+#[allow(dead_code, unused)]
 impl Finder for Zuu {
     fn find(&mut self, query: &str) {
         todo!()
@@ -85,6 +85,7 @@ impl Finder for Zuu {
     }
 }
 
+#[allow(dead_code, unused)]
 impl Editor for Zuu {
     fn editor_insert_char(&mut self, c: char) {
         todo!()

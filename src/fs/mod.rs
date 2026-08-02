@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 /// A struct representing the Qwx file system, which provides methods for interacting with files and directories.
 pub struct QwxFileSystem {
     pub files: Vec<String>,
@@ -192,12 +192,12 @@ impl QwxFileSystem {
         if p.is_symlink() {
             std::fs::remove_file(p).is_ok()
         } else {
-            false   
+            false
         }
     }
     /// remove an executable, return true if successful, false if executable does not exist
     pub fn remove_executable(&self, p: &Path) -> bool {
-        if p.is_executable() {      
+        if p.is_executable() {
             std::fs::remove_file(p).is_ok()
         } else {
             false
