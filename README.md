@@ -147,75 +147,75 @@ The Editor Mode is dedicated to direct text insertion and modification.
 
 The Normal Mode is the default state of qwx, used for lightning-fast spatial navigation, panel management, and quick text manipulations without entering insert mode.
 
-| Shortcut            | Action                 | Description                                                                       |
-|:--------------------|:-----------------------|:----------------------------------------------------------------------------------|
-| `e`                 | **Enter Editor**       | Switches to Editor mode at the current cursor position.                           |
-| `o`                 | **Append New Line**    | Jumps to the end of the current line, inserts a new line, and enters Editor mode. |
-| `h`, `j`, `k`, `l`  | **Move Cursor**        | Moves the cursor Left (`h`), Down (`j`), Up (`k`), or Right (`l`).                |
-| `PageUp` / `PageDn` | **Fast Scroll**        | Jumps 15 lines up or down for rapid vertical navigation through the file.         |
-| `u`                 | **Undo**               | Reverts the last edit operation.                                                  |
-| `U` / `Ctrl + y`    | **Redo**               | Restores the undone edit operation.                                               |
-| `y`                 | **Yank (Copy)**        | Copies the current line or selection to the clipboard.                            |
-| `p`                 | **Paste**              | Pastes the clipboard contents at the current cursor position.                     |
-| `n`                 | **Next Match**         | Jumps to the next search match.                                                   |
-| `N`                 | **Prev Match**         | Jumps to the previous search match.                                               |
-| `Ctrl + s`          | **Save**               | Writes changes to disk.                                                           |
-| `x`                 | **Select Line**        | Selects the current line for quick manipulation.                                  |
-| `d`                 | **Delete Selection**   | Instantly deletes the currently highlighted selection.                            |
-| `Esc`               | **Clear Selection**    | Drops the current text selection.                                                 |
-| `Ctrl + h, j, k, l` | **Shift Focus**        | Shifts the active workspace focus to the Left, Bottom, Top, or Right panel.       |
-| `Ctrl + r`          | **Rotate Clockwise**   | Rotates the physical views of the panels in a clockwise direction.                |
-| `Alt + r`           | **Rotate Counter**     | Rotates the physical views of the panels in a counter-clockwise direction.        |
-| `Alt + f`           | **Finder Mode**        | Opens the file finder overlay to navigate the project directory.                  |
-| `Alt + d`           | **Dmenu / Menu Mode**  | Opens the command menu (dmenu) for rapid execution.                               |
-| `Alt + /`           | **Buffer Search Mode** | Opens the in-buffer search prompt to find patterns within the active node.       |
-| `s`, `Alt + s, w`   | **Search Hub Mode**    | Opens the global Search Hub & DevSecOps security audit suite.                     |
-| `Alt + p`, `Alt + m`, `:player` | **Player Mode** | Opens the integrated Spotify Music Player TUI.                                    |
-| `q`                 | **Quit**               | Terminates the qwx environment.                                                   |
+| Shortcut                        | Action                 | Description                                                                       |
+|:--------------------------------|:-----------------------|:----------------------------------------------------------------------------------|
+| `e`                             | **Enter Editor**       | Switches to Editor mode at the current cursor position.                           |
+| `o`                             | **Append New Line**    | Jumps to the end of the current line, inserts a new line, and enters Editor mode. |
+| `h`, `j`, `k`, `l`              | **Move Cursor**        | Moves the cursor Left (`h`), Down (`j`), Up (`k`), or Right (`l`).                |
+| `PageUp` / `PageDn`             | **Fast Scroll**        | Jumps 15 lines up or down for rapid vertical navigation through the file.         |
+| `u`                             | **Undo**               | Reverts the last edit operation.                                                  |
+| `U` / `Ctrl + y`                | **Redo**               | Restores the undone edit operation.                                               |
+| `y`                             | **Yank (Copy)**        | Copies the current line or selection to the clipboard.                            |
+| `p`                             | **Paste**              | Pastes the clipboard contents at the current cursor position.                     |
+| `n`                             | **Next Match**         | Jumps to the next search match.                                                   |
+| `N`                             | **Prev Match**         | Jumps to the previous search match.                                               |
+| `Ctrl + s`                      | **Save**               | Writes changes to disk.                                                           |
+| `x`                             | **Select Line**        | Selects the current line for quick manipulation.                                  |
+| `d`                             | **Delete Selection**   | Instantly deletes the currently highlighted selection.                            |
+| `Esc`                           | **Clear Selection**    | Drops the current text selection.                                                 |
+| `Ctrl + h, j, k, l`             | **Shift Focus**        | Shifts the active workspace focus to the Left, Bottom, Top, or Right panel.       |
+| `Ctrl + r`                      | **Rotate Clockwise**   | Rotates the physical views of the panels in a clockwise direction.                |
+| `Alt + r`                       | **Rotate Counter**     | Rotates the physical views of the panels in a counter-clockwise direction.        |
+| `Alt + f`                       | **Finder Mode**        | Opens the file finder overlay to navigate the project directory.                  |
+| `Alt + d`                       | **Dmenu / Menu Mode**  | Opens the command menu (dmenu) for rapid execution.                               |
+| `Alt + /`                       | **Buffer Search Mode** | Opens the in-buffer search prompt to find patterns within the active node.        |
+| `s`, `Alt + s, w`               | **Search Hub Mode**    | Opens the global Search Hub & DevSecOps security audit suite.                     |
+| `Alt + p`, `Alt + m`, `:player` | **Player Mode**        | Opens the integrated Spotify Music Player TUI.                                    |
+| `q`                             | **Quit**               | Terminates the qwx environment.                                                   |
 
 ### Search Hub & DevSecOps Mode Shortcuts
 
 When inside the Search Hub (`WebSearch` mode):
 
-| Shortcut                    | Action                  | Description                                                                 |
-|:----------------------------|:------------------------|:----------------------------------------------------------------------------|
-| `Enter`                     | **Execute / Submit**    | Runs search query or confirms the current interactive prompt step.          |
-| `Esc`                       | **Close / Cancel**      | Cancels active prompt or exits Search Hub back to Normal mode.              |
-| `Tab` / `Shift + Tab`       | **Cycle Provider**      | Cycles forward or backward through search providers.                        |
+| Shortcut                    | Action                  | Description                                                                                            |
+|:----------------------------|:------------------------|:-------------------------------------------------------------------------------------------------------|
+| `Enter`                     | **Execute / Submit**    | Runs search query or confirms the current interactive prompt step.                                     |
+| `Esc`                       | **Close / Cancel**      | Cancels active prompt or exits Search Hub back to Normal mode.                                         |
+| `Tab` / `Shift + Tab`       | **Cycle Provider**      | Cycles forward or backward through search providers.                                                   |
 | `Alt + 1` .. `Alt + 7`      | **Select Provider**     | Directly switches to a provider (1: All, 2: GitHub, 3: GitLab, 4: Wikipedia, 5: CVE, 6: HN, 7: Audit). |
-| `Up` / `Down`, `Ctrl+p / n` | **Select Result**       | Moves the selection cursor through the search results list.                 |
-| `PageUp` / `PageDn`         | **Scroll Preview**      | Scrolls up or down inside the result preview pane.                          |
-| `Alt + a` / `Ctrl + a`      | **Run Local Audit**     | Immediately triggers a local dependency vulnerability CVE audit.            |
-| `Alt + c` / `Ctrl + c`      | **Clone Repository**    | Opens interactive prompt to clone selected repository into local directory. |
-| `Alt + b` / `Ctrl + b`      | **Create Branch**       | Opens interactive prompt to create a new Git branch.                        |
-| `Alt + s`                   | **Checkout Branch**     | Opens interactive prompt to switch / checkout a Git branch.                 |
-| `Alt + p`                   | **Create Pull Request** | Launches interactive 6-step wizard to create a GitHub Pull Request.         |
-| `Alt + e` / `Ctrl + e`      | **Export Report**       | Exports results or security audit findings as a Markdown report file.       |
-| `Alt + o` / `Ctrl + o`      | **Open in Browser**     | Opens the URL of the selected item in the default web browser.             |
+| `Up` / `Down`, `Ctrl+p / n` | **Select Result**       | Moves the selection cursor through the search results list.                                            |
+| `PageUp` / `PageDn`         | **Scroll Preview**      | Scrolls up or down inside the result preview pane.                                                     |
+| `Alt + a` / `Ctrl + a`      | **Run Local Audit**     | Immediately triggers a local dependency vulnerability CVE audit.                                       |
+| `Alt + c` / `Ctrl + c`      | **Clone Repository**    | Opens interactive prompt to clone selected repository into local directory.                            |
+| `Alt + b` / `Ctrl + b`      | **Create Branch**       | Opens interactive prompt to create a new Git branch.                                                   |
+| `Alt + s`                   | **Checkout Branch**     | Opens interactive prompt to switch / checkout a Git branch.                                            |
+| `Alt + p`                   | **Create Pull Request** | Launches interactive 6-step wizard to create a GitHub Pull Request.                                    |
+| `Alt + e` / `Ctrl + e`      | **Export Report**       | Exports results or security audit findings as a Markdown report file.                                  |
+| `Alt + o` / `Ctrl + o`      | **Open in Browser**     | Opens the URL of the selected item in the default web browser.                                         |
 
 ### Spotify Music Player Mode Shortcuts
 
 When inside the Music Player (`Player` mode):
 
-| Shortcut                       | Action                 | Description                                                                 |
-|:-------------------------------|:-----------------------|:----------------------------------------------------------------------------|
-| `Space`                        | **Play / Pause**       | Toggles audio playback state.                                               |
-| `n` / `>`                      | **Next Track**         | Skips to the next track.                                                    |
-| `p` / `<`                      | **Previous Track**     | Returns to the previous track.                                              |
-| `+` / `-`                      | **Volume Up / Down**   | Increases or decreases volume by 5%.                                        |
-| `Left` / `Right`               | **Seek Position**      | Rewinds or fast-forwards track position by 5 seconds (in Now Playing tab).  |
-| `f`                            | **Seek Prompt**        | Opens prompt to seek to a specific position in seconds.                     |
-| `v`                            | **Set Volume**         | Opens prompt to set volume percentage directly (0-100%).                    |
-| `z` / `s`                      | **Toggle Shuffle**     | Toggles playback shuffle mode ON / OFF.                                     |
-| `r`                            | **Cycle Repeat**       | Cycles repeat mode (Off -> Context -> Track).                              |
-| `Shift + r` / `F5`             | **Refresh State**      | Refreshes current playback state, devices, and playlists from Spotify.      |
-| `Tab` / `Shift + Tab`          | **Cycle Tabs**         | Navigates across tabs (Now Playing, Search, Queue, Playlists, Devices, Config).|
-| `1` .. `6`                     | **Direct Tab Select**  | Jumps directly to tab (1: Now Playing, 2: Search, 3: Queue, 4: Playlists, 5: Devices, 6: Config).|
-| `j` / `k`, `Down` / `Up`       | **Navigate List**      | Moves cursor up or down in current list.                                    |
-| `Enter`                        | **Play / Select**      | Plays selected track/album/playlist or activates selected item/action.      |
-| `/`                            | **Search Prompt**      | Opens interactive search prompt in Search tab.                              |
-| `c`                            | **Cycle Category**     | In Search tab, switches search category (Tracks, Albums, Playlists).        |
-| `a`                            | **Add to Queue**       | Adds the selected track from search results into the player queue.          |
-| `d` / `Delete`                 | **Remove from Queue**  | Removes the selected track from the queue tab.                              |
-| `t`                            | **Set Token**          | Opens prompt to update Spotify Access Token.                                |
-| `Esc` / `q`                    | **Exit Player**        | Closes the player and returns to Normal mode.                               |
+| Shortcut                 | Action                | Description                                                                                       |
+|:-------------------------|:----------------------|:--------------------------------------------------------------------------------------------------|
+| `Space`                  | **Play / Pause**      | Toggles audio playback state.                                                                     |
+| `n` / `>`                | **Next Track**        | Skips to the next track.                                                                          |
+| `p` / `<`                | **Previous Track**    | Returns to the previous track.                                                                    |
+| `+` / `-`                | **Volume Up / Down**  | Increases or decreases volume by 5%.                                                              |
+| `Left` / `Right`         | **Seek Position**     | Rewinds or fast-forwards track position by 5 seconds (in Now Playing tab).                        |
+| `f`                      | **Seek Prompt**       | Opens prompt to seek to a specific position in seconds.                                           |
+| `v`                      | **Set Volume**        | Opens prompt to set volume percentage directly (0-100%).                                          |
+| `z` / `s`                | **Toggle Shuffle**    | Toggles playback shuffle mode ON / OFF.                                                           |
+| `r`                      | **Cycle Repeat**      | Cycles repeat mode (Off -> Context -> Track).                                                     |
+| `Shift + r` / `F5`       | **Refresh State**     | Refreshes current playback state, devices, and playlists from Spotify.                            |
+| `Tab` / `Shift + Tab`    | **Cycle Tabs**        | Navigates across tabs (Now Playing, Search, Queue, Playlists, Devices, Config).                   |
+| `1` .. `6`               | **Direct Tab Select** | Jumps directly to tab (1: Now Playing, 2: Search, 3: Queue, 4: Playlists, 5: Devices, 6: Config). |
+| `j` / `k`, `Down` / `Up` | **Navigate List**     | Moves cursor up or down in current list.                                                          |
+| `Enter`                  | **Play / Select**     | Plays selected track/album/playlist or activates selected item/action.                            |
+| `/`                      | **Search Prompt**     | Opens interactive search prompt in Search tab.                                                    |
+| `c`                      | **Cycle Category**    | In Search tab, switches search category (Tracks, Albums, Playlists).                              |
+| `a`                      | **Add to Queue**      | Adds the selected track from search results into the player queue.                                |
+| `d` / `Delete`           | **Remove from Queue** | Removes the selected track from the queue tab.                                                    |
+| `t`                      | **Set Token**         | Opens prompt to update Spotify Access Token.                                                      |
+| `Esc` / `q`              | **Exit Player**       | Closes the player and returns to Normal mode.                                                     |
