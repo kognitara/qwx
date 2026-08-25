@@ -497,6 +497,8 @@ impl SpotifyClient {
             return Ok(SearchResults::default());
         }
 
+        // Spotify API /v1/search enforces a limit between 1 and 10 (maximum 10 items per type)
+        let limit = limit.clamp(1, 10);
         let encoded_q = urlencoding_simple(query);
         let path = format!(
             "/search?q={}&type=track,album,playlist&limit={}",
@@ -1110,7 +1112,7 @@ impl MusicPlayer {
             return;
         }
         self.set_status(format!("Searching Spotify for '{}'...", self.search_query));
-        match self.client.search(&self.search_query, 30) {
+        match self.client.search(&self.search_query, 10) {
             Ok(results) => {
                 let count = results.tracks.len() + results.albums.len() + results.playlists.len();
                 self.search_results = results;
