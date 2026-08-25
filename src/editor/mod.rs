@@ -1852,14 +1852,27 @@ impl Qwx {
                         (KeyModifiers::NONE, KeyCode::Esc) => {
                             self.search_hub.prompt = None;
                             self.search_hub.status_message = Some("Action cancelled.".to_string());
+                            let _ = execute!(stdout(), Clear(ClearType::All));
                         }
                         (KeyModifiers::NONE, KeyCode::Enter) => {
                             match prompt {
                                 crate::search::ActionPrompt::CloneRepo { repo_url, dest_input } => {
                                     let dest_path = self.current_dir.join(dest_input.trim());
                                     let url = repo_url.clone();
-                                    self.search_hub.status_message = Some("Cloning repository in progress...".to_string());
-                                    let res = crate::search::clone_repository(&url, &dest_path);
+                                    let target_str = dest_path.display().to_string();
+
+                                    self.search_hub.prompt = Some(crate::search::ActionPrompt::CloneInProgress {
+                                        repo_url: url.clone(),
+                                        dest_path: target_str.clone(),
+                                        progress_pct: 10,
+                                        status_text: "Connecting and negotiating Git objects...".to_string(),
+                                    });
+
+                                    let res = crate::search::clone_repository_with_progress(
+                                        &url,
+                                        &dest_path,
+                                        None::<fn(crate::search::CloneProgress)>,
+                                    );
                                     match res {
                                         Ok(msg) => {
                                             self.search_hub.status_message = Some(msg);
@@ -1871,6 +1884,7 @@ impl Qwx {
                                         }
                                     }
                                 }
+                                crate::search::ActionPrompt::CloneInProgress { .. } => {}
                                 crate::search::ActionPrompt::CreateBranch { branch_input } => {
                                     let branch_name = branch_input.trim().to_string();
                                     let res = crate::search::create_git_branch(&self.current_dir, &branch_name);
@@ -1990,6 +2004,7 @@ impl Qwx {
                                         _ => {}
                                     }
                                 }
+                                crate::search::ActionPrompt::CloneInProgress { .. } => {}
                             }
                         }
                         (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
@@ -2025,6 +2040,7 @@ impl Qwx {
                                         _ => {}
                                     }
                                 }
+                                crate::search::ActionPrompt::CloneInProgress { .. } => {}
                             }
                         }
                         _ => {}
@@ -2036,6 +2052,7 @@ impl Qwx {
                 match (key.modifiers, key.code) {
                     (KeyModifiers::NONE, KeyCode::Esc) => {
                         self.mode = Mode::Normal;
+                        let _ = execute!(stdout(), Clear(ClearType::All));
                     }
                     (KeyModifiers::NONE, KeyCode::Tab) => {
                         self.search_hub.next_provider();

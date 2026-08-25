@@ -58,7 +58,38 @@ impl SearchProvider {
     }
 }
 
-/// Represents an item found by the search engine.
+/// Clone progress information for live UI feedback
+#[derive(Debug, Clone, Default)]
+pub struct CloneProgress {
+    pub percentage: u8,
+    pub indexed_objects: usize,
+    pub total_objects: usize,
+    pub received_bytes: usize,
+    pub current_step: String,
+}
+
+impl CloneProgress {
+    pub fn new(step: impl Into<String>) -> Self {
+        Self {
+            percentage: 0,
+            indexed_objects: 0,
+            total_objects: 0,
+            received_bytes: 0,
+            current_step: step.into(),
+        }
+    }
+
+    pub fn format_progress_bar(&self, width: usize) -> String {
+        let bar_width = width.saturating_sub(18).max(10);
+        let filled_width = (bar_width * self.percentage as usize) / 100;
+        let empty_width = bar_width.saturating_sub(filled_width);
+
+        let filled = "█".repeat(filled_width);
+        let empty = "░".repeat(empty_width);
+
+        format!("[{}{}] {:>3}%", filled, empty, self.percentage)
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResultItem {
     pub provider: SearchProvider,
@@ -76,6 +107,12 @@ pub enum ActionPrompt {
     CloneRepo {
         repo_url: String,
         dest_input: String,
+    },
+    CloneInProgress {
+        repo_url: String,
+        dest_path: String,
+        progress_pct: u8,
+        status_text: String,
     },
     CreateBranch {
         branch_input: String,
@@ -357,7 +394,7 @@ impl SearchHub {
         self.status_message = Some("Enter filename for Markdown export (or Esc to cancel):".to_string());
     }
 
-    /// Open selected item URL in default system web browser
+    /// Open the selected item URL in the default system web browser
     pub fn open_selected_in_browser(&mut self) {
         if let Some(item) = self.selected_item() {
             let res = open_url_in_browser(&item.url);
@@ -370,7 +407,7 @@ impl SearchHub {
         }
     }
 
-    /// Draw the complete search hub interface
+    /// Draw the complete search hub interface in a refined 2x2 grid structure
     pub fn draw<W: Write>(
         &self,
         w: &mut W,
@@ -379,52 +416,69 @@ impl SearchHub {
         width: u16,
         height: u16,
     ) -> io::Result<()> {
-        if width < 20 || height < 8 {
+        if width < 30 || height < 10 {
             return Ok(());
         }
 
-        let bg_color = Color::Rgb {
-            r: 22,
-            g: 25,
-            b: 37,
-        };
+        // Refined Dark Theme Palette
+        let bg_color = Color::Black;
         let header_bg = Color::Rgb {
-            r: 30,
-            g: 35,
-            b: 50,
+            r: 16,
+            g: 20,
+            b: 28,
         };
         let tab_active_bg = Color::Rgb {
-            r: 60,
-            g: 100,
-            b: 180,
+            r: 130,
+            g: 110,
+            b: 190, // Cosmic violet from theme
         };
         let tab_inactive_bg = Color::Rgb {
-            r: 40,
-            g: 45,
-            b: 65,
+            r: 24,
+            g: 28,
+            b: 38,
         };
         let text_color = Color::Rgb {
             r: 220,
             g: 225,
-            b: 235,
+            b: 240,
         };
         let text_dim = Color::Rgb {
-            r: 130,
-            g: 140,
-            b: 160,
+            r: 110,
+            g: 120,
+            b: 140,
         };
         let highlight_bg = Color::Rgb {
-            r: 45,
-            g: 70,
-            b: 120,
+            r: 35,
+            g: 48,
+            b: 75,
         };
         let border_color = Color::Rgb {
-            r: 70,
-            g: 80,
-            b: 110,
+            r: 45,
+            g: 52,
+            b: 70, // FINDER_BORDER theme color
+        };
+        let border_focus = Color::Rgb {
+            r: 100,
+            g: 170,
+            b: 255,
+        };
+        let title_color = Color::Rgb {
+            r: 80,
+            g: 200,
+            b: 240,
+        };
+        let accent_gold = Color::Rgb {
+            r: 255,
+            g: 215,
+            b: 90,
+        };
+        let accent_green = Color::Rgb {
+            r: 100,
+            g: 220,
+            b: 150,
         };
 
-        // Fill background
+        // Fill background with deep black
         let empty_line = " ".repeat(width as usize);
         for row in 0..height {
             queue!(
@@ -441,15 +495,22 @@ impl SearchHub {
             w,
             MoveTo(start_x, start_y),
             SetBackgroundColor(header_bg),
-            SetForegroundColor(Color::Rgb {
-                r: 100,
-                g: 200,
-                b: 255
-            }),
+            SetForegroundColor(title_color),
             Print(" ◈ QWX SEARCH ENGINE & DEV HUB ◈ ")
         )?;
         let title_len = " ◈ QWX SEARCH ENGINE & DEV HUB ◈ ".width() as u16;
-        if width > title_len {
+        let tag_text = " [2x2 Grid Hub] ";
+        let tag_len = tag_text.width() as u16;
+        if width > title_len + tag_len {
+            let padding_len = width - title_len - tag_len;
+            let padding = " ".repeat(padding_len as usize);
+            queue!(
+                w,
+                Print(padding),
+                SetForegroundColor(text_dim),
+                Print(tag_text)
+            )?;
+        } else if width > title_len {
             let padding = " ".repeat((width - title_len) as usize);
             queue!(w, Print(padding))?;
         }
@@ -488,8 +549,8 @@ impl SearchHub {
             tab_x += tab_width + 1;
         }
 
-        // 3. Search Bar
-        let search_y = start_y + 3;
+        // 3. Search Input Bar
+        let search_y = start_y + 2;
         let search_prompt = format!(" 🔍 [{}] Search: {} ", self.active_provider.name(), self.query);
         let cursor_char = if self.prompt.is_none() { "█" } else { " " };
         let full_search = format!("{}{}", search_prompt, cursor_char);
@@ -498,15 +559,11 @@ impl SearchHub {
             w,
             MoveTo(start_x + 1, search_y),
             SetBackgroundColor(Color::Rgb {
-                r: 15,
-                g: 18,
-                b: 28
+                r: 18,
+                g: 22,
+                b: 32
             }),
-            SetForegroundColor(Color::Rgb {
-                r: 255,
-                g: 215,
-                b: 0
-            }),
+            SetForegroundColor(accent_gold),
             Print(&full_search)
         )?;
         let search_rendered_width = full_search.width() as u16;
@@ -515,41 +572,167 @@ impl SearchHub {
             queue!(w, Print(pad))?;
         }
 
-        // 4. Split Layout for Results and Preview
-        let content_y = search_y + 2;
-        let content_height = height.saturating_sub(7);
-        let list_width = (width / 2).max(30).min(width.saturating_sub(10));
-        let preview_x = start_x + list_width + 1;
-        let preview_width = width.saturating_sub(list_width + 2);
+        // 4. 2x2 Grid Layout Calculation
+        let grid_top_y = start_y + 3;
+        let grid_height = height.saturating_sub(6).max(6);
+        let half_width = (width / 2).max(20).min(width.saturating_sub(15));
+        let left_inner_w = (half_width.saturating_sub(1)) as usize;
+        let right_inner_w = (width.saturating_sub(half_width).saturating_sub(2)) as usize;
 
-        // Draw vertical divider
-        for r in 0..content_height {
+        let row_top_h = (grid_height / 2).max(3);
+        let row_bot_h = grid_height.saturating_sub(row_top_h).max(3);
+        let middle_y = grid_top_y + row_top_h;
+        let bottom_y = grid_top_y + grid_height;
+
+        let inner_top_h = (row_top_h.saturating_sub(1)) as usize;
+        let inner_bot_h = (row_bot_h.saturating_sub(1)) as usize;
+
+        // --- DRAW 2x2 BORDERS ---
+        // 4.1 Top border
+        let left_border_line = "─".repeat(left_inner_w);
+        let right_border_line = "─".repeat(right_inner_w);
+        queue!(
+            w,
+            MoveTo(start_x, grid_top_y),
+            SetBackgroundColor(bg_color),
+            SetForegroundColor(border_color),
+            Print("┌"),
+            Print(&left_border_line),
+            Print("┬"),
+            Print(&right_border_line),
+            Print("┐")
+        )?;
+
+        // Top labels in border
+        let count_str = if self.results.is_empty() {
+            String::new()
+        } else {
+            format!(" ({}/{})", self.selected_index + 1, self.results.len())
+        };
+        let top_left_title = format!(" ◈ 1. SEARCH RESULTS{} ", count_str);
+        let top_right_title = " ◈ 2. RESOURCE OVERVIEW ";
+
+        queue!(
+            w,
+            MoveTo(start_x + 2, grid_top_y),
+            SetForegroundColor(title_color),
+            Print(&top_left_title),
+            MoveTo(start_x + half_width + 2, grid_top_y),
+            SetForegroundColor(accent_gold),
+            Print(top_right_title)
+        )?;
+
+        // 4.2 Top half vertical dividers
+        for r in 1..row_top_h {
+            let y = grid_top_y + r;
             queue!(
                 w,
-                MoveTo(start_x + list_width, content_y + r),
-                SetBackgroundColor(bg_color),
+                MoveTo(start_x, y),
                 SetForegroundColor(border_color),
+                Print("│"),
+                MoveTo(start_x + half_width, y),
+                Print("│"),
+                MoveTo(start_x + width - 1, y),
                 Print("│")
             )?;
         }
 
-        // Render Results List
-        if self.results.is_empty() {
-            let empty_msg = if self.is_loading {
-                "Searching in progress..."
-            } else {
-                "No results. Type a query and press Enter."
-            };
+        // 4.3 Middle horizontal divider
+        queue!(
+            w,
+            MoveTo(start_x, middle_y),
+            SetForegroundColor(border_color),
+            Print("├"),
+            Print(&left_border_line),
+            Print("┼"),
+            Print(&right_border_line),
+            Print("┤")
+        )?;
+
+        // Middle labels in divider
+        let bot_left_title = " ◈ 3. DEV TOOLS & PROVIDERS ";
+        let scroll_info = if self.preview_scroll > 0 {
+            format!(" [▲ Line {}] ", self.preview_scroll + 1)
+        } else {
+            " ".to_string()
+        };
+        let bot_right_title = format!(" ◈ 4. CONTENT & CODE PREVIEW{} ", scroll_info);
+
+        queue!(
+            w,
+            MoveTo(start_x + 2, middle_y),
+            SetForegroundColor(Color::Rgb {
+                r: 160,
+                g: 140,
+                b: 240,
+            }),
+            Print(bot_left_title),
+            MoveTo(start_x + half_width + 2, middle_y),
+            SetForegroundColor(accent_green),
+            Print(&bot_right_title)
+        )?;
+
+        // 4.4 Bottom half vertical dividers
+        for r in 1..row_bot_h {
+            let y = middle_y + r;
             queue!(
                 w,
-                MoveTo(start_x + 2, content_y + 1),
+                MoveTo(start_x, y),
+                SetForegroundColor(border_color),
+                Print("│"),
+                MoveTo(start_x + half_width, y),
+                Print("│"),
+                MoveTo(start_x + width - 1, y),
+                Print("│")
+            )?;
+        }
+
+        // 4.5 Bottom border
+        queue!(
+            w,
+            MoveTo(start_x, bottom_y),
+            SetForegroundColor(border_color),
+            Print("└"),
+            Print(&left_border_line),
+            Print("┴"),
+            Print(&right_border_line),
+            Print("┘")
+        )?;
+
+        // --- RENDER QUADRANT 1 (Top-Left): SEARCH RESULTS ---
+        let q1_x = start_x + 1;
+        let q1_y = grid_top_y + 1;
+        let q1_w = left_inner_w.saturating_sub(1);
+        let q1_h = inner_top_h;
+
+        if self.results.is_empty() {
+            let empty_msg = if self.is_loading {
+                match self.active_provider {
+                    SearchProvider::GitHub => "⚡ Searching GitHub repositories & issues...",
+                    SearchProvider::GitLab => "⚡ Searching GitLab projects & repositories...",
+                    SearchProvider::Wikipedia => "🌐 Fetching Wikipedia articles & docs...",
+                    SearchProvider::Cve => "🛡 Scanning & analyzing CVE vulnerabilities...",
+                    SearchProvider::HackerNews => "📡 Fetching Hacker News discussions...",
+                    SearchProvider::LocalAudit => "📦 Auditing dependencies & scanning CVEs...",
+                    SearchProvider::All => "⚙ Multi-source live search in progress...",
+                }
+            } else {
+                "No results. Type a query and press [Enter]."
+            };
+
+            queue!(
+                w,
+                MoveTo(q1_x + 1, q1_y + 1),
                 SetBackgroundColor(bg_color),
-                SetForegroundColor(text_dim),
+                SetForegroundColor(if self.is_loading {
+                    accent_gold
+                } else {
+                    text_dim
+                }),
                 Print(empty_msg)
             )?;
         } else {
-            // Adjust scroll window
-            let visible_count = content_height as usize;
+            let visible_count = q1_h;
             let mut scroll_offset = self.scroll_offset;
             if self.selected_index < scroll_offset {
                 scroll_offset = self.selected_index;
@@ -566,7 +749,7 @@ impl SearchHub {
             {
                 let absolute_idx = scroll_offset + idx;
                 let is_selected = absolute_idx == self.selected_index;
-                let line_y = content_y + idx as u16;
+                let line_y = q1_y + idx as u16;
 
                 let icon = match item.provider {
                     SearchProvider::GitHub => "",
@@ -578,26 +761,27 @@ impl SearchHub {
                     SearchProvider::All => "◆",
                 };
 
-                let item_line = format!("{} {} {}", if is_selected { "▶" } else { " " }, icon, item.title);
-                let truncated_title = truncate_to_width(&item_line, list_width.saturating_sub(2) as usize);
+                let pointer = if is_selected { "▶" } else { " " };
+                let item_line = format!("{} {} {}", pointer, icon, item.title);
+                let truncated_title = truncate_to_width(&item_line, q1_w);
 
                 if is_selected {
                     queue!(
                         w,
-                        MoveTo(start_x + 1, line_y),
+                        MoveTo(q1_x, line_y),
                         SetBackgroundColor(highlight_bg),
                         SetForegroundColor(Color::White),
                         Print(&truncated_title)
                     )?;
                     let tw = truncated_title.width() as u16;
-                    if list_width.saturating_sub(2) > tw {
-                        let pad = " ".repeat((list_width.saturating_sub(2) - tw) as usize);
+                    if (q1_w as u16) > tw {
+                        let pad = " ".repeat((q1_w as u16 - tw) as usize);
                         queue!(w, Print(pad))?;
                     }
                 } else {
                     queue!(
                         w,
-                        MoveTo(start_x + 1, line_y),
+                        MoveTo(q1_x, line_y),
                         SetBackgroundColor(bg_color),
                         SetForegroundColor(text_color),
                         Print(&truncated_title)
@@ -606,63 +790,182 @@ impl SearchHub {
             }
         }
 
-        // Render Preview Pane
+        // --- RENDER QUADRANT 2 (Top-Right): RESOURCE OVERVIEW ---
+        let q2_x = start_x + half_width + 1;
+        let q2_y = grid_top_y + 1;
+        let q2_w = right_inner_w.saturating_sub(1);
+        let q2_h = inner_top_h;
+
         if let Some(selected) = self.selected_item() {
-            let mut preview_lines = Vec::new();
-            preview_lines.push(format!("Title: {}", selected.title));
-            preview_lines.push(format!("Source: {}", selected.provider.name()));
+            let mut overview_lines = Vec::new();
+            overview_lines.push((format!("• Title   : {}", selected.title), Color::White));
+            overview_lines.push((format!("• Source  : {}", selected.provider.name()), title_color));
             if !selected.extra_info.is_empty() {
-                preview_lines.push(format!("Info: {}", selected.extra_info));
+                overview_lines.push((format!("• Metrics : {}", selected.extra_info), accent_gold));
             }
             if !selected.url.is_empty() {
-                preview_lines.push(format!("URL: {}", selected.url));
+                overview_lines.push((format!("• URL     : {}", selected.url), Color::Rgb { r: 100, g: 190, b: 255 }));
             }
             if let Some(ref clone_url) = selected.clone_url {
-                preview_lines.push(format!("Git Clone URL: {}", clone_url));
+                overview_lines.push((format!("• GitClone: {}", clone_url), accent_green));
             }
-            preview_lines.push("─".repeat(preview_width.saturating_sub(2) as usize));
-            preview_lines.push("Description:".to_string());
-            for line in selected.description.lines() {
-                preview_lines.push(line.to_string());
+            overview_lines.push(("• Actions : [c] Clone  [o] Browser  [b] Branch  [p] PR".to_string(), text_dim));
+
+            for (idx, (line, color)) in overview_lines.iter().take(q2_h).enumerate() {
+                let line_y = q2_y + idx as u16;
+                let truncated = truncate_to_width(line, q2_w);
+                queue!(
+                    w,
+                    MoveTo(q2_x, line_y),
+                    SetBackgroundColor(bg_color),
+                    SetForegroundColor(*color),
+                    Print(&truncated)
+                )?;
+            }
+        } else {
+            queue!(
+                w,
+                MoveTo(q2_x + 1, q2_y + 1),
+                SetBackgroundColor(bg_color),
+                SetForegroundColor(text_dim),
+                Print("Select an item to view detailed resource metadata.")
+            )?;
+        }
+
+        // --- RENDER QUADRANT 3 (Bottom-Left): DEV TOOLS & PROVIDERS ---
+        let q3_x = start_x + 1;
+        let q3_y = middle_y + 1;
+        let q3_w = left_inner_w.saturating_sub(1);
+        let q3_h = inner_bot_h;
+
+        let mut provider_lines: Vec<(String, Color)> = Vec::new();
+        provider_lines.push(("Providers & Shortcuts:".to_string(), title_color));
+        provider_lines.push((
+            format!(
+                "  {} [1] All Sources    {} [2] GitHub",
+                if self.active_provider == SearchProvider::All { "●" } else { "○" },
+                if self.active_provider == SearchProvider::GitHub { "●" } else { "○" }
+            ),
+            if self.active_provider == SearchProvider::All || self.active_provider == SearchProvider::GitHub {
+                Color::White
+            } else {
+                text_dim
+            },
+        ));
+        provider_lines.push((
+            format!(
+                "  {} [3] GitLab         {} [4] Wikipedia",
+                if self.active_provider == SearchProvider::GitLab { "●" } else { "○" },
+                if self.active_provider == SearchProvider::Wikipedia { "●" } else { "○" }
+            ),
+            if self.active_provider == SearchProvider::GitLab || self.active_provider == SearchProvider::Wikipedia {
+                Color::White
+            } else {
+                text_dim
+            },
+        ));
+        provider_lines.push((
+            format!(
+                "  {} [5] CVE Security   {} [6] Hacker News",
+                if self.active_provider == SearchProvider::Cve { "●" } else { "○" },
+                if self.active_provider == SearchProvider::HackerNews { "●" } else { "○" }
+            ),
+            if self.active_provider == SearchProvider::Cve || self.active_provider == SearchProvider::HackerNews {
+                Color::White
+            } else {
+                text_dim
+            },
+        ));
+        provider_lines.push((
+            format!(
+                "  {} [7] Local Audit (Cargo.lock CVE scan)",
+                if self.active_provider == SearchProvider::LocalAudit { "●" } else { "○" }
+            ),
+            if self.active_provider == SearchProvider::LocalAudit {
+                accent_gold
+            } else {
+                text_dim
+            },
+        ));
+        provider_lines.push(("Dev Actions:".to_string(), accent_gold));
+        provider_lines.push(("  [c] Clone Repo      [b] Create Branch".to_string(), text_color));
+        provider_lines.push(("  [s] Switch Branch   [p] Create Pull Request".to_string(), text_color));
+        provider_lines.push(("  [e] Export Report   [a] Audit Local CVEs".to_string(), text_color));
+
+        for (idx, (line, color)) in provider_lines.iter().take(q3_h).enumerate() {
+            let line_y = q3_y + idx as u16;
+            let truncated = truncate_to_width(line, q3_w);
+            queue!(
+                w,
+                MoveTo(q3_x, line_y),
+                SetBackgroundColor(bg_color),
+                SetForegroundColor(*color),
+                Print(&truncated)
+            )?;
+        }
+
+        // --- RENDER QUADRANT 4 (Bottom-Right): CONTENT & CODE PREVIEW ---
+        let q4_x = start_x + half_width + 1;
+        let q4_y = middle_y + 1;
+        let q4_w = right_inner_w.saturating_sub(1);
+        let q4_h = inner_bot_h;
+
+        if let Some(selected) = self.selected_item() {
+            let mut preview_lines = Vec::new();
+            if !selected.description.is_empty() {
+                preview_lines.push("Description:".to_string());
+                for line in selected.description.lines() {
+                    preview_lines.push(format!("  {}", line));
+                }
             }
 
             if let Some(ref raw) = selected.raw_content {
-                preview_lines.push("─".repeat(preview_width.saturating_sub(2) as usize));
+                preview_lines.push("─".repeat(q4_w.min(40)));
+                preview_lines.push("Details / Advisory / Body:".to_string());
                 for line in raw.lines() {
-                    preview_lines.push(line.to_string());
+                    preview_lines.push(format!("  {}", line));
                 }
+            }
+
+            if preview_lines.is_empty() {
+                preview_lines.push("No additional description or body available.".to_string());
             }
 
             for (idx, line) in preview_lines
                 .iter()
                 .skip(self.preview_scroll)
-                .take(content_height as usize)
+                .take(q4_h)
                 .enumerate()
             {
-                let line_y = content_y + idx as u16;
-                let truncated = truncate_to_width(line, preview_width.saturating_sub(2) as usize);
+                let line_y = q4_y + idx as u16;
+                let truncated = truncate_to_width(line, q4_w);
+                let is_header = line.starts_with("Description:") || line.starts_with("Details / Advisory");
                 queue!(
                     w,
-                    MoveTo(preview_x + 1, line_y),
+                    MoveTo(q4_x, line_y),
                     SetBackgroundColor(bg_color),
-                    SetForegroundColor(if idx < 4 {
-                        Color::Rgb {
-                            r: 100,
-                            g: 220,
-                            b: 255,
-                        }
+                    SetForegroundColor(if is_header {
+                        accent_green
                     } else {
                         text_color
                     }),
                     Print(&truncated)
                 )?;
             }
+        } else {
+            queue!(
+                w,
+                MoveTo(q4_x + 1, q4_y + 1),
+                SetBackgroundColor(bg_color),
+                SetForegroundColor(text_dim),
+                Print("Preview documentation, CVE advisories, or repository summaries here.")
+            )?;
         }
 
         // 5. Action Dialog / Modal Prompt (if active)
         if let Some(ref prompt) = self.prompt {
-            let modal_w = width.min(70);
-            let modal_h = 6;
+            let modal_w = width.min(74);
+            let modal_h = 7;
             let modal_x = start_x + (width.saturating_sub(modal_w)) / 2;
             let modal_y = start_y + (height.saturating_sub(modal_h)) / 2;
 
@@ -671,13 +974,35 @@ impl SearchHub {
                     w,
                     MoveTo(modal_x, modal_y + r),
                     SetBackgroundColor(Color::Rgb {
-                        r: 35,
-                        g: 45,
-                        b: 70
+                        r: 16,
+                        g: 20,
+                        b: 30
                     }),
                     Print(" ".repeat(modal_w as usize))
                 )?;
             }
+
+            // Draw modal box border
+            queue!(
+                w,
+                MoveTo(modal_x, modal_y),
+                SetForegroundColor(border_focus),
+                Print(format!("┌{}┐", "─".repeat(modal_w as usize - 2)))
+            )?;
+            for r in 1..modal_h - 1 {
+                queue!(
+                    w,
+                    MoveTo(modal_x, modal_y + r),
+                    Print("│"),
+                    MoveTo(modal_x + modal_w - 1, modal_y + r),
+                    Print("│")
+                )?;
+            }
+            queue!(
+                w,
+                MoveTo(modal_x, modal_y + modal_h - 1),
+                Print(format!("└{}┘", "─".repeat(modal_w as usize - 2)))
+            )?;
 
             match prompt {
                 ActionPrompt::CloneRepo {
@@ -687,29 +1012,59 @@ impl SearchHub {
                     queue!(
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
-                        SetForegroundColor(Color::Yellow),
+                        SetForegroundColor(accent_gold),
                         Print("📦 CLONE GIT REPOSITORY"),
                         MoveTo(modal_x + 2, modal_y + 2),
                         SetForegroundColor(Color::White),
-                        Print(format!("URL: {}", truncate_to_width(repo_url, modal_w as usize - 8))),
+                        Print(format!("URL   : {}", truncate_to_width(repo_url, modal_w as usize - 12))),
                         MoveTo(modal_x + 2, modal_y + 3),
-                        SetForegroundColor(Color::Green),
-                        Print(format!("Target Directory: {}█", dest_input)),
-                        MoveTo(modal_x + 2, modal_y + 4),
+                        SetForegroundColor(accent_green),
+                        Print(format!("Target: {}█", dest_input)),
+                        MoveTo(modal_x + 2, modal_y + 5),
                         SetForegroundColor(text_dim),
-                        Print("[Enter] Confirm Clone | [Esc] Cancel")
+                        Print("[Enter] Start Clone | [Esc] Cancel")
+                    )?;
+                }
+                ActionPrompt::CloneInProgress {
+                    repo_url,
+                    dest_path,
+                    progress_pct,
+                    status_text,
+                } => {
+                    let bar_w = (modal_w as usize).saturating_sub(14).max(10);
+                    let filled = (bar_w * (*progress_pct as usize)) / 100;
+                    let empty = bar_w.saturating_sub(filled);
+                    let progress_bar = format!("[{}{}] {:>3}%", "█".repeat(filled), "░".repeat(empty), progress_pct);
+
+                    queue!(
+                        w,
+                        MoveTo(modal_x + 2, modal_y + 1),
+                        SetForegroundColor(title_color),
+                        Print("🚀 CLONING IN PROGRESS..."),
+                        MoveTo(modal_x + 2, modal_y + 2),
+                        SetForegroundColor(Color::White),
+                        Print(format!("Repository: {}", truncate_to_width(repo_url, modal_w as usize - 14))),
+                        MoveTo(modal_x + 2, modal_y + 3),
+                        SetForegroundColor(accent_gold),
+                        Print(format!("Target    : {}", truncate_to_width(dest_path, modal_w as usize - 14))),
+                        MoveTo(modal_x + 2, modal_y + 4),
+                        SetForegroundColor(accent_green),
+                        Print(&progress_bar),
+                        MoveTo(modal_x + 2, modal_y + 5),
+                        SetForegroundColor(text_dim),
+                        Print(truncate_to_width(status_text, modal_w as usize - 6))
                     )?;
                 }
                 ActionPrompt::CreateBranch { branch_input } => {
                     queue!(
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
-                        SetForegroundColor(Color::Yellow),
+                        SetForegroundColor(accent_gold),
                         Print("🌿 CREATE GIT BRANCH"),
                         MoveTo(modal_x + 2, modal_y + 3),
-                        SetForegroundColor(Color::Green),
-                        Print(format!("Branch Name: {}█", branch_input)),
-                        MoveTo(modal_x + 2, modal_y + 4),
+                        SetForegroundColor(accent_green),
+                        Print(format!("Branch name: {}█", branch_input)),
+                        MoveTo(modal_x + 2, modal_y + 5),
                         SetForegroundColor(text_dim),
                         Print("[Enter] Create Branch | [Esc] Cancel")
                     )?;
@@ -718,28 +1073,28 @@ impl SearchHub {
                     queue!(
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
-                        SetForegroundColor(Color::Yellow),
-                        Print("🔀 SWITCH / CHECKOUT GIT BRANCH"),
+                        SetForegroundColor(accent_gold),
+                        Print("🔀 SWITCH GIT BRANCH"),
                         MoveTo(modal_x + 2, modal_y + 3),
-                        SetForegroundColor(Color::Green),
-                        Print(format!("Branch Name: {}█", branch_input)),
-                        MoveTo(modal_x + 2, modal_y + 4),
+                        SetForegroundColor(accent_green),
+                        Print(format!("Target branch: {}█", branch_input)),
+                        MoveTo(modal_x + 2, modal_y + 5),
                         SetForegroundColor(text_dim),
-                        Print("[Enter] Checkout Branch | [Esc] Cancel")
+                        Print("[Enter] Switch Branch | [Esc] Cancel")
                     )?;
                 }
                 ActionPrompt::ExportReport { path_input } => {
                     queue!(
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
-                        SetForegroundColor(Color::Yellow),
-                        Print("📄 EXPORT REPORT TO MARKDOWN"),
+                        SetForegroundColor(accent_gold),
+                        Print("📄 EXPORT MARKDOWN REPORT"),
                         MoveTo(modal_x + 2, modal_y + 3),
-                        SetForegroundColor(Color::Green),
-                        Print(format!("Output File: {}█", path_input)),
-                        MoveTo(modal_x + 2, modal_y + 4),
+                        SetForegroundColor(accent_green),
+                        Print(format!("Output file: {}█", path_input)),
+                        MoveTo(modal_x + 2, modal_y + 5),
                         SetForegroundColor(text_dim),
-                        Print("[Enter] Save Markdown Report | [Esc] Cancel")
+                        Print("[Enter] Save Report | [Esc] Cancel")
                     )?;
                 }
                 ActionPrompt::CreatePullRequest {
@@ -753,22 +1108,22 @@ impl SearchHub {
                 } => {
                     let step_desc = match step {
                         0 => format!("Repository (owner/repo): {}█", repo_input),
-                        1 => format!("PR Title: {}█", title_input),
-                        2 => "Description / Body: (Press Enter to continue)".to_string(),
-                        3 => format!("Source branch (head): {}█", head_input),
-                        4 => format!("Target branch (base): {}█", base_input),
+                        1 => format!("Pull Request Title     : {}█", title_input),
+                        2 => "Description / Body     : (Press Enter to continue)".to_string(),
+                        3 => format!("Source branch (head)   : {}█", head_input),
+                        4 => format!("Target branch (base)   : {}█", base_input),
                         5 => "GitHub Token (optional): ******".to_string(),
                         _ => String::new(),
                     };
                     queue!(
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
-                        SetForegroundColor(Color::Yellow),
+                        SetForegroundColor(accent_gold),
                         Print(format!("🚀 CREATE PULL REQUEST (Step {}/6)", step + 1)),
                         MoveTo(modal_x + 2, modal_y + 3),
-                        SetForegroundColor(Color::Green),
+                        SetForegroundColor(accent_green),
                         Print(step_desc),
-                        MoveTo(modal_x + 2, modal_y + 4),
+                        MoveTo(modal_x + 2, modal_y + 5),
                         SetForegroundColor(text_dim),
                         Print("[Enter] Next / Submit | [Esc] Cancel")
                     )?;
@@ -786,16 +1141,12 @@ impl SearchHub {
                 w,
                 MoveTo(start_x + 1, status_y),
                 SetBackgroundColor(bg_color),
-                SetForegroundColor(Color::Rgb {
-                    r: 100,
-                    g: 220,
-                    b: 150
-                }),
+                SetForegroundColor(accent_green),
                 Print(&truncated_status)
             )?;
         }
 
-        let shortcuts_text = " [Tab] Filter | [1..7] Source | [c] Clone | [b] Branch | [s] Switch | [p] PR | [o] Open Link | [e] Export | [a] Audit | [Esc] Exit ";
+        let shortcuts_text = " [Tab] Source │ [1..7] Providers │ [c] Clone │ [b] Branch │ [s] Switch │ [p] PR │ [o] Open │ [e] Export │ [a] Audit │ [Esc] Exit ";
         let rendered_shortcuts = truncate_to_width(shortcuts_text, width.saturating_sub(1) as usize);
         queue!(
             w,
@@ -1380,24 +1731,123 @@ pub fn audit_local_workspace(current_dir: &Path) -> Vec<SearchResultItem> {
 // GIT WORKFLOW ACTIONS (Clone, Create Branch, Pull Request)
 // =========================================================================
 
-/// Clone a repository using git2 or fallback to git CLI
+/// Clone a repository using git2 with transfer progress or fallback to git CLI
 pub fn clone_repository(repo_url: &str, dest_path: &Path) -> Result<String, String> {
-    // Try git2 first
-    match git2::Repository::clone(repo_url, dest_path) {
-        Ok(_) => Ok(format!(
-            "Repository cloned successfully into '{}'",
-            dest_path.display()
-        )),
+    clone_repository_with_progress(repo_url, dest_path, None::<fn(CloneProgress)>)
+}
+
+/// Clone repository with real-time progress reporting callback
+pub fn clone_repository_with_progress<F>(
+    repo_url: &str,
+    dest_path: &Path,
+    on_progress: Option<F>,
+) -> Result<String, String>
+where
+    F: FnMut(CloneProgress) + 'static,
+{
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let cb_holder: Rc<RefCell<Option<F>>> = Rc::new(RefCell::new(on_progress));
+
+    if let Some(ref mut cb) = *cb_holder.borrow_mut() {
+        cb(CloneProgress {
+            percentage: 5,
+            indexed_objects: 0,
+            total_objects: 0,
+            received_bytes: 0,
+            current_step: "Connecting to remote repository...".to_string(),
+        });
+    }
+
+    // Attempt git2 clone with live remote callbacks
+    let mut builder = git2::build::RepoBuilder::new();
+    let mut callbacks = git2::RemoteCallbacks::new();
+
+    let cb_clone = Rc::clone(&cb_holder);
+    callbacks.transfer_progress(move |stats| {
+        let total = stats.total_objects();
+        let received = stats.received_objects();
+        let indexed = stats.indexed_objects();
+        let bytes = stats.received_bytes();
+
+        let pct = if total > 0 {
+            let p = ((received + indexed) as f64 / (total * 2) as f64 * 90.0) as u8;
+            p.min(95).max(10)
+        } else {
+            20
+        };
+
+        if let Ok(mut borrow) = cb_clone.try_borrow_mut() {
+            if let Some(ref mut cb) = *borrow {
+                cb(CloneProgress {
+                    percentage: pct,
+                    indexed_objects: indexed,
+                    total_objects: total,
+                    received_bytes: bytes,
+                    current_step: format!("Receiving objects: {}/{} - {} bytes", received, total, bytes),
+                });
+            }
+        }
+        true
+    });
+
+    let mut fetch_options = git2::FetchOptions::new();
+    fetch_options.remote_callbacks(callbacks);
+    builder.fetch_options(fetch_options);
+
+    match builder.clone(repo_url, dest_path) {
+        Ok(_) => {
+            if let Ok(mut borrow) = cb_holder.try_borrow_mut() {
+                if let Some(ref mut cb) = *borrow {
+                    cb(CloneProgress {
+                        percentage: 100,
+                        indexed_objects: 0,
+                        total_objects: 0,
+                        received_bytes: 0,
+                        current_step: "Cloning completed successfully!".to_string(),
+                    });
+                }
+            }
+            Ok(format!(
+                "Repository cloned successfully into '{}'",
+                dest_path.display()
+            ))
+        }
         Err(err) => {
             // Fallback to git CLI command
+            if let Ok(mut borrow) = cb_holder.try_borrow_mut() {
+                if let Some(ref mut cb) = *borrow {
+                    cb(CloneProgress {
+                        percentage: 30,
+                        indexed_objects: 0,
+                        total_objects: 0,
+                        received_bytes: 0,
+                        current_step: "Falling back to Git CLI command...".to_string(),
+                    });
+                }
+            }
+
             let output = Command::new("git")
                 .arg("clone")
+                .arg("--progress")
                 .arg(repo_url)
                 .arg(dest_path)
                 .output()
                 .map_err(|e| format!("Git execution error: {}", e))?;
 
             if output.status.success() {
+                if let Ok(mut borrow) = cb_holder.try_borrow_mut() {
+                    if let Some(ref mut cb) = *borrow {
+                        cb(CloneProgress {
+                            percentage: 100,
+                            indexed_objects: 0,
+                            total_objects: 0,
+                            received_bytes: 0,
+                            current_step: "Cloning completed successfully!".to_string(),
+                        });
+                    }
+                }
                 Ok(format!(
                     "Repository cloned successfully into '{}'",
                     dest_path.display()
@@ -1712,6 +2162,35 @@ mod tests {
         let res = hub.draw(&mut buffer, 0, 0, 80, 24);
         assert!(res.is_ok());
         assert!(!buffer.is_empty());
+    }
+
+    #[test]
+    fn test_search_hub_drawing_2x2_with_results_and_prompt() {
+        let mut hub = SearchHub::new();
+        hub.results.push(SearchResultItem {
+            provider: SearchProvider::GitHub,
+            title: "qwx-engine".to_string(),
+            description: "Advanced text editor with 2x2 layout engine".to_string(),
+            url: "https://github.com/test/qwx".to_string(),
+            extra_info: "★ 320 | Lang: Rust".to_string(),
+            clone_url: Some("https://github.com/test/qwx.git".to_string()),
+            raw_content: Some("## Overview\nQwx terminal editor.".to_string()),
+        });
+
+        let mut buffer = Vec::new();
+        let res = hub.draw(&mut buffer, 0, 0, 100, 30);
+        assert!(res.is_ok());
+
+        // Test with active clone in progress prompt
+        hub.prompt = Some(ActionPrompt::CloneInProgress {
+            repo_url: "https://github.com/test/qwx.git".to_string(),
+            dest_path: "qwx".to_string(),
+            progress_pct: 65,
+            status_text: "Receiving objects: 650/1000 - 45000 bytes".to_string(),
+        });
+        let mut buffer2 = Vec::new();
+        let res2 = hub.draw(&mut buffer2, 0, 0, 120, 35);
+        assert!(res2.is_ok());
     }
 
     #[test]
