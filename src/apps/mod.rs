@@ -77,6 +77,12 @@ struct PaneState {
     cursor: u16,
 }
 
+/// To init correct panel state in panel 
+const INIT_PANE_STATE: PaneState = PaneState {
+    workspace: 1,
+    view: 1,
+    cursor: 0,
+};
 pub struct App {
     finder_layout: FinderLayout,
     finder: Finder,
@@ -248,26 +254,10 @@ impl App {
             running: true,
             focus: PaneFocus::TopLeft,
             panes: [
-                PaneState {
-                    workspace: 1,
-                    view: 1,
-                    cursor: 0,
-                },
-                PaneState {
-                    workspace: 2,
-                    view: 1,
-                    cursor: 0,
-                },
-                PaneState {
-                    workspace: 3,
-                    view: 1,
-                    cursor: 0,
-                },
-                PaneState {
-                    workspace: 4,
-                    view: 1,
-                    cursor: 0,
-                },
+                INIT_PANE_STATE,
+                INIT_PANE_STATE,
+                INIT_PANE_STATE,
+                INIT_PANE_STATE,
             ],
             mode: Mode::Normal,
             dmenu_input: String::new(),
