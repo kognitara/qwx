@@ -1,12 +1,12 @@
 use crate::apps::App;
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
+use clap_complete::{Shell, generate};
 use git2::build::RepoBuilder;
 use git2::{FetchOptions, RemoteCallbacks};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::env::{current_dir, set_current_dir};
 use std::io;
 use std::path::Path;
-
 mod apps;
 mod editor;
 mod finder;
@@ -25,6 +25,15 @@ fn cli() -> Command {
                     .action(ArgAction::Set)
                     .default_value("."),
             ),
+        )
+        .subcommand(
+            Command::new("gen")
+                .about("Gen auto completion for shell")
+                .arg(
+                    Arg::new("shell")
+                        .help("Generate the auto completion script")
+                        .value_parser(["bash", "zsh", "fish", "powershell", "elvish"]),
+                ),
         )
         .subcommand(
             Command::new("clone")
@@ -112,7 +121,7 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     }
 }
 fn main() -> io::Result<()> {
-    let app = cli();
+    let mut app = cli();
     let matches = app.clone().get_matches();
     match matches.subcommand() {
         Some(("open", sub)) => {
@@ -123,6 +132,19 @@ fn main() -> io::Result<()> {
                 app.clone().print_help()?;
                 Ok(())
             }
+        }
+        Some(("gen", sub)) => {
+            let shell = sub.get_one::<String>("shell").expect("shell is required");
+            let shell = match shell.as_str() {
+                "bash" => Shell::Bash,
+                "zsh" => Shell::Zsh,
+                "fish" => Shell::Fish,
+                "powershell" => Shell::PowerShell,
+                "elvish" => Shell::Elvish,
+                _ => unreachable!(),
+            };
+            generate(shell, &mut app, "qwx", &mut io::stdout());
+            return Ok(());
         }
         Some(("clone", sub)) => clone_and_open(sub),
         _ => {

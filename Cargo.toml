@@ -1,6 +1,6 @@
 [package]
 name = "qwx"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 description = "Quaternary Walk eXtended"
 license = "AGPL-3.0-or-later"
@@ -9,6 +9,7 @@ repository = "https://github.com/kognitara/qwx.git"
 
 [dependencies]
 clap = "4.6.6"
+clap_complete = "4.6.9"
 crossterm = "0.29.0"
 dirs = "6.0.0"
 git2 = { version = "0.21.0", features = ["https", "ssh"] }
