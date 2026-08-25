@@ -5,7 +5,7 @@ use git2::{FetchOptions, RemoteCallbacks};
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::Text;
 use qwx::editor::{Mode, Qwx};
-use qwx::player::SpotifyCredentials;
+use qwx::player::{SpotifyClient, SpotifyCredentials};
 use std::env::{current_dir, set_current_dir};
 use std::io;
 use std::path::Path;
@@ -46,7 +46,12 @@ fn cli() -> Command {
         .subcommand(
             Command::new("spotify")
                 .visible_alias("spotify-config")
-                .about("Configure Spotify credentials interactively"),
+                .about("Configure Spotify credentials interactively or update access token")
+                .subcommand(
+                    Command::new("update-token")
+                        .visible_alias("update-token")
+                        .about("Automatically request and update Spotify access token using Client ID & Secret"),
+                ),
         )
 }
 
@@ -122,6 +127,31 @@ fn configure_spotify() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn update_spotify_token() -> io::Result<()> {
+    println!("Requesting new Spotify Access Token using configured Client ID & Secret...");
+    let mut client = SpotifyClient::new();
+    match client.request_client_credentials_token() {
+        Ok(token) => {
+            println!("\n✓ Spotify Access Token successfully retrieved and saved to configuration!");
+            let preview = if token.len() > 16 {
+                format!("{}...", &token[..16])
+            } else {
+                token
+            };
+            println!("  Token: {}", preview);
+            if let Some(path) = SpotifyCredentials::config_file_path() {
+                println!("  Saved to: {}", path.display());
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("\n✗ Failed to update Spotify token: {}", e);
+            eprintln!("  Tip: Make sure Client ID & Client Secret are configured via `qwx spotify` or environment variables.");
+            Err(io::Error::new(io::ErrorKind::Other, e))
+        }
+    }
 }
 
 fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
@@ -213,7 +243,13 @@ fn main() -> io::Result<()> {
             Ok(())
         }
         Some(("clone", sub)) => clone_and_open(sub),
-        Some(("spotify", _)) | Some(("spotify-config", _)) => configure_spotify(),
+        Some(("spotify", sub)) | Some(("spotify-config", sub)) => {
+            if let Some(("update-token", _)) = sub.subcommand() {
+                update_spotify_token()
+            } else {
+                configure_spotify()
+            }
+        }
         None => {
             if let Some(p) = matches.get_one::<String>("path") {
                 let path = Path::new(p);

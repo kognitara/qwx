@@ -331,14 +331,45 @@ impl SpotifyCredentials {
     pub fn config_file_path() -> Option<PathBuf> {
         dirs_config_path().map(|dir| dir.join("spotify.json"))
     }
+
+    /// Updates tokens (access_token and/or refresh_token) in the saved configuration file.
+    ///
+    /// Loads existing configuration first, overrides with provided token values (if Some),
+    /// writes to disk, and returns the updated `SpotifyCredentials`.
+    pub fn update_tokens_in_config(
+        access_token: Option<String>,
+        refresh_token: Option<String>,
+    ) -> io::Result<Self> {
+        let mut creds = Self::load_from_config();
+        if access_token.is_some() {
+            creds.access_token = access_token;
+        }
+        if refresh_token.is_some() {
+            creds.refresh_token = refresh_token;
+        }
+        creds.save_to_config()?;
+        Ok(creds)
+    }
+
+    /// Updates the access token and persists it to the configuration file.
+    pub fn update_access_token_in_config(access_token: impl Into<String>) -> io::Result<Self> {
+        Self::update_tokens_in_config(Some(access_token.into()), None)
+    }
+
+    /// Updates the refresh token and persists it to the configuration file.
+    pub fn update_refresh_token_in_config(refresh_token: impl Into<String>) -> io::Result<Self> {
+        Self::update_tokens_in_config(None, Some(refresh_token.into()))
+    }
 }
 
 fn dirs_config_path() -> Option<PathBuf> {
-    if let Ok(home) = std::env::var("HOME") {
-        Some(PathBuf::from(home).join(".config").join("qwx"))
-    } else {
-        None
-    }
+    dirs::config_dir()
+        .map(|p| p.join("qwx"))
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|home| PathBuf::from(home).join(".config").join("qwx"))
+        })
 }
 
 /// Spotify Web API HTTP Client.
@@ -380,6 +411,13 @@ impl SpotifyClient {
     /// Sets the access token.
     pub fn set_token(&mut self, token: impl Into<String>) {
         self.credentials.access_token = Some(token.into());
+    }
+
+    /// Sets the access token and immediately saves it to the configuration file.
+    pub fn set_and_save_token(&mut self, token: impl Into<String>) -> io::Result<()> {
+        let tok = token.into();
+        self.credentials.access_token = Some(tok);
+        self.credentials.save_to_config()
     }
 
     /// Fetches Client Credentials Access Token if Client ID and Secret are configured.
