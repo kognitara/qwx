@@ -18,6 +18,7 @@ pub enum SearchProvider {
     Cve,
     HackerNews,
     LocalAudit,
+    Web,
 }
 
 impl SearchProvider {
@@ -30,6 +31,7 @@ impl SearchProvider {
             SearchProvider::Cve,
             SearchProvider::HackerNews,
             SearchProvider::LocalAudit,
+            SearchProvider::Web,
         ]
     }
 
@@ -42,6 +44,7 @@ impl SearchProvider {
             SearchProvider::Cve => "CVE / Security",
             SearchProvider::HackerNews => "Hacker News",
             SearchProvider::LocalAudit => "Local Audit",
+            SearchProvider::Web => "Web / DuckDuckGo",
         }
     }
 
@@ -54,6 +57,7 @@ impl SearchProvider {
             SearchProvider::Cve => '5',
             SearchProvider::HackerNews => '6',
             SearchProvider::LocalAudit => '7',
+            SearchProvider::Web => '8',
         }
     }
 }
@@ -146,6 +150,8 @@ pub struct SearchHub {
     pub status_message: Option<String>,
     pub is_loading: bool,
     pub prompt: Option<ActionPrompt>,
+    pub web_browser: crate::web::WebBrowser,
+    pub show_web_reader: bool,
 }
 
 impl Default for SearchHub {
@@ -163,10 +169,61 @@ impl SearchHub {
             selected_index: 0,
             scroll_offset: 0,
             preview_scroll: 0,
-            status_message: Some("Press Enter to search, Tab to filter, 'c' to clone, 'b' to create branch, 'p' for PR, 'a' to audit local CVEs.".to_string()),
+            status_message: Some("Press Enter to search, Tab to filter, 'w' for Web Reader, 'c' to clone, 'b' to create branch, 'p' for PR, 'a' to audit local CVEs.".to_string()),
             is_loading: false,
             prompt: None,
+            web_browser: crate::web::WebBrowser::new(),
+            show_web_reader: false,
         }
+    }
+
+    /// Open selected result item in the embedded Web Reader
+    pub fn open_selected_in_web_reader(&mut self, terminal_width: u16) {
+        if let Some(item) = self.selected_item().cloned() {
+            self.web_browser.open_search_result(&item, terminal_width);
+            self.show_web_reader = true;
+            self.status_message = Some(format!(
+                "Reading '{}' in Web Reader. Press [Esc] or [q] to return.",
+                item.title
+            ));
+        } else {
+            self.status_message = Some("No item selected to open in Web Reader.".to_string());
+        }
+    }
+
+    /// View all current search results as an interactive Web Page inside the Web Reader
+    pub fn view_results_as_web_page(&mut self, terminal_width: u16) {
+        if !self.results.is_empty() {
+            let provider_name = self.active_provider.name();
+            let query = if self.query.trim().is_empty() {
+                "all"
+            } else {
+                self.query.trim()
+            };
+            self.web_browser.load_search_results(
+                query,
+                provider_name,
+                &self.results,
+                terminal_width,
+            );
+            self.show_web_reader = true;
+            self.status_message = Some(
+                "Viewing search results in Web Reader. Press [Esc] or [q] to return.".to_string(),
+            );
+        } else {
+            self.status_message = Some("No search results to view as Web Page.".to_string());
+        }
+    }
+
+    /// Close the embedded Web Reader and return to SearchHub results grid
+    pub fn close_web_reader(&mut self) {
+        self.show_web_reader = false;
+        self.status_message = Some("Returned to Search Hub.".to_string());
+    }
+
+    /// Check if currently viewing the web reader
+    pub fn is_viewing_web(&self) -> bool {
+        self.show_web_reader
     }
 
     pub fn set_provider(&mut self, provider: SearchProvider) {
@@ -230,7 +287,7 @@ impl SearchHub {
     pub fn perform_search(&mut self, current_dir: &Path) {
         let query_clean = self.query.trim();
 
-        // Check if query starts with provider shortcut prefix like "gh:", "gitlab:", "wiki:", "cve:", "hn:", "audit:"
+        // Check if query starts with provider shortcut prefix like "gh:", "gitlab:", "wiki:", "cve:", "hn:", "audit:", "web:", "ddg:"
         let (provider, effective_query) = if let Some(rest) = query_clean.strip_prefix("gh:") {
             (SearchProvider::GitHub, rest.trim())
         } else if let Some(rest) = query_clean.strip_prefix("gitlab:") {
@@ -243,6 +300,10 @@ impl SearchHub {
             (SearchProvider::HackerNews, rest.trim())
         } else if let Some(rest) = query_clean.strip_prefix("audit:") {
             (SearchProvider::LocalAudit, rest.trim())
+        } else if let Some(rest) = query_clean.strip_prefix("web:") {
+            (SearchProvider::Web, rest.trim())
+        } else if let Some(rest) = query_clean.strip_prefix("ddg:") {
+            (SearchProvider::Web, rest.trim())
         } else {
             (self.active_provider, query_clean)
         };
@@ -262,6 +323,7 @@ impl SearchHub {
                     all_res.extend(search_cve(effective_query));
                     all_res.extend(search_hacker_news(effective_query));
                     all_res.extend(search_wikipedia(effective_query));
+                    all_res.extend(search_duckduckgo(effective_query));
                     self.results = all_res;
                 } else {
                     self.results = audit_local_workspace(current_dir);
@@ -288,6 +350,9 @@ impl SearchHub {
             }
             SearchProvider::LocalAudit => {
                 self.results = audit_local_workspace(current_dir);
+            }
+            SearchProvider::Web => {
+                self.results = search_duckduckgo(effective_query);
             }
         }
 
@@ -416,6 +481,10 @@ impl SearchHub {
         width: u16,
         height: u16,
     ) -> io::Result<()> {
+        if self.show_web_reader {
+            return self.web_browser.draw(w, width, height);
+        }
+
         if width < 30 || height < 10 {
             return Ok(());
         }
@@ -714,6 +783,7 @@ impl SearchHub {
                     SearchProvider::Cve => "🛡 Scanning & analyzing CVE vulnerabilities...",
                     SearchProvider::HackerNews => "📡 Fetching Hacker News discussions...",
                     SearchProvider::LocalAudit => "📦 Auditing dependencies & scanning CVEs...",
+                    SearchProvider::Web => "🌐 Searching web via DuckDuckGo...",
                     SearchProvider::All => "⚙ Multi-source live search in progress...",
                 }
             } else {
@@ -758,6 +828,7 @@ impl SearchHub {
                     SearchProvider::Cve => "🛡",
                     SearchProvider::HackerNews => "",
                     SearchProvider::LocalAudit => "🔍",
+                    SearchProvider::Web => "🌐",
                     SearchProvider::All => "◆",
                 };
 
@@ -809,7 +880,7 @@ impl SearchHub {
             if let Some(ref clone_url) = selected.clone_url {
                 overview_lines.push((format!("• GitClone: {}", clone_url), accent_green));
             }
-            overview_lines.push(("• Actions : [c] Clone  [o] Browser  [b] Branch  [p] PR".to_string(), text_dim));
+            overview_lines.push(("• Actions : [w] WebReader  [o] ExtBrowser  [c] Clone  [p] PR".to_string(), text_dim));
 
             for (idx, (line, color)) in overview_lines.iter().take(q2_h).enumerate() {
                 let line_y = q2_y + idx as u16;
@@ -878,19 +949,21 @@ impl SearchHub {
         ));
         provider_lines.push((
             format!(
-                "  {} [7] Local Audit (Cargo.lock CVE scan)",
-                if self.active_provider == SearchProvider::LocalAudit { "●" } else { "○" }
+                "  {} [7] Local Audit    {} [8] Web (DuckDuckGo)",
+                if self.active_provider == SearchProvider::LocalAudit { "●" } else { "○" },
+                if self.active_provider == SearchProvider::Web { "●" } else { "○" }
             ),
-            if self.active_provider == SearchProvider::LocalAudit {
+            if self.active_provider == SearchProvider::LocalAudit || self.active_provider == SearchProvider::Web {
                 accent_gold
             } else {
                 text_dim
             },
         ));
-        provider_lines.push(("Dev Actions:".to_string(), accent_gold));
-        provider_lines.push(("  [c] Clone Repo      [b] Create Branch".to_string(), text_color));
-        provider_lines.push(("  [s] Switch Branch   [p] Create Pull Request".to_string(), text_color));
-        provider_lines.push(("  [e] Export Report   [a] Audit Local CVEs".to_string(), text_color));
+        provider_lines.push(("Dev Actions & Web:".to_string(), accent_gold));
+        provider_lines.push(("  [w] Open in Web Reader   [v] View as Web Page".to_string(), text_color));
+        provider_lines.push(("  [c] Clone Repo           [b] Create Branch".to_string(), text_color));
+        provider_lines.push(("  [s] Switch Branch        [p] Create Pull Request".to_string(), text_color));
+        provider_lines.push(("  [e] Export Report        [a] Audit Local CVEs".to_string(), text_color));
 
         for (idx, (line, color)) in provider_lines.iter().take(q3_h).enumerate() {
             let line_y = q3_y + idx as u16;
@@ -1727,6 +1800,133 @@ pub fn audit_local_workspace(current_dir: &Path) -> Vec<SearchResultItem> {
     results
 }
 
+#[derive(Deserialize)]
+struct DdgTopic {
+    #[serde(rename = "Text")]
+    text: Option<String>,
+    #[serde(rename = "FirstURL")]
+    first_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DdgInstantAnswerResponse {
+    #[serde(rename = "Heading")]
+    heading: Option<String>,
+    #[serde(rename = "AbstractText")]
+    abstract_text: Option<String>,
+    #[serde(rename = "AbstractURL")]
+    abstract_url: Option<String>,
+    #[serde(rename = "RelatedTopics")]
+    related_topics: Option<Vec<DdgTopic>>,
+}
+
+/// Search DuckDuckGo (instant answer API + fallback to HTML web link results)
+pub fn search_duckduckgo(query: &str) -> Vec<SearchResultItem> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut results = Vec::new();
+    let client = match reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0 QwxSearch/0.0.3")
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return results,
+    };
+
+    // 1. DuckDuckGo Instant Answer API
+    let api_url = format!(
+        "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=0",
+        urlencoding(query)
+    );
+    if let Ok(resp) = client.get(&api_url).send() {
+        if let Ok(data) = resp.json::<DdgInstantAnswerResponse>() {
+            if let Some(ref text) = data.abstract_text {
+                if !text.is_empty() {
+                    let heading = data.heading.unwrap_or_else(|| query.to_string());
+                    let url = data.abstract_url.unwrap_or_default();
+                    results.push(SearchResultItem {
+                        provider: SearchProvider::Web,
+                        title: heading,
+                        description: text.clone(),
+                        url: if url.is_empty() {
+                            format!("https://html.duckduckgo.com/html/?q={}", urlencoding(query))
+                        } else {
+                            url
+                        },
+                        extra_info: "DuckDuckGo Instant Answer".to_string(),
+                        clone_url: None,
+                        raw_content: Some(text.clone()),
+                    });
+                }
+            }
+
+            if let Some(topics) = data.related_topics {
+                for topic in topics.into_iter().take(10) {
+                    if let (Some(text), Some(url)) = (topic.text, topic.first_url) {
+                        if !text.is_empty() && !url.is_empty() {
+                            let title = if let Some(dash_idx) = text.find(" - ") {
+                                text[..dash_idx].to_string()
+                            } else {
+                                text.chars().take(50).collect()
+                            };
+                            results.push(SearchResultItem {
+                                provider: SearchProvider::Web,
+                                title,
+                                description: text.clone(),
+                                url,
+                                extra_info: "DuckDuckGo Web".to_string(),
+                                clone_url: None,
+                                raw_content: Some(text),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. If no instant answers or few results, also fetch HTML / lite search
+    if results.is_empty() {
+        let html_url = format!("https://html.duckduckgo.com/html/?q={}", urlencoding(query));
+        if let Ok(resp) = client.get(&html_url).send() {
+            if let Ok(html_text) = resp.text() {
+                let engine = crate::web::HtmlReaderEngine::new(80);
+                let page = engine.parse_html(&html_url, &html_text);
+                for link in page.links.into_iter().take(10) {
+                    if !link.url.contains("duckduckgo.com") && !link.text.trim().is_empty() {
+                        results.push(SearchResultItem {
+                            provider: SearchProvider::Web,
+                            title: link.text.clone(),
+                            description: format!("Web link: {}", link.url),
+                            url: link.url,
+                            extra_info: "DuckDuckGo Web".to_string(),
+                            clone_url: None,
+                            raw_content: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback if still empty: direct DuckDuckGo link item
+    if results.is_empty() {
+        results.push(SearchResultItem {
+            provider: SearchProvider::Web,
+            title: format!("Search web for '{}'", query),
+            description: "Open search results on DuckDuckGo in web reader".to_string(),
+            url: format!("https://html.duckduckgo.com/html/?q={}", urlencoding(query)),
+            extra_info: "DuckDuckGo Web".to_string(),
+            clone_url: None,
+            raw_content: None,
+        });
+    }
+
+    results
+}
+
 // =========================================================================
 // GIT WORKFLOW ACTIONS (Clone, Create Branch, Pull Request)
 // =========================================================================
@@ -2086,6 +2286,8 @@ mod tests {
         assert_eq!(SearchProvider::GitLab.name(), "GitLab");
         assert_eq!(SearchProvider::HackerNews.name(), "Hacker News");
         assert_eq!(SearchProvider::LocalAudit.name(), "Local Audit");
+        assert_eq!(SearchProvider::Web.name(), "Web / DuckDuckGo");
+        assert_eq!(SearchProvider::Web.shortcut_key(), '8');
     }
 
     #[test]
@@ -2222,5 +2424,31 @@ mod tests {
         assert!(open_url_in_browser("").is_err());
         assert!(create_git_branch(Path::new("."), "").is_err());
         assert!(checkout_git_branch(Path::new("."), "").is_err());
+    }
+
+    #[test]
+    fn test_search_hub_web_reader_integration() {
+        let mut hub = SearchHub::new();
+        hub.results.push(SearchResultItem {
+            provider: SearchProvider::Web,
+            title: "Rust Language".to_string(),
+            description: "Empowering everyone to build reliable software".to_string(),
+            url: "https://www.rust-lang.org".to_string(),
+            extra_info: "DuckDuckGo Web".to_string(),
+            clone_url: None,
+            raw_content: Some("Rust is blazingly fast and memory-efficient.".to_string()),
+        });
+
+        assert!(!hub.is_viewing_web());
+        hub.open_selected_in_web_reader(80);
+        assert!(hub.is_viewing_web());
+        assert!(hub.web_browser.current_page.is_some());
+
+        hub.close_web_reader();
+        assert!(!hub.is_viewing_web());
+
+        hub.view_results_as_web_page(80);
+        assert!(hub.is_viewing_web());
+        assert!(hub.web_browser.current_page.is_some());
     }
 }

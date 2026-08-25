@@ -1558,6 +1558,23 @@ impl Qwx {
                                 }
                             }
                         }
+                    } else if let Some(url) = self.menu_input.strip_prefix(":web ") {
+                        let url_clean = url.trim().to_string();
+                        self.mode = Mode::WebSearch;
+                        self.search_hub.web_browser.open_url(&url_clean, self.width);
+                        self.search_hub.show_web_reader = true;
+                        self.menu_input.clear();
+                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        return;
+                    } else if let Some(query) = self.menu_input.strip_prefix(":search ") {
+                        let q_clean = query.trim().to_string();
+                        self.mode = Mode::WebSearch;
+                        self.search_hub.query = q_clean;
+                        self.search_hub.show_web_reader = false;
+                        self.search_hub.perform_search(&self.current_dir);
+                        self.menu_input.clear();
+                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        return;
                     }
                     self.mode = Mode::Normal;
                     self.menu_input.clear();
@@ -1847,6 +1864,157 @@ impl Qwx {
     fn handle_web_search(&mut self) {
         match read().expect("msg") {
             Event::Key(key) => {
+                // 1. If Web Reader is currently active inside the Search Hub
+                if self.search_hub.show_web_reader {
+                    // 1.1 Web Reader active input prompts (URL bar, jump to link ID, in-page search)
+                    if self.search_hub.web_browser.url_prompt_active {
+                        match (key.modifiers, key.code) {
+                            (KeyModifiers::NONE, KeyCode::Esc) => {
+                                self.search_hub.web_browser.url_prompt_active = false;
+                                self.search_hub.web_browser.url_input.clear();
+                                let _ = execute!(stdout(), Clear(ClearType::All));
+                            }
+                            (KeyModifiers::NONE, KeyCode::Enter) => {
+                                let input = self.search_hub.web_browser.url_input.clone();
+                                self.search_hub.web_browser.url_prompt_active = false;
+                                self.search_hub.web_browser.url_input.clear();
+                                if !input.trim().is_empty() {
+                                    self.search_hub.web_browser.open_url(&input, self.width);
+                                }
+                                let _ = execute!(stdout(), Clear(ClearType::All));
+                            }
+                            (KeyModifiers::NONE, KeyCode::Backspace) => {
+                                self.search_hub.web_browser.url_input.pop();
+                            }
+                            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                                self.search_hub.web_browser.url_input.push(c);
+                            }
+                            _ => {}
+                        }
+                        return;
+                    }
+
+                    if self.search_hub.web_browser.link_prompt_active {
+                        match (key.modifiers, key.code) {
+                            (KeyModifiers::NONE, KeyCode::Esc) => {
+                                self.search_hub.web_browser.link_prompt_active = false;
+                                self.search_hub.web_browser.link_input.clear();
+                                let _ = execute!(stdout(), Clear(ClearType::All));
+                            }
+                            (KeyModifiers::NONE, KeyCode::Enter) => {
+                                let input = self.search_hub.web_browser.link_input.clone();
+                                self.search_hub.web_browser.link_prompt_active = false;
+                                self.search_hub.web_browser.link_input.clear();
+                                if let Ok(id) = input.trim().parse::<usize>() {
+                                    self.search_hub.web_browser.follow_link_by_id(id, self.width);
+                                }
+                                let _ = execute!(stdout(), Clear(ClearType::All));
+                            }
+                            (KeyModifiers::NONE, KeyCode::Backspace) => {
+                                self.search_hub.web_browser.link_input.pop();
+                            }
+                            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                                if c.is_ascii_digit() {
+                                    self.search_hub.web_browser.link_input.push(c);
+                                }
+                            }
+                            _ => {}
+                        }
+                        return;
+                    }
+
+                    if self.search_hub.web_browser.search_mode {
+                        match (key.modifiers, key.code) {
+                            (KeyModifiers::NONE, KeyCode::Esc) => {
+                                self.search_hub.web_browser.search_mode = false;
+                                self.search_hub.web_browser.search_query.clear();
+                                let _ = execute!(stdout(), Clear(ClearType::All));
+                            }
+                            (KeyModifiers::NONE, KeyCode::Enter) => {
+                                let query = self.search_hub.web_browser.search_query.clone();
+                                self.search_hub.web_browser.search_mode = false;
+                                if !query.trim().is_empty() {
+                                    self.search_hub.web_browser.search_page(&query);
+                                }
+                                let _ = execute!(stdout(), Clear(ClearType::All));
+                            }
+                            (KeyModifiers::NONE, KeyCode::Backspace) => {
+                                self.search_hub.web_browser.search_query.pop();
+                            }
+                            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                                self.search_hub.web_browser.search_query.push(c);
+                            }
+                            _ => {}
+                        }
+                        return;
+                    }
+
+                    // 1.2 Web Reader Navigation Keys
+                    match (key.modifiers, key.code) {
+                        (KeyModifiers::NONE, KeyCode::Esc) | (KeyModifiers::NONE, KeyCode::Char('q')) => {
+                            self.search_hub.close_web_reader();
+                            let _ = execute!(stdout(), Clear(ClearType::All));
+                        }
+                        (KeyModifiers::NONE, KeyCode::Char('o')) | (KeyModifiers::NONE, KeyCode::Char('g')) => {
+                            self.search_hub.web_browser.url_prompt_active = true;
+                            self.search_hub.web_browser.url_input.clear();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Char('f')) => {
+                            self.search_hub.web_browser.link_prompt_active = true;
+                            self.search_hub.web_browser.link_input.clear();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Char('/')) => {
+                            self.search_hub.web_browser.search_mode = true;
+                            self.search_hub.web_browser.search_query.clear();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Char('n')) => {
+                            self.search_hub.web_browser.next_search_match();
+                        }
+                        (KeyModifiers::SHIFT, KeyCode::Char('N')) | (KeyModifiers::NONE, KeyCode::Char('N')) => {
+                            self.search_hub.web_browser.prev_search_match();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Char('b')) => {
+                            self.search_hub.web_browser.go_back(self.width);
+                        }
+                        (KeyModifiers::SHIFT, KeyCode::Char('F')) => {
+                            self.search_hub.web_browser.go_forward(self.width);
+                        }
+                        (KeyModifiers::NONE, KeyCode::Char('r')) => {
+                            self.search_hub.web_browser.reload(self.width);
+                        }
+                        (KeyModifiers::NONE, KeyCode::Char('m')) => {
+                            self.search_hub.web_browser.toggle_view_mode();
+                        }
+                        (KeyModifiers::SHIFT, KeyCode::Char('B')) => {
+                            self.search_hub.web_browser.bookmark_current_page();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Tab) => {
+                            self.search_hub.web_browser.next_link();
+                        }
+                        (KeyModifiers::SHIFT, KeyCode::BackTab) | (KeyModifiers::SHIFT, KeyCode::Tab) => {
+                            self.search_hub.web_browser.prev_link();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Enter) => {
+                            self.search_hub.web_browser.follow_selected_link(self.width);
+                        }
+                        (KeyModifiers::NONE, KeyCode::Up) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                            self.search_hub.web_browser.scroll_up(1);
+                        }
+                        (KeyModifiers::NONE, KeyCode::Down) | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+                            self.search_hub.web_browser.scroll_down(1);
+                        }
+                        (KeyModifiers::NONE, KeyCode::PageUp) => {
+                            self.search_hub.web_browser.scroll_up(10);
+                        }
+                        (KeyModifiers::NONE, KeyCode::PageDown) => {
+                            self.search_hub.web_browser.scroll_down(10);
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // 2. Active Git / PR Modal Prompts in Search Hub
                 if let Some(ref mut prompt) = self.search_hub.prompt {
                     match (key.modifiers, key.code) {
                         (KeyModifiers::NONE, KeyCode::Esc) => {
@@ -2048,7 +2216,7 @@ impl Qwx {
                     return;
                 }
 
-                // SearchHub Navigation & Input
+                // 3. SearchHub Navigation & Input (Results Grid View)
                 match (key.modifiers, key.code) {
                     (KeyModifiers::NONE, KeyCode::Esc) => {
                         self.mode = Mode::Normal;
@@ -2077,6 +2245,18 @@ impl Qwx {
                     }
                     (KeyModifiers::NONE, KeyCode::PageDown) => {
                         self.search_hub.scroll_preview_down();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('w'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('w'))
+                    | (KeyModifiers::NONE, KeyCode::Char('w')) => {
+                        self.search_hub.open_selected_in_web_reader(self.width);
+                        let _ = execute!(stdout(), Clear(ClearType::All));
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('v'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('v'))
+                    | (KeyModifiers::NONE, KeyCode::Char('v')) => {
+                        self.search_hub.view_results_as_web_page(self.width);
+                        let _ = execute!(stdout(), Clear(ClearType::All));
                     }
                     (KeyModifiers::ALT, KeyCode::Char('o')) | (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
                         self.search_hub.open_selected_in_browser();
@@ -2120,6 +2300,9 @@ impl Qwx {
                     }
                     (KeyModifiers::ALT, KeyCode::Char('7')) | (KeyModifiers::CONTROL, KeyCode::Char('7')) => {
                         self.search_hub.set_provider(crate::search::SearchProvider::LocalAudit);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('8')) | (KeyModifiers::CONTROL, KeyCode::Char('8')) => {
+                        self.search_hub.set_provider(crate::search::SearchProvider::Web);
                     }
                     (KeyModifiers::NONE, KeyCode::Enter) => {
                         self.search_hub.perform_search(&self.current_dir);
