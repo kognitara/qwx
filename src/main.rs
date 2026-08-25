@@ -142,7 +142,7 @@ fn main() -> io::Result<()> {
                 _ => unreachable!(),
             };
             generate(shell, &mut app, "qwx", &mut io::stdout());
-            return Ok(());
+            Ok(())
         }
         Some(("clone", sub)) => clone_and_open(sub),
         _ => {

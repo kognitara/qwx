@@ -638,22 +638,22 @@ impl Finder {
                 truncated
             };
 
-            let dir_offset = if max_dirs_display > 0 {
+            let dir_offset = if max_dirs_display.gt(&0) {
                 (self.selected_dir / max_dirs_display) * max_dirs_display
             } else {
                 0
             };
-            let file_offset = if max_files_display > 0 {
+            let file_offset = if max_files_display.gt(&0) {
                 (self.selected_file / max_files_display) * max_files_display
             } else {
                 0
             };
-            let sub_dir_offset = if max_sub_dirs_display > 0 {
+            let sub_dir_offset = if max_sub_dirs_display.gt(&0) {
                 (self.selected_sub_dir / max_sub_dirs_display) * max_sub_dirs_display
             } else {
                 0
             };
-            let sub_file_offset = if max_sub_files_display > 0 {
+            let sub_file_offset = if max_sub_files_display.gt(&0) {
                 (self.selected_sub_file / max_sub_files_display) * max_sub_files_display
             } else {
                 0
