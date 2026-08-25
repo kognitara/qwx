@@ -1832,7 +1832,7 @@ impl Qwx {
             _ => {}
         }
     }
-    pub fn handle_events<W: Write>(&mut self, w: &mut W) {
+    pub fn handle_events(&mut self) {
         match self.mode {
             Mode::Normal => self.handle_normal(),
             Mode::Finder => self.handle_finder(),
@@ -1852,7 +1852,7 @@ impl Qwx {
         self.clear_screen(&mut stdout)?;
         while self.running {
             self.draw(&mut stdout)?;
-            self.handle_events(&mut stdout);
+            self.handle_events();
         }
         execute!(stdout, LeaveAlternateScreen, Show)?;
         terminal::disable_raw_mode()?;
