@@ -3,7 +3,9 @@ use clap_complete::{Shell, generate};
 use git2::build::RepoBuilder;
 use git2::{FetchOptions, RemoteCallbacks};
 use indicatif::{ProgressBar, ProgressStyle};
+use inquire::Text;
 use qwx::editor::{Mode, Qwx};
+use qwx::player::SpotifyCredentials;
 use std::env::{current_dir, set_current_dir};
 use std::io;
 use std::path::Path;
@@ -41,6 +43,85 @@ fn cli() -> Command {
                         .value_parser(value_parser!(String)),
                 ),
         )
+        .subcommand(
+            Command::new("spotify")
+                .visible_alias("spotify-config")
+                .about("Configure Spotify credentials interactively"),
+        )
+}
+
+fn configure_spotify() -> io::Result<()> {
+    let existing = SpotifyCredentials::load_from_config();
+
+    println!("╔════════════════════════════════════════════════════════════════╗");
+    println!("║              QWX - Spotify Web API Configuration               ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Press Enter to keep the current value or leave empty.\n");
+
+    let mut client_id_prompt = Text::new("Spotify Client ID:")
+        .with_help_message("Client ID from the Spotify Developer Dashboard");
+    if let Some(ref val) = existing.client_id {
+        client_id_prompt = client_id_prompt.with_default(val);
+    }
+    let client_id = client_id_prompt
+        .prompt()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+    let mut client_secret_prompt = Text::new("Spotify Client Secret:")
+        .with_help_message("Client Secret from the Spotify Developer Dashboard");
+    if let Some(ref val) = existing.client_secret {
+        client_secret_prompt = client_secret_prompt.with_default(val);
+    }
+    let client_secret = client_secret_prompt
+        .prompt()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+    let mut access_token_prompt = Text::new("Spotify Access Token (Bearer):")
+        .with_help_message("OAuth Bearer access token (optional)");
+    if let Some(ref val) = existing.access_token {
+        access_token_prompt = access_token_prompt.with_default(val);
+    }
+    let access_token = access_token_prompt
+        .prompt()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+    let mut refresh_token_prompt = Text::new("Spotify Refresh Token:")
+        .with_help_message("OAuth refresh token (optional)");
+    if let Some(ref val) = existing.refresh_token {
+        refresh_token_prompt = refresh_token_prompt.with_default(val);
+    }
+    let refresh_token = refresh_token_prompt
+        .prompt()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+    let to_option = |s: String| -> Option<String> {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    };
+
+    let raw_json = serde_json::json!({
+        "client_id": to_option(client_id),
+        "client_secret": to_option(client_secret),
+        "access_token": to_option(access_token),
+        "refresh_token": to_option(refresh_token),
+    });
+
+    let credentials: SpotifyCredentials = serde_json::from_value(raw_json)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Deserialization error: {e}")))?;
+
+    credentials.save_to_config()?;
+
+    if let Some(path) = SpotifyCredentials::config_file_path() {
+        println!("\n✓ Spotify configuration successfully saved to {}", path.display());
+    } else {
+        println!("\n✓ Spotify configuration successfully saved.");
+    }
+
+    Ok(())
 }
 
 fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
@@ -55,13 +136,13 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
 
     if p.is_dir() {
         set_current_dir(p.as_path())?;
-        return Qwx::new(p.as_path(), qwx::editor::Mode::Normal)?.run();
+        return Qwx::new(p.as_path(), Mode::Normal)?.run();
     }
 
     let pb = ProgressBar::new(0);
     pb.set_style(
         ProgressStyle::default_bar()
-            // {pos}/{len} comptera les objets ou les deltas, selon la phase
+            // {pos}/{len} will count objects or deltas depending on the phase
             .template(
                 "{spinner:.white} [{elapsed_precise}] [{bar:40.white}] {pos:>7}/{len:7} {msg}",
             )
@@ -74,15 +155,15 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
 
     callbacks.transfer_progress(move |stats| {
         if stats.received_objects() < stats.total_objects() {
-            // PHASE 1 : Réception depuis le serveur
+            // PHASE 1: Receiving from server
             pb_clone.set_length(stats.total_objects() as u64);
             pb_clone.set_position(stats.received_objects() as u64);
 
-            // On affiche quand même les Mo téléchargés dans le message texte
+            // Display downloaded MiB in message text
             let mb_received = stats.received_bytes() as f64 / 1_048_576.0;
             pb_clone.set_message(format!("Receiving objects... ({:.2} MiB)", mb_received));
         } else {
-            // PHASE 2 : Résolution locale des deltas
+            // PHASE 2: Resolving deltas locally
             pb_clone.set_length(stats.total_deltas() as u64);
             pb_clone.set_position(stats.indexed_deltas() as u64);
             pb_clone.set_message("Resolving deltas...");
@@ -132,6 +213,7 @@ fn main() -> io::Result<()> {
             Ok(())
         }
         Some(("clone", sub)) => clone_and_open(sub),
+        Some(("spotify", _)) | Some(("spotify-config", _)) => configure_spotify(),
         None => {
             if let Some(p) = matches.get_one::<String>("path") {
                 let path = Path::new(p);

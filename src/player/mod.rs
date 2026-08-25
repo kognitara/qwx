@@ -327,6 +327,10 @@ impl SpotifyCredentials {
         self.access_token.is_some()
             || (self.client_id.is_some() && self.client_secret.is_some())
     }
+
+    pub fn config_file_path() -> Option<PathBuf> {
+        dirs_config_path().map(|dir| dir.join("spotify.json"))
+    }
 }
 
 fn dirs_config_path() -> Option<PathBuf> {
@@ -2383,6 +2387,23 @@ mod tests {
     fn test_spotify_credentials_init() {
         let creds = SpotifyCredentials::default();
         let _ = creds.is_configured();
+    }
+
+    #[test]
+    fn test_spotify_credentials_serialization_and_deserialization() {
+        let json_data = serde_json::json!({
+            "client_id": "test_id",
+            "client_secret": "test_secret",
+            "access_token": "test_token",
+            "refresh_token": "test_refresh"
+        });
+
+        let creds: SpotifyCredentials = serde_json::from_value(json_data).unwrap();
+        assert_eq!(creds.client_id.as_deref(), Some("test_id"));
+        assert_eq!(creds.client_secret.as_deref(), Some("test_secret"));
+        assert_eq!(creds.access_token.as_deref(), Some("test_token"));
+        assert_eq!(creds.refresh_token.as_deref(), Some("test_refresh"));
+        assert!(creds.is_configured());
     }
 
     #[test]
