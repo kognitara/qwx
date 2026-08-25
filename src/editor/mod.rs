@@ -427,10 +427,12 @@ pub trait QwxFinder {
 impl QwxFinder for Qwx {
     fn previous_finder_layout(&mut self) {
         self.finder_layout = self.finder_layout.previous();
+        self.finder.layout = self.finder_layout.clone();
     }
 
     fn next_finder_layout(&mut self) {
         self.finder_layout = self.finder_layout.next();
+        self.finder.layout = self.finder_layout.clone();
     }
 }
 
@@ -447,7 +449,7 @@ pub trait QwxPanel {
     ///
     /// # Parameters
     ///
-    /// This is a method of a struct containing mutable state, so it operates on `&mut self`.
+    /// This is a method of a struct containing a mutable state, so it operates on `&mut self`.
     ///
     /// # Behavior
     ///
@@ -490,7 +492,6 @@ impl QwxPanel for Qwx {
                 && let Ok(editor) = Ji::open(path_str)
             {
                 self.editor = editor;
-                // ✨ On aligne le curseur de l'éditeur sur le défilement visuel du nouveau panneau !
                 self.editor.cursor_line = self.panes[active_idx].cursor as usize;
                 self.editor.cursor_col = 0;
             }
@@ -1934,10 +1935,10 @@ impl Qwx {
     pub fn draw_finder<W: Write>(&mut self, w: &mut W) -> io::Result<()> {
         let max_width = 180.min(self.width);
         let left_x = (self.width.saturating_sub(max_width)) / 2;
-
-        self.finder.show(
+        self.finder.clone().show(
             w,
-            self.finder_research.clone(),
+            &mut self.finder,
+            &mut self.finder_research.as_mut(),
             left_x,
             0,
             max_width,

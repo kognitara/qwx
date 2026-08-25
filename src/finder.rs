@@ -1,3 +1,4 @@
+use crossterm::style::{Color, ResetColor, SetBackgroundColor};
 use crossterm::terminal::{Clear, ClearType};
 use crossterm::{
     cursor::MoveTo,
@@ -5,17 +6,19 @@ use crossterm::{
     style::{Print, SetForegroundColor},
     terminal::size,
 };
+use std::fmt::{Display, Formatter};
 use std::{
     io::{Result, Write},
     path::Path,
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use walkdir::WalkDir;
 
 use crate::editor::theme::{
     FINDER_ACTIVE_SELECT, FINDER_BORDER, FINDER_DIR_COLOR, FINDER_FILE_COLOR, UI_TEXT_MUTED,
 };
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum FinderLayout {
     ///
     /// ```txt
@@ -113,6 +116,11 @@ pub enum FinderLayout {
     Mosaic,
 }
 
+impl Display for FinderLayout {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
 impl FinderLayout {
     pub fn next(&self) -> Self {
         match self {
@@ -136,27 +144,109 @@ impl FinderLayout {
     /// Draw the finder on the screen.
     pub fn draw<W: Write>(
         &self,
+        finder: &Finder,
         w: &mut W,
-        research: String,
+        research: &str,
         start_x: u16,
         start_y: u16,
         width: u16,
         height: u16,
     ) -> Result<()> {
         match self {
-            Self::Grid => draw_grid_finder(w, research, start_x, start_y, width, height),
-            Self::Commander => draw_commander_finder(w, research, start_x, start_y, width, height),
-            Self::Mosaic => draw_mosaic_finder(w, research, start_x, start_y, width, height),
-            Self::Miller => draw_miller_finder(w, research, start_x, start_y, width, height),
+            Self::Grid => draw_grid_finder(finder, w, research, start_x, start_y, width, height),
+            Self::Commander => {
+                draw_commander_finder(finder, w, research, start_x, start_y, width, height)
+            }
+            Self::Mosaic => {
+                draw_mosaic_finder(finder, w, research, start_x, start_y, width, height)
+            }
+            Self::Miller => {
+                draw_miller_finder(finder, w, research, start_x, start_y, width, height)
+            }
             Self::SideBySide => {
-                draw_side_by_side_finder(w, research, start_x, start_y, width, height)
+                draw_side_by_side_finder(finder, w, research, start_x, start_y, width, height)
             }
         }
     }
 }
-fn draw_side_by_side_finder<W: Write>(
+
+/// Format and truncate or pad item name to protect panel borders
+pub fn format_item_name(name: &str, max_width: usize) -> String {
+    let clean_name = name.replace('\t', " ").replace('\r', "");
+    let text_width = clean_name.width();
+
+    if text_width > max_width {
+        if max_width <= 2 {
+            return ".".repeat(max_width);
+        }
+        let mut truncated = String::new();
+        let mut acc_width = 0;
+        for c in clean_name.chars() {
+            let c_w = c.width().unwrap_or(0);
+            if acc_width + c_w > max_width.saturating_sub(2) {
+                break;
+            }
+            truncated.push(c);
+            acc_width += c_w;
+        }
+        let padding = " ".repeat(max_width.saturating_sub(acc_width + 2));
+        format!("{}..{}", truncated, padding)
+    } else {
+        let padding = " ".repeat(max_width.saturating_sub(text_width));
+        format!("{}{}", clean_name, padding)
+    }
+}
+
+fn render_list<W: Write>(
     w: &mut W,
-    research: String,
+    items: &[String],
+    selected_index: usize,
+    start_x: u16,
+    start_y: u16,
+    width: usize,
+    height: usize,
+    default_color: Color,
+) -> Result<()> {
+    if height == 0 || width == 0 {
+        return Ok(());
+    }
+    let visible_items = height;
+    let scroll_offset = if selected_index >= visible_items {
+        selected_index - visible_items + 1
+    } else {
+        0
+    };
+
+    for (i, item) in items
+        .iter()
+        .skip(scroll_offset)
+        .take(visible_items)
+        .enumerate()
+    {
+        let absolute_index = scroll_offset + i;
+        let y = start_y + i as u16;
+        execute!(w, MoveTo(start_x, y))?;
+
+        if absolute_index == selected_index {
+            execute!(
+                w,
+                SetBackgroundColor(FINDER_ACTIVE_SELECT),
+                SetForegroundColor(Color::Black)
+            )?;
+        } else {
+            execute!(w, SetForegroundColor(default_color))?;
+        }
+
+        let formatted = format_item_name(item, width);
+        execute!(w, Print(formatted), ResetColor)?;
+    }
+    Ok(())
+}
+
+fn draw_side_by_side_finder<W: Write>(
+    finder: &Finder,
+    w: &mut W,
+    research: &str,
     start_x: u16,
     start_y: u16,
     width: u16,
@@ -185,8 +275,11 @@ fn draw_side_by_side_finder<W: Write>(
 
     // Calculate panel dimensions
     let panel_start_y = start_y + 3;
-    let panel_height = height.saturating_sub(5);
+    let panel_height = height.saturating_sub(7);
     let half_width = width / 2;
+    let left_inner_width = half_width.saturating_sub(1) as usize;
+    let right_inner_width = width.saturating_sub(half_width).saturating_sub(2) as usize;
+    let inner_height = panel_height.saturating_sub(1) as usize;
 
     // Draw left panel (DIRS) border
     execute!(
@@ -194,9 +287,9 @@ fn draw_side_by_side_finder<W: Write>(
         MoveTo(start_x, panel_start_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┬"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┐"),
     )?;
 
@@ -225,54 +318,86 @@ fn draw_side_by_side_finder<W: Write>(
         )?;
     }
 
+    // Render lists inside panels
+    render_list(
+        w,
+        &finder.directories,
+        finder.selected_dir,
+        start_x + 1,
+        panel_start_y + 1,
+        left_inner_width,
+        inner_height,
+        FINDER_DIR_COLOR,
+    )?;
+
+    render_list(
+        w,
+        &finder.files,
+        finder.selected_file,
+        start_x + half_width + 1,
+        panel_start_y + 1,
+        right_inner_width,
+        inner_height,
+        FINDER_FILE_COLOR,
+    )?;
+
     // Draw bottom border of panels
+    let bottom_y = panel_start_y + panel_height;
     execute!(
         w,
-        MoveTo(start_x, panel_start_y + panel_height),
+        MoveTo(start_x, bottom_y),
         SetForegroundColor(FINDER_BORDER),
         Print("└"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┴"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┘"),
     )?;
 
     // Draw status footer
-    let footer_y = start_y + height - 2;
+    let footer_y = bottom_y + 1;
     execute!(
         w,
         MoveTo(start_x, footer_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┬"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┐"),
         MoveTo(start_x, footer_y + 1),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" DIRS FOUNDED "),
+        Print(format_item_name(
+            &format!(" DIRS FOUNDED: {}", finder.directories.len()),
+            left_inner_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + half_width, footer_y + 1),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" FILES FOUNDED "),
+        Print(format_item_name(
+            &format!(" FILES FOUNDED: {}", finder.files.len()),
+            right_inner_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, footer_y + 1),
         Print("│"),
         MoveTo(start_x, footer_y + 2),
         Print("└"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┴"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┘"),
     )?;
 
     Ok(())
 }
+
 fn draw_grid_finder<W: Write>(
+    finder: &Finder,
     w: &mut W,
-    research: String,
+    research: &str,
     start_x: u16,
     start_y: u16,
     width: u16,
@@ -301,8 +426,11 @@ fn draw_grid_finder<W: Write>(
 
     // Calculate panel dimensions for 2x2 grid
     let panel_start_y = start_y + 3;
-    let panel_height = (height.saturating_sub(8)) / 2;
+    let panel_height = (height.saturating_sub(9)) / 2;
     let half_width = width / 2;
+    let left_inner_width = half_width.saturating_sub(1) as usize;
+    let right_inner_width = width.saturating_sub(half_width).saturating_sub(2) as usize;
+    let inner_height = panel_height.saturating_sub(1) as usize;
 
     // Draw top border of 2x2 grid
     execute!(
@@ -310,9 +438,9 @@ fn draw_grid_finder<W: Write>(
         MoveTo(start_x, panel_start_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┬"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┐"),
     )?;
 
@@ -340,6 +468,29 @@ fn draw_grid_finder<W: Write>(
         )?;
     }
 
+    // Render top lists
+    render_list(
+        w,
+        &finder.directories,
+        finder.selected_dir,
+        start_x + 1,
+        panel_start_y + 1,
+        left_inner_width,
+        inner_height,
+        FINDER_DIR_COLOR,
+    )?;
+
+    render_list(
+        w,
+        &finder.sub_directories,
+        finder.selected_sub_dir,
+        start_x + half_width + 1,
+        panel_start_y + 1,
+        right_inner_width,
+        inner_height,
+        FINDER_DIR_COLOR,
+    )?;
+
     // Draw middle horizontal divider
     let middle_y = panel_start_y + panel_height;
     execute!(
@@ -347,9 +498,9 @@ fn draw_grid_finder<W: Write>(
         MoveTo(start_x, middle_y),
         SetForegroundColor(FINDER_BORDER),
         Print("├"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┼"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┤"),
     )?;
 
@@ -377,6 +528,29 @@ fn draw_grid_finder<W: Write>(
         )?;
     }
 
+    // Render bottom lists
+    render_list(
+        w,
+        &finder.files,
+        finder.selected_file,
+        start_x + 1,
+        middle_y + 1,
+        left_inner_width,
+        inner_height,
+        FINDER_FILE_COLOR,
+    )?;
+
+    render_list(
+        w,
+        &finder.sub_files,
+        finder.selected_sub_file,
+        start_x + half_width + 1,
+        middle_y + 1,
+        right_inner_width,
+        inner_height,
+        FINDER_FILE_COLOR,
+    )?;
+
     // Draw bottom border of main grid
     let bottom_y = middle_y + panel_height;
     execute!(
@@ -384,9 +558,9 @@ fn draw_grid_finder<W: Write>(
         MoveTo(start_x, bottom_y),
         SetForegroundColor(FINDER_BORDER),
         Print("└"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┴"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┘"),
     )?;
 
@@ -398,45 +572,57 @@ fn draw_grid_finder<W: Write>(
         MoveTo(start_x, footer_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┬"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┐"),
         MoveTo(start_x, footer_y + 1),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" ROOT DIRS FOUNDED "),
+        Print(format_item_name(
+            &format!(" ROOT DIRS FOUNDED: {}", finder.directories.len()),
+            left_inner_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + half_width, footer_y + 1),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" SUB ROOTS DIRS FOUNDED "),
+        Print(format_item_name(
+            &format!(" SUB ROOTS DIRS FOUNDED: {}", finder.sub_directories.len()),
+            right_inner_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, footer_y + 1),
         Print("│"),
         MoveTo(start_x, footer_y + 2),
         Print("├"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┼"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┤"),
         MoveTo(start_x, footer_y + 3),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" SUB ROOT DIRS FOUNDED "),
+        Print(format_item_name(
+            &format!(" ROOTS FILES FOUNDED: {}", finder.files.len()),
+            left_inner_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + half_width, footer_y + 3),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" SUB ROOT FILES FOUNDED "),
+        Print(format_item_name(
+            &format!(" SUB ROOT FILES FOUNDED: {}", finder.sub_files.len()),
+            right_inner_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, footer_y + 3),
         Print("│"),
         MoveTo(start_x, footer_y + 4),
         Print("└"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┴"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┘"),
     )?;
 
@@ -444,8 +630,9 @@ fn draw_grid_finder<W: Write>(
 }
 
 fn draw_miller_finder<W: Write>(
+    finder: &Finder,
     w: &mut W,
-    research: String,
+    research: &str,
     start_x: u16,
     start_y: u16,
     width: u16,
@@ -475,8 +662,16 @@ fn draw_miller_finder<W: Write>(
     // Calculate panel dimensions
     let panel_start_y = start_y + 3;
     let third_width = width / 3;
-    let dirs_height = (height.saturating_sub(8)) / 2;
-    let files_height = height.saturating_sub(8) - dirs_height;
+    let col1_width = third_width.saturating_sub(1) as usize;
+    let col2_width = third_width.saturating_sub(1) as usize;
+    let col3_width = width.saturating_sub(2 * third_width).saturating_sub(2) as usize;
+    let full_inner_width = width.saturating_sub(2) as usize;
+
+    let available_height = height.saturating_sub(8);
+    let dirs_height = available_height / 2;
+    let files_height = available_height.saturating_sub(dirs_height);
+    let dirs_inner_height = dirs_height.saturating_sub(2) as usize;
+    let files_inner_height = files_height.saturating_sub(2) as usize;
 
     // Draw top border of three-column directory panels
     execute!(
@@ -484,11 +679,11 @@ fn draw_miller_finder<W: Write>(
         MoveTo(start_x, panel_start_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((third_width - 2) as usize)),
+        Print("─".repeat(col1_width)),
         Print("┬"),
-        Print("─".repeat((third_width - 2) as usize)),
+        Print("─".repeat(col2_width)),
         Print("┬"),
-        Print("─".repeat((width - 2 * third_width - 2) as usize)),
+        Print("─".repeat(col3_width)),
         Print("┐"),
     )?;
 
@@ -520,6 +715,41 @@ fn draw_miller_finder<W: Write>(
         )?;
     }
 
+    // Render lists for top 3 columns
+    let parent_dirs = vec!["..".to_string()];
+    render_list(
+        w,
+        &parent_dirs,
+        usize::MAX,
+        start_x + 1,
+        panel_start_y + 1,
+        col1_width,
+        dirs_inner_height,
+        FINDER_DIR_COLOR,
+    )?;
+
+    render_list(
+        w,
+        &finder.directories,
+        finder.selected_dir,
+        start_x + third_width + 1,
+        panel_start_y + 1,
+        col2_width,
+        dirs_inner_height,
+        FINDER_DIR_COLOR,
+    )?;
+
+    render_list(
+        w,
+        &finder.sub_directories,
+        finder.selected_sub_dir,
+        start_x + 2 * third_width + 1,
+        panel_start_y + 1,
+        col3_width,
+        dirs_inner_height,
+        FINDER_DIR_COLOR,
+    )?;
+
     // Draw horizontal divider between directories and files
     let files_start_y = panel_start_y + dirs_height;
     execute!(
@@ -527,7 +757,11 @@ fn draw_miller_finder<W: Write>(
         MoveTo(start_x, files_start_y),
         SetForegroundColor(FINDER_BORDER),
         Print("├"),
-        Print("─".repeat((width - 2) as usize)),
+        Print("─".repeat(col1_width)),
+        Print("┴"),
+        Print("─".repeat(col2_width)),
+        Print("┴"),
+        Print("─".repeat(col3_width)),
         Print("┤"),
     )?;
 
@@ -551,6 +785,18 @@ fn draw_miller_finder<W: Write>(
         )?;
     }
 
+    // Render files list
+    render_list(
+        w,
+        &finder.files,
+        finder.selected_file,
+        start_x + 1,
+        files_start_y + 1,
+        full_inner_width,
+        files_inner_height,
+        FINDER_FILE_COLOR,
+    )?;
+
     // Draw bottom border of files panel
     let bottom_y = files_start_y + files_height;
     execute!(
@@ -558,7 +804,7 @@ fn draw_miller_finder<W: Write>(
         MoveTo(start_x, bottom_y),
         SetForegroundColor(FINDER_BORDER),
         Print("└"),
-        Print("─".repeat((width - 2) as usize)),
+        Print("─".repeat(full_inner_width)),
         Print("┘"),
     )?;
 
@@ -569,36 +815,42 @@ fn draw_miller_finder<W: Write>(
         MoveTo(start_x, footer_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((third_width - 2) as usize)),
+        Print("─".repeat(col1_width)),
         Print("┬"),
-        Print("─".repeat((third_width - 2) as usize)),
+        Print("─".repeat(col2_width)),
         Print("┬"),
-        Print("─".repeat((width - 2 * third_width - 2) as usize)),
+        Print("─".repeat(col3_width)),
         Print("┐"),
         MoveTo(start_x, footer_y + 1),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" PARENT FOUNDED "),
+        Print(format_item_name(" PARENT: ..", col1_width)),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + third_width, footer_y + 1),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" DIRS FOUNDED "),
+        Print(format_item_name(
+            &format!(" DIRS FOUNDED: {}", finder.directories.len()),
+            col2_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + 2 * third_width, footer_y + 1),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" CHILD FOUNDED "),
+        Print(format_item_name(
+            &format!(" CHILD FOUNDED: {}", finder.sub_directories.len()),
+            col3_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, footer_y + 1),
         Print("│"),
         MoveTo(start_x, footer_y + 2),
         Print("└"),
-        Print("─".repeat((third_width - 2) as usize)),
+        Print("─".repeat(col1_width)),
         Print("┴"),
-        Print("─".repeat((third_width - 2) as usize)),
+        Print("─".repeat(col2_width)),
         Print("┴"),
-        Print("─".repeat((width - 2 * third_width - 2) as usize)),
+        Print("─".repeat(col3_width)),
         Print("┘"),
     )?;
 
@@ -606,8 +858,9 @@ fn draw_miller_finder<W: Write>(
 }
 
 fn draw_commander_finder<W: Write>(
+    finder: &Finder,
     w: &mut W,
-    research: String,
+    research: &str,
     start_x: u16,
     start_y: u16,
     width: u16,
@@ -640,14 +893,18 @@ fn draw_commander_finder<W: Write>(
     let main_panel_start_y = panel_start_y + dirs_height + 1;
     let main_panel_height = height.saturating_sub(8 + dirs_height);
     let half_width = width / 2;
+    let full_inner_width = width.saturating_sub(2) as usize;
+    let left_inner_width = half_width.saturating_sub(1) as usize;
+    let right_inner_width = width.saturating_sub(half_width).saturating_sub(2) as usize;
+    let main_inner_height = main_panel_height.saturating_sub(1) as usize;
 
-    // Draw directories section border
+    // Draw directory section border
     execute!(
         w,
         MoveTo(start_x, panel_start_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((width - 2) as usize)),
+        Print("─".repeat(full_inner_width)),
         Print("┐"),
         MoveTo(start_x, panel_start_y + 1),
         Print("│"),
@@ -670,13 +927,26 @@ fn draw_commander_finder<W: Write>(
         )?;
     }
 
+    // Render directories in top bar if any
+    let dirs_joined = finder.directories.join("   ");
+    execute!(
+        w,
+        MoveTo(start_x + 15, panel_start_y + 1),
+        SetForegroundColor(FINDER_DIR_COLOR),
+        Print(format_item_name(
+            &dirs_joined,
+            full_inner_width.saturating_sub(14)
+        )),
+        ResetColor,
+    )?;
+
     // Draw bottom border of directories section
     execute!(
         w,
         MoveTo(start_x, panel_start_y + dirs_height),
         SetForegroundColor(FINDER_BORDER),
         Print("└"),
-        Print("─".repeat((width - 2) as usize)),
+        Print("─".repeat(full_inner_width)),
         Print("┘"),
     )?;
 
@@ -686,9 +956,9 @@ fn draw_commander_finder<W: Write>(
         MoveTo(start_x, main_panel_start_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┬"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┐"),
     )?;
 
@@ -717,6 +987,29 @@ fn draw_commander_finder<W: Write>(
         )?;
     }
 
+    // Render lists inside main panels
+    render_list(
+        w,
+        &finder.directories,
+        finder.selected_dir,
+        start_x + 1,
+        main_panel_start_y + 1,
+        left_inner_width,
+        main_inner_height,
+        FINDER_DIR_COLOR,
+    )?;
+
+    render_list(
+        w,
+        &finder.files,
+        finder.selected_file,
+        start_x + half_width + 1,
+        main_panel_start_y + 1,
+        right_inner_width,
+        main_inner_height,
+        FINDER_FILE_COLOR,
+    )?;
+
     // Draw bottom border of main panels
     let bottom_y = main_panel_start_y + main_panel_height;
     execute!(
@@ -724,9 +1017,9 @@ fn draw_commander_finder<W: Write>(
         MoveTo(start_x, bottom_y),
         SetForegroundColor(FINDER_BORDER),
         Print("└"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┴"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┘"),
     )?;
 
@@ -737,178 +1030,356 @@ fn draw_commander_finder<W: Write>(
         MoveTo(start_x, footer_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┬"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┐"),
         MoveTo(start_x, footer_y + 1),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" DIRS FOUNDED "),
+        Print(format_item_name(
+            &format!(" DIRS FOUNDED: {}", finder.directories.len()),
+            left_inner_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + half_width, footer_y + 1),
         Print("│"),
         SetForegroundColor(UI_TEXT_MUTED),
-        Print(" FILES FOUNDED "),
+        Print(format_item_name(
+            &format!(" FILES FOUNDED: {}", finder.files.len()),
+            right_inner_width
+        )),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, footer_y + 1),
         Print("│"),
         MoveTo(start_x, footer_y + 2),
         Print("└"),
-        Print("─".repeat((half_width - 2) as usize)),
+        Print("─".repeat(left_inner_width)),
         Print("┴"),
-        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("─".repeat(right_inner_width)),
         Print("┘"),
     )?;
 
     Ok(())
 }
-fn draw_mosaic_finder<W: Write>(
+
+fn execute_label<W: Write>(
     w: &mut W,
-    research: String,
+    x: u16,
+    y: u16,
+    label: &str,
+    available_width: usize,
+    color: Color,
+) -> Result<()> {
+    if available_width <= 2 {
+        return Ok(());
+    }
+    let max_len = available_width.saturating_sub(2);
+    let display_text = if label.len() > max_len {
+        &label[..max_len]
+    } else {
+        label
+    };
+    execute!(
+        w,
+        MoveTo(x, y),
+        SetForegroundColor(color),
+        Print(display_text),
+    )?;
+    Ok(())
+}
+
+fn render_mosaic_info<W: Write>(
+    w: &mut W,
+    finder: &Finder,
+    start_x: u16,
+    start_y: u16,
+    width: usize,
+    height: usize,
+) -> Result<()> {
+    if width == 0 || height == 0 {
+        return Ok(());
+    }
+
+    let mut info_lines = Vec::new();
+    info_lines.push(format!("Dirs:      {}", finder.directories.len()));
+    info_lines.push(format!("Sub-dirs:  {}", finder.sub_directories.len()));
+    info_lines.push(format!("Files:     {}", finder.files.len()));
+    info_lines.push(format!("Sub-files: {}", finder.sub_files.len()));
+
+    if let Some(sel) = finder.files.get(finder.selected_file) {
+        info_lines.push(format!("Active:    {}", sel));
+    } else if let Some(sel) = finder.directories.get(finder.selected_dir) {
+        info_lines.push(format!("Active:    {}", sel));
+    }
+
+    for (i, line) in info_lines.iter().take(height).enumerate() {
+        let y = start_y + i as u16;
+        execute!(
+            w,
+            MoveTo(start_x, y),
+            SetForegroundColor(UI_TEXT_MUTED),
+            Print(format_item_name(line, width)),
+            ResetColor
+        )?;
+    }
+    Ok(())
+}
+
+fn draw_mosaic_finder<W: Write>(
+    finder: &Finder,
+    w: &mut W,
+    research: &str,
     start_x: u16,
     start_y: u16,
     width: u16,
     height: u16,
 ) -> Result<()> {
-    // Draw research bar at top
+    if width < 12 || height < 6 {
+        return Ok(());
+    }
+
+    // 1. Draw top research bar
+    let search_inner_w = width.saturating_sub(2) as usize;
+    let truncated_research = format_item_name(
+        &format!(" {} ", research),
+        search_inner_w,
+    );
     execute!(
         w,
         MoveTo(start_x, start_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((width - 2) as usize)),
+        Print("─".repeat(search_inner_w)),
         Print("┐"),
         MoveTo(start_x, start_y + 1),
         Print("│"),
         SetForegroundColor(FINDER_ACTIVE_SELECT),
-        Print(format!(" {} ", research)),
+        Print(truncated_research),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, start_y + 1),
         Print("│"),
         MoveTo(start_x, start_y + 2),
         Print("└"),
-        Print("─".repeat((width - 2) as usize)),
+        Print("─".repeat(search_inner_w)),
         Print("┘"),
     )?;
 
-    // Calculate panel dimensions for mosaic layout
+    // 2. Layout calculations
+    let has_footer = height >= 14;
+    let footer_height = if has_footer { 3 } else { 0 };
     let panel_start_y = start_y + 3;
-    let panel_height = height.saturating_sub(3);
-    let left_panel_width = width / 3;
-    let right_panel_width = width - left_panel_width;
-    let grid_cell_width = right_panel_width / 2;
-    let grid_cell_height = panel_height / 2;
+    let available_panel_h = height.saturating_sub(3 + footer_height + if has_footer { 1 } else { 0 });
+    if available_panel_h < 3 {
+        return Ok(());
+    }
 
-    // Draw top border of main layout
+    let top_y = panel_start_y;
+    let total_cell_rows = available_panel_h.saturating_sub(3);
+    let top_cell_h = total_cell_rows / 2;
+    let bot_cell_h = total_cell_rows.saturating_sub(top_cell_h);
+    let mid_y = top_y + 1 + top_cell_h;
+    let bot_y = mid_y + 1 + bot_cell_h;
+    let left_inner_h = (top_cell_h + 1 + bot_cell_h) as usize;
+
+    let total_inner_w = (width.saturating_sub(4)) as usize;
+    let inner_w_left = (total_inner_w * 35 / 100).max(1);
+    let rem_w = total_inner_w.saturating_sub(inner_w_left);
+    let inner_w_mid = (rem_w / 2).max(1);
+    let inner_w_right = rem_w.saturating_sub(inner_w_mid).max(1);
+
+    let x0 = start_x;
+    let x1 = x0 + (inner_w_left as u16) + 1;
+    let x2 = x1 + (inner_w_mid as u16) + 1;
+    let x3 = start_x + width - 1;
+
+    // 3. Draw top border of mosaic
     execute!(
         w,
-        MoveTo(start_x, panel_start_y),
+        MoveTo(x0, top_y),
         SetForegroundColor(FINDER_BORDER),
         Print("┌"),
-        Print("─".repeat((left_panel_width - 2) as usize)),
+        Print("─".repeat(inner_w_left)),
         Print("┬"),
-        Print("─".repeat((grid_cell_width - 2) as usize)),
+        Print("─".repeat(inner_w_mid)),
         Print("┬"),
-        Print("─".repeat((right_panel_width - grid_cell_width - 2) as usize)),
+        Print("─".repeat(inner_w_right)),
         Print("┐"),
     )?;
 
-    // Draw "Root /" label in left panel
-    execute!(
-        w,
-        MoveTo(start_x + 2, panel_start_y),
-        SetForegroundColor(FINDER_DIR_COLOR),
-        Print(" Root / "),
-    )?;
+    // Draw top row labels
+    execute_label(w, x0 + 2, top_y, " DIRECTORIES ", inner_w_left, FINDER_DIR_COLOR)?;
+    execute_label(w, x1 + 2, top_y, " SUB DIRECTORIES ", inner_w_mid, FINDER_DIR_COLOR)?;
+    execute_label(w, x2 + 2, top_y, " FILES ", inner_w_right, FINDER_FILE_COLOR)?;
 
-    // Draw labels for top-right grid cells
-    execute!(
-        w,
-        MoveTo(start_x + left_panel_width + 2, panel_start_y),
-        SetForegroundColor(FINDER_DIR_COLOR),
-        Print(" src/ "),
-        MoveTo(
-            start_x + left_panel_width + grid_cell_width + 2,
-            panel_start_y
-        ),
-        Print(" app/ "),
-    )?;
-
-    // Draw sides and vertical dividers for top half
-    for i in 1..grid_cell_height {
+    // 4. Draw vertical dividers for top half
+    for y in (top_y + 1)..mid_y {
         execute!(
             w,
-            MoveTo(start_x, panel_start_y + i),
+            MoveTo(x0, y),
             SetForegroundColor(FINDER_BORDER),
             Print("│"),
-            MoveTo(start_x + left_panel_width, panel_start_y + i),
+            MoveTo(x1, y),
             Print("│"),
-            MoveTo(
-                start_x + left_panel_width + grid_cell_width,
-                panel_start_y + i
-            ),
+            MoveTo(x2, y),
             Print("│"),
-            MoveTo(start_x + width - 1, panel_start_y + i),
+            MoveTo(x3, y),
             Print("│"),
         )?;
     }
 
-    // Draw middle horizontal divider
-    let middle_y = panel_start_y + grid_cell_height;
+    // 5. Draw middle horizontal divider
     execute!(
         w,
-        MoveTo(start_x, middle_y),
+        MoveTo(x0, mid_y),
         SetForegroundColor(FINDER_BORDER),
         Print("│"),
-        MoveTo(start_x + left_panel_width, middle_y),
+        MoveTo(x1, mid_y),
         Print("├"),
-        Print("─".repeat((grid_cell_width - 2) as usize)),
+        Print("─".repeat(inner_w_mid)),
         Print("┼"),
-        Print("─".repeat((right_panel_width - grid_cell_width - 2) as usize)),
+        Print("─".repeat(inner_w_right)),
         Print("┤"),
     )?;
 
-    // Draw labels for bottom-right grid cells
-    execute!(
-        w,
-        MoveTo(start_x + left_panel_width + 2, middle_y),
-        SetForegroundColor(FINDER_FILE_COLOR),
-        Print(" doc/ "),
-        MoveTo(start_x + left_panel_width + grid_cell_width + 2, middle_y),
-        Print(" lib/ "),
-    )?;
+    // Draw middle labels
+    execute_label(w, x1 + 2, mid_y, " SUB FILES ", inner_w_mid, FINDER_FILE_COLOR)?;
+    execute_label(w, x2 + 2, mid_y, " INFO ", inner_w_right, UI_TEXT_MUTED)?;
 
-    // Draw sides and vertical dividers for bottom half
-    for i in 1..grid_cell_height {
+    // 6. Draw vertical dividers for bottom half
+    for y in (mid_y + 1)..bot_y {
         execute!(
             w,
-            MoveTo(start_x, middle_y + i),
+            MoveTo(x0, y),
             SetForegroundColor(FINDER_BORDER),
             Print("│"),
-            MoveTo(start_x + left_panel_width, middle_y + i),
+            MoveTo(x1, y),
             Print("│"),
-            MoveTo(start_x + left_panel_width + grid_cell_width, middle_y + i),
+            MoveTo(x2, y),
             Print("│"),
-            MoveTo(start_x + width - 1, middle_y + i),
+            MoveTo(x3, y),
             Print("│"),
         )?;
     }
 
-    // Draw bottom border
-    let bottom_y = middle_y + grid_cell_height;
+    // 7. Draw bottom border of mosaic
     execute!(
         w,
-        MoveTo(start_x, bottom_y),
+        MoveTo(x0, bot_y),
         SetForegroundColor(FINDER_BORDER),
         Print("└"),
-        Print("─".repeat((left_panel_width - 2) as usize)),
+        Print("─".repeat(inner_w_left)),
         Print("┴"),
-        Print("─".repeat((grid_cell_width - 2) as usize)),
+        Print("─".repeat(inner_w_mid)),
         Print("┴"),
-        Print("─".repeat((right_panel_width - grid_cell_width - 2) as usize)),
+        Print("─".repeat(inner_w_right)),
         Print("┘"),
     )?;
+
+    // 8. Render contents in panels
+    render_list(
+        w,
+        &finder.directories,
+        finder.selected_dir,
+        x0 + 1,
+        top_y + 1,
+        inner_w_left,
+        left_inner_h,
+        FINDER_DIR_COLOR,
+    )?;
+
+    render_list(
+        w,
+        &finder.sub_directories,
+        finder.selected_sub_dir,
+        x1 + 1,
+        top_y + 1,
+        inner_w_mid,
+        top_cell_h as usize,
+        FINDER_DIR_COLOR,
+    )?;
+
+    render_list(
+        w,
+        &finder.files,
+        finder.selected_file,
+        x2 + 1,
+        top_y + 1,
+        inner_w_right,
+        top_cell_h as usize,
+        FINDER_FILE_COLOR,
+    )?;
+
+    render_list(
+        w,
+        &finder.sub_files,
+        finder.selected_sub_file,
+        x1 + 1,
+        mid_y + 1,
+        inner_w_mid,
+        bot_cell_h as usize,
+        FINDER_FILE_COLOR,
+    )?;
+
+    render_mosaic_info(
+        w,
+        finder,
+        x2 + 1,
+        mid_y + 1,
+        inner_w_right,
+        bot_cell_h as usize,
+    )?;
+
+    // 9. Render status footer if space permits
+    if has_footer {
+        let footer_y = bot_y + 1;
+        execute!(
+            w,
+            MoveTo(x0, footer_y),
+            SetForegroundColor(FINDER_BORDER),
+            Print("┌"),
+            Print("─".repeat(inner_w_left)),
+            Print("┬"),
+            Print("─".repeat(inner_w_mid)),
+            Print("┬"),
+            Print("─".repeat(inner_w_right)),
+            Print("┐"),
+            MoveTo(x0, footer_y + 1),
+            Print("│"),
+            SetForegroundColor(UI_TEXT_MUTED),
+            Print(format_item_name(
+                &format!(" DIRS: {}", finder.directories.len()),
+                inner_w_left,
+            )),
+            SetForegroundColor(FINDER_BORDER),
+            MoveTo(x1, footer_y + 1),
+            Print("│"),
+            SetForegroundColor(UI_TEXT_MUTED),
+            Print(format_item_name(
+                &format!(" SUB DIRS: {}", finder.sub_directories.len()),
+                inner_w_mid,
+            )),
+            SetForegroundColor(FINDER_BORDER),
+            MoveTo(x2, footer_y + 1),
+            Print("│"),
+            SetForegroundColor(UI_TEXT_MUTED),
+            Print(format_item_name(
+                &format!(" FILES: {}", finder.files.len()),
+                inner_w_right,
+            )),
+            SetForegroundColor(FINDER_BORDER),
+            MoveTo(x3, footer_y + 1),
+            Print("│"),
+            MoveTo(x0, footer_y + 2),
+            Print("└"),
+            Print("─".repeat(inner_w_left)),
+            Print("┴"),
+            Print("─".repeat(inner_w_mid)),
+            Print("┴"),
+            Print("─".repeat(inner_w_right)),
+            Print("┘"),
+        )?;
+    }
 
     Ok(())
 }
@@ -1260,8 +1731,9 @@ pub fn list_sub_files(path: &Path) -> Vec<String> {
 ///
 /// - `height`:
 ///     The height dimension (in units) of the `Finder` layout, used for display or visualization purposes.
+#[derive(Clone)]
 pub struct Finder {
-    layout: FinderLayout,
+    pub layout: FinderLayout,
     directories: Vec<String>,
     sub_directories: Vec<String>,
     sub_files: Vec<String>,
@@ -1280,7 +1752,18 @@ pub struct Finder {
 }
 
 impl Finder {
+    /// Creates a new `Finder` instance with the provided `path` and `layout`.
     ///
+    /// # Arguments
+    ///
+    /// * `path` - A reference to the `Path` which represents the directory to be
+    ///            used as the base for the finder.
+    /// * `layout` - A `FinderLayout` instance that specifies how the finder should
+    ///              be visually structured.
+    ///
+    /// # Returns
+    ///
+    /// A new instance
     #[must_use]
     pub fn new(path: &Path, layout: FinderLayout) -> Self {
         let (w, h) = size().unwrap_or((80, 100));
@@ -1310,7 +1793,8 @@ impl Finder {
     pub fn show<W: Write>(
         &self,
         w: &mut W,
-        research: String,
+        f: &mut Finder,
+        research: &mut str,
         start_x: u16,
         start_y: u16,
         width: u16,
@@ -1318,7 +1802,7 @@ impl Finder {
     ) -> Result<()> {
         execute!(w, Clear(ClearType::All))?;
         self.layout
-            .draw(w, research, start_x, start_y, width, height)
+            .draw(f, w, research, start_x, start_y, width, height)
     }
 
     /// Retrieves a list of subdirectory names.
@@ -1612,7 +2096,8 @@ impl Finder {
                 .filter(|d| matcher(d))
                 .cloned()
                 .collect();
-            self.sub_directories = self
+
+            self.sub_files = self
                 .base_sub_files
                 .iter()
                 .filter(|d| matcher(d))
@@ -1620,5 +2105,61 @@ impl Finder {
                 .collect();
             (self.get_directories(), self.get_files())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mosaic_finder_drawing_standard() {
+        let finder = Finder::new(Path::new("."), FinderLayout::Mosaic);
+        let mut buffer = Vec::new();
+        let result = finder.layout.draw(&finder, &mut buffer, "query", 0, 0, 80, 24);
+        assert!(result.is_ok());
+        let output = String::from_utf8_lossy(&buffer);
+        assert!(output.contains("query"));
+        assert!(output.contains("DIRECTORIES"));
+        assert!(output.contains("SUB DIRECTORIES"));
+        assert!(output.contains("FILES"));
+        assert!(output.contains("SUB FILES"));
+        assert!(output.contains("INFO"));
+        assert!(output.contains("┌"));
+        assert!(output.contains("┬"));
+        assert!(output.contains("┐"));
+        assert!(output.contains("├"));
+        assert!(output.contains("┼"));
+        assert!(output.contains("┤"));
+        assert!(output.contains("└"));
+        assert!(output.contains("┴"));
+        assert!(output.contains("┘"));
+    }
+
+    #[test]
+    fn test_mosaic_finder_drawing_compact() {
+        let finder = Finder::new(Path::new("."), FinderLayout::Mosaic);
+        let mut buffer = Vec::new();
+        let result = finder.layout.draw(&finder, &mut buffer, "compact", 0, 0, 60, 10);
+        assert!(result.is_ok());
+        let output = String::from_utf8_lossy(&buffer);
+        assert!(output.contains("compact"));
+        assert!(output.contains("DIRECTORIES"));
+    }
+
+    #[test]
+    fn test_mosaic_finder_drawing_tiny_bounds() {
+        let finder = Finder::new(Path::new("."), FinderLayout::Mosaic);
+        let mut buffer = Vec::new();
+        let result = finder.layout.draw(&finder, &mut buffer, "tiny", 0, 0, 5, 3);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_mosaic_layout_transitions() {
+        assert_eq!(FinderLayout::Commander.next(), FinderLayout::Mosaic);
+        assert_eq!(FinderLayout::Mosaic.next(), FinderLayout::Grid);
+        assert_eq!(FinderLayout::Mosaic.previous(), FinderLayout::Commander);
+        assert_eq!(FinderLayout::Grid.previous(), FinderLayout::Mosaic);
     }
 }
