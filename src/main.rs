@@ -126,7 +126,7 @@ fn main() -> io::Result<()> {
         }
         Some(("clone", sub)) => clone_and_open(sub),
         _ => {
-            app.clone().print_long_help()?;
+            app.clone().print_help()?;
             Ok(())
         }
     }
