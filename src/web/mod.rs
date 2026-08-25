@@ -1567,7 +1567,7 @@ impl WebBrowser {
             return Ok(());
         }
 
-        let bg_main = Color::Rgb { r: 18, g: 20, b: 28 };
+        let bg_main = Color::Black;
         let fg_normal = Color::Rgb { r: 210, g: 220, b: 235 };
         let fg_muted = Color::Rgb { r: 110, g: 120, b: 145 };
         let bg_header = Color::Rgb { r: 28, g: 32, b: 45 };

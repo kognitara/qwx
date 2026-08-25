@@ -821,19 +821,8 @@ impl SearchHub {
                 let is_selected = absolute_idx == self.selected_index;
                 let line_y = q1_y + idx as u16;
 
-                let icon = match item.provider {
-                    SearchProvider::GitHub => "",
-                    SearchProvider::GitLab => "",
-                    SearchProvider::Wikipedia => "󰖬",
-                    SearchProvider::Cve => "🛡",
-                    SearchProvider::HackerNews => "",
-                    SearchProvider::LocalAudit => "🔍",
-                    SearchProvider::Web => "🌐",
-                    SearchProvider::All => "◆",
-                };
-
                 let pointer = if is_selected { "▶" } else { " " };
-                let item_line = format!("{} {} {}", pointer, icon, item.title);
+                let item_line = format!("{} {}", pointer, item.title);
                 let truncated_title = truncate_to_width(&item_line, q1_w);
 
                 if is_selected {
