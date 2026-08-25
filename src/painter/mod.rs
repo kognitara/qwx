@@ -1,6 +1,7 @@
+use crossterm::terminal::{Clear, ClearType};
 use crossterm::{
     cursor::MoveTo,
-    queue,
+    execute, queue,
     style::{Color, Print, SetForegroundColor},
 };
 use std::io::{Result, Write};
@@ -8,18 +9,138 @@ use std::io::{Result, Write};
 /// Painter for the QWX terminal emulator
 pub struct QwxPainter<'a, W: Write> {
     writer: &'a mut W,
+    height: u16,
+    width: u16,
 }
 
+/// A constant array representing border characters used for drawing box-like structures.
+///
+/// # Elements
+/// - `BORDERS[0]`: `'─'` - Represents a horizontal border character.
+/// - `BORDERS[1]`: `'│'` - Represents a vertical border character.
+/// - `BORDERS[2]`: `'┌'` - Represents the top-left corner character.
+/// - `BORDERS[3]`: `'└'` - Represents the bottom-left corner character.
+///
+/// # Usage
+/// The `BORDERS` constant can be used when constructing text-based
+/// visual elements, such as boxes, tables, or other rectangular structures.
+///
+/// # Example
+/// ```rust
+/// use qwx::painter::BORDERS;
+/// println!("Top corner: {}", BORDERS[2]);
+/// println!("Horizontal line: {}", BORDERS[0]);
+/// ```
+pub const BORDERS: [char; 4] = ['─', '│', '┌', '└'];
+
+/// A constant array defining characters used for creating rounded borders in text-based UI elements.
+///
+/// - `ROUNDED_BORDERS[0]` ('─'): Represents the horizontal line used for the top and bottom borders.
+/// - `ROUNDED_BORDERS[1]` ('│'): Represents the vertical line used for the left and right borders.
+/// - `ROUNDED_BORDERS[2]` ('╭'): Represents the top-left corner of the border.
+/// - `ROUNDED_BORDERS[3]` ('╰'): Represents the bottom-left corner of the border.
+///
+/// # Example
+/// ```rust
+/// use qwx::painter::ROUNDED_BORDERS;
+///
+/// println!("{}", ROUNDED_BORDERS[2]); // Prints: ╭
+/// ```
+///
+/// These characters are commonly used when constructing visually appealing
+/// text-based layouts, such as in terminal-based user interfaces.
+pub const ROUNDED_BORDERS: [char; 4] = ['─', '│', '╭', '╰'];
+
+/// A constant array representing characters used for drawing double borders in a terminal UI.
+///
+/// The array contains the following characters:
+/// - `'═'`: The horizontal double line character.
+/// - `'║'`: The vertical double line character.
+/// - `'╔'`: The top-left corner double line character.
+/// - `'╚'`: The bottom-left corner double line character.
+///
+/// This array can be used when constructing UI components, such as tables or windows,
+/// that require double border styling.
+pub const DOUBLE_BORDER: [char; 4] = ['═', '║', '╔', '╚'];
+/// A constant representing a double horizontal line character ('═').
+///
+/// This can be used in applications for creating UI borders, tables,
+/// or other visual elements that require a double horizontal line
+/// style.
+///
+/// # Example
+/// ```
+/// use qwx::painter::DOUBLE_LINE;
+///
+/// println!("{}", DOUBLE_LINE); // Output: ═
+/// ```
+///
+/// # Unicode Information
+/// - Unicode: U+2550
+/// - Name: Box Drawings Double Horizontal
+pub const DOUBLE_LINE: char = '═';
+/// A constant character representing a horizontal line, often used for
+/// drawing or formatting purposes in text-based UI or console output.
+///
+/// # Example
+/// ```
+/// use qwx::painter::LINE;
+/// println!("{}", LINE); // Output: '─'
+/// ```
+///
+/// This character is commonly used in applications that require
+/// horizontal dividers or borders in their output.
+pub const LINE: char = '─';
+
 impl<'a, W: Write> QwxPainter<'a, W> {
-    /// Painter for the QWX terminal emulator
-    pub fn new(writer: &'a mut W) -> Self {
-        Self { writer }
+    /// Creates a new instance of the struct.
+    ///
+    /// # Parameters
+    /// - `writer`: A mutable reference to a writer of generic type `W`.
+    /// - `height`: The height parameter, represented as a 16-bit unsigned integer.
+    /// - `width`: The width parameter, represented as a 16-bit unsigned integer.
+    ///
+    /// # Returns
+    /// A new instance of the struct initialized with the provided writer, height, and width values.
+    pub fn new(writer: &'a mut W, height: u16, width: u16) -> Self {
+        Self {
+            writer,
+            height,
+            width,
+        }
     }
 
+    pub fn text(&mut self, text: String) -> Result<&mut Self> {
+        queue!(self.writer, Print(text))?;
+        Ok(self)
+    }
+
+    /// Sets the height of the object.
+    ///
+    /// # Arguments
+    /// * `height` - A `u16` value representing the new height to set.
+    ///
+    /// # Returns
+    /// Get a mutable reference to `self` to allow for method chaining.
+    pub fn set_height(&mut self, height: u16) -> &mut Self {
+        self.height = height;
+        self
+    }
+    /// Sets the width of the current object.
+    ///
+    /// # Parameters
+    /// - `width`: The new width value to set, represented as an unsigned 16-bit integer.
+    ///
+    /// # Returns
+    /// A mutable reference to the current instance, allowing for method chaining.
+    pub fn set_width(&mut self, width: u16) -> &mut Self {
+        self.width = width;
+        self
+    }
     /// Sets the foreground color for the terminal output.
     ///
     /// This function changes the color of the text that will be written to the terminal.
-    /// It utilizes the `queue!` macro to queue the color change command for the writer.
+    /// It uses the `queue!` macro to queue the color change command for the writer.
     ///
     /// # Arguments
     /// * `color` - The `Color` to set as the foreground color for the terminal text.
@@ -133,7 +254,14 @@ impl<'a, W: Write> QwxPainter<'a, W> {
     ///
     /// # Constraints
     /// - `width` and `height` must both be greater than or equal to 2 to draw a valid rectangle.
-    pub fn rect(&mut self, x: u16, y: u16, width: u16, height: u16) -> Result<&mut Self> {
+    pub fn rect(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        border_type: &[&str],
+    ) -> Result<&mut Self> {
         if width < 2 || height < 2 {
             return Ok(self);
         }
@@ -141,22 +269,53 @@ impl<'a, W: Write> QwxPainter<'a, W> {
         let inner_width = width - 2;
         let h_line = "─".repeat(inner_width as usize);
 
-        // Bordure haute
-        queue!(self.writer, MoveTo(x, y), Print(format!("┌{}┐", h_line)))?;
+        queue!(
+            self.writer,
+            MoveTo(x, y),
+            Print(format!("{}{}{}", border_type[0], h_line, border_type[1]))
+        )?;
 
         queue!(
             self.writer,
             MoveTo(x, y + height - 1),
-            Print(format!("└{}┘", h_line))
+            Print(format!("{}{}{}", border_type[2], h_line, border_type[3]))
         )?;
 
         for i in 1..(height - 1) {
-            queue!(self.writer, MoveTo(x, y + i), Print("│"))?;
-            queue!(self.writer, MoveTo(x + width - 1, y + i), Print("│"))?;
+            queue!(self.writer, MoveTo(x, y + i), Print(border_type[4]))?;
+            queue!(
+                self.writer,
+                MoveTo(x + width - 1, y + i),
+                Print(border_type[4])
+            )?;
         }
 
         Ok(self)
     }
+
+    /// Moves the cursor to the specified position (`x`, `y`) in the terminal.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - The horizontal position (column) to move the cursor to. Starts at 0.
+    /// * `y` - The vertical position (row) to move the cursor to. Starts at 0.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<&mut Self>` - Returns a mutable reference to `Self` wrapped in a `Result`,
+    ///   or an error if the underlying operation fails.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the `execute!` macro fails during the
+    /// execution of the `MoveTo` action.
+    ///
+    /// The example above moves the cursor to position `(10, 5)` in the terminal.
+    pub fn to(&mut self, x: u16, y: u16) -> Result<&mut Self> {
+        execute!(self.writer, MoveTo(x, y))?;
+        Ok(self)
+    }
+
     /// Moves the cursor to the specified coordinates `(x, y)` in the terminal
     /// and prints the given `symbol` at that location.
     ///
@@ -207,5 +366,55 @@ impl<'a, W: Write> QwxPainter<'a, W> {
     /// to ensure all data is written, especially for buffered writers.
     pub fn flush(&mut self) -> Result<()> {
         self.writer.flush()
+    }
+    /// Clears the terminal screen or a specified section of it based on the given mode.
+    ///
+    /// # Parameters
+    /// - `mode`: The `ClearType` enum variant that specifies the area to be cleared.
+    ///   It could represent clearing the entire screen, from the cursor to the end of the screen, etc.
+    ///
+    /// # Returns
+    /// Get a mutable reference to `Self` wrapped in a `Result`. This allows for chaining
+    /// method calls on the same object if the operation succeeds.
+    ///
+    /// # Errors
+    /// If queuing the clearing command fails, an error is returned.
+
+    ///
+    /// This call clears the entire screen and returns a mutable reference to the terminal
+    /// instance for further operations.
+    ///
+    /// # Dependencies
+    /// This function relies on the `queue!` macro to send the `Clear` command to the
+    /// terminal via the writer object.
+    pub fn clear(&mut self, mode: ClearType) -> Result<&mut Self> {
+        queue!(self.writer, Clear(mode))?;
+        Ok(self)
+    }
+    /// Clears the entire terminal screen.
+    ///
+    /// This function sends a command to clear all content from the terminal screen,
+    /// using the `ClearType::All` variant to specify clearing the entire display.
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to `self` if the operation is successful.
+    ///
+    /// # Errors
+    ///
+    /// If writing to the terminal fails, this function will return an error.
+    ///
+    /// # Dependencies
+    ///
+    /// This function relies on the `queue!` macro to send commands to the terminal
+    ///  writer and on the `Clear` enum provided by the relevant terminal backend.
+    ///
+    /// # Notes
+    ///
+    /// Ensure that `self.writer` is properly initialized and configured to interact
+    /// with the terminal before invoking this function, or it may fail.
+    pub fn clear_screen(&mut self) -> Result<&mut Self> {
+        queue!(self.writer, Clear(ClearType::All))?;
+        Ok(self)
     }
 }

@@ -679,9 +679,9 @@ pub fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
 /// * `editor` - Represents the `Ji` editor instance, which is used for any text editing functionalities within the application.
 /// * `search_input` - Stores the user's input string for search operations within the application.
 pub struct Qwx {
-    finder_layout: FinderLayout,
-    finder: Finder,
-    finder_research: String,
+    pub finder_layout: FinderLayout,
+    pub finder: Finder,
+    pub finder_research: String,
     nodes: Vec<Node>,
     views: Vec<View>,
     width: u16,
@@ -1673,10 +1673,10 @@ impl Qwx {
                         self.finder_research.clear();
                     }
                 }
-                (KeyModifiers::META, KeyCode::Char('h')) => {
+                (KeyModifiers::ALT, KeyCode::Right) => {
                     self.previous_finder_layout();
                 }
-                (KeyModifiers::META, KeyCode::Char('l')) => {
+                (KeyModifiers::ALT, KeyCode::Left) => {
                     self.next_finder_layout();
                 }
                 (KeyModifiers::NONE, KeyCode::F(5)) => {
@@ -1923,8 +1923,8 @@ impl Qwx {
             nodes: nodes.clone(),
             views,
             finder_layout: FinderLayout::Grid,
-            finder_research: String::new(),
             finder: Finder::new(path, FinderLayout::Grid),
+            finder_research: String::new(),
             current_dir: path.into(),
             editor: Ji::default(),
             search_input: String::new(),
@@ -1932,12 +1932,10 @@ impl Qwx {
     }
     /// Creates a new instance of the editor with the specified path and open mode.
     pub fn draw_finder<W: Write>(&mut self, w: &mut W) -> io::Result<()> {
-        // On recalcule la zone centrale
         let max_width = 180.min(self.width);
         let left_x = (self.width.saturating_sub(max_width)) / 2;
 
-        // On envoie left_x, 0 (pour top_y), max_width et la hauteur totale au Finder
-        self.finder.draw(
+        self.finder.show(
             w,
             self.finder_research.clone(),
             left_x,

@@ -1,7 +1,7 @@
-use crossterm::queue;
-use crossterm::style::ResetColor;
+use crossterm::terminal::{Clear, ClearType};
 use crossterm::{
     cursor::MoveTo,
+    execute,
     style::{Print, SetForegroundColor},
     terminal::size,
 };
@@ -9,11 +9,10 @@ use std::{
     io::{Result, Write},
     path::Path,
 };
-use unicode_width::UnicodeWidthChar;
 use walkdir::WalkDir;
 
 use crate::editor::theme::{
-    FINDER_ACTIVE_SELECT, FINDER_BORDER, FINDER_DIR_COLOR, FINDER_FILE_COLOR, FINDER_TEXT_MUTED,
+    FINDER_ACTIVE_SELECT, FINDER_BORDER, FINDER_DIR_COLOR, FINDER_FILE_COLOR, UI_TEXT_MUTED,
 };
 
 #[derive(Clone, PartialEq, Eq)]
@@ -41,31 +40,6 @@ pub enum FinderLayout {
     /// └───────────────────────┴──────────────────────────┘
     ///```
     Grid,
-    ///
-    /// ```txt
-    /// ┌─────────────────────────────────────────────────┐
-    /// │                   RESEARCH                      │
-    /// └─────────────────────────────────────────────────┘
-    /// ┌───────────────────────┬─────────────────────────┐
-    /// │ ROOT DIRECTORIES      │ ROOTS FILES             │
-    /// │                       │                         │
-    /// │                       │                         │
-    /// │                       │                         │
-    /// │                       │                         │
-    /// ├───────────────────────┼─────────────────────────┤
-    /// │ SUB ROOT DIRECTORIES  │ PREVIEW                 │
-    /// │                       │                         │
-    /// │                       │                         │
-    /// │                       │                         │
-    /// │                       │                         │
-    /// └───────────────────────┴─────────────────────────┘
-    /// ┌───────────────────────┬─────────────────────────┐
-    /// │ ROOT DIRS FOUNDED     │ ROOT FILES FOUNDED      │
-    /// ├───────────────────────┼─────────────────────────┤
-    /// │ SUB ROOT DIRS FOUNDED │ SUB ROOT FILES FOUNDED  │
-    /// └───────────────────────┴─────────────────────────┘
-    ///```
-    GridSecondary,
     ///
     /// ```txt
     /// ┌─────────────────────────────────────────────────┐
@@ -140,11 +114,9 @@ pub enum FinderLayout {
 }
 
 impl FinderLayout {
-    // Fonction pour cycler vers le layout suivant
     pub fn next(&self) -> Self {
         match self {
-            Self::Grid => Self::GridSecondary,
-            Self::GridSecondary => Self::SideBySide,
+            Self::Grid => Self::SideBySide,
             Self::SideBySide => Self::Miller,
             Self::Miller => Self::Commander,
             Self::Commander => Self::Mosaic,
@@ -154,15 +126,794 @@ impl FinderLayout {
     pub fn previous(&self) -> Self {
         match self {
             Self::Grid => Self::Mosaic,
-            Self::GridSecondary => Self::Grid,
-            Self::SideBySide => Self::GridSecondary,
+            Self::SideBySide => Self::Grid,
             Self::Miller => Self::SideBySide,
             Self::Commander => Self::Miller,
             Self::Mosaic => Self::Commander,
         }
     }
+
+    /// Draw the finder on the screen.
+    pub fn draw<W: Write>(
+        &self,
+        w: &mut W,
+        research: String,
+        start_x: u16,
+        start_y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<()> {
+        match self {
+            Self::Grid => draw_grid_finder(w, research, start_x, start_y, width, height),
+            Self::Commander => draw_commander_finder(w, research, start_x, start_y, width, height),
+            Self::Mosaic => draw_mosaic_finder(w, research, start_x, start_y, width, height),
+            Self::Miller => draw_miller_finder(w, research, start_x, start_y, width, height),
+            Self::SideBySide => {
+                draw_side_by_side_finder(w, research, start_x, start_y, width, height)
+            }
+        }
+    }
+}
+fn draw_side_by_side_finder<W: Write>(
+    w: &mut W,
+    research: String,
+    start_x: u16,
+    start_y: u16,
+    width: u16,
+    height: u16,
+) -> Result<()> {
+    // Draw research bar at top
+    execute!(
+        w,
+        MoveTo(start_x, start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, start_y + 1),
+        Print("│"),
+        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        Print(format!(" {} ", research)),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, start_y + 1),
+        Print("│"),
+        MoveTo(start_x, start_y + 2),
+        Print("└"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Calculate panel dimensions
+    let panel_start_y = start_y + 3;
+    let panel_height = height.saturating_sub(5);
+    let half_width = width / 2;
+
+    // Draw left panel (DIRS) border
+    execute!(
+        w,
+        MoveTo(start_x, panel_start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┐"),
+    )?;
+
+    // Draw DIRS and FILES labels
+    execute!(
+        w,
+        MoveTo(start_x + 2, panel_start_y),
+        SetForegroundColor(FINDER_DIR_COLOR),
+        Print(" DIRS "),
+        MoveTo(start_x + half_width + 2, panel_start_y),
+        SetForegroundColor(FINDER_FILE_COLOR),
+        Print(" FILES "),
+    )?;
+
+    // Draw middle divider and side borders
+    for i in 1..panel_height {
+        execute!(
+            w,
+            MoveTo(start_x, panel_start_y + i),
+            SetForegroundColor(FINDER_BORDER),
+            Print("│"),
+            MoveTo(start_x + half_width, panel_start_y + i),
+            Print("│"),
+            MoveTo(start_x + width - 1, panel_start_y + i),
+            Print("│"),
+        )?;
+    }
+
+    // Draw bottom border of panels
+    execute!(
+        w,
+        MoveTo(start_x, panel_start_y + panel_height),
+        SetForegroundColor(FINDER_BORDER),
+        Print("└"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Draw status footer
+    let footer_y = start_y + height - 2;
+    execute!(
+        w,
+        MoveTo(start_x, footer_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, footer_y + 1),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" DIRS FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + half_width, footer_y + 1),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" FILES FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, footer_y + 1),
+        Print("│"),
+        MoveTo(start_x, footer_y + 2),
+        Print("└"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    Ok(())
+}
+fn draw_grid_finder<W: Write>(
+    w: &mut W,
+    research: String,
+    start_x: u16,
+    start_y: u16,
+    width: u16,
+    height: u16,
+) -> Result<()> {
+    // Draw research bar at top
+    execute!(
+        w,
+        MoveTo(start_x, start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, start_y + 1),
+        Print("│"),
+        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        Print(format!(" {} ", research)),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, start_y + 1),
+        Print("│"),
+        MoveTo(start_x, start_y + 2),
+        Print("└"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Calculate panel dimensions for 2x2 grid
+    let panel_start_y = start_y + 3;
+    let panel_height = (height.saturating_sub(8)) / 2;
+    let half_width = width / 2;
+
+    // Draw top border of 2x2 grid
+    execute!(
+        w,
+        MoveTo(start_x, panel_start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┐"),
+    )?;
+
+    // Draw labels for top row
+    execute!(
+        w,
+        MoveTo(start_x + 2, panel_start_y),
+        SetForegroundColor(FINDER_DIR_COLOR),
+        Print(" ROOT DIRECTORIES "),
+        MoveTo(start_x + half_width + 2, panel_start_y),
+        Print(" SUB ROOTS DIRECTORIES "),
+    )?;
+
+    // Draw sides and middle divider for top panels
+    for i in 1..panel_height {
+        execute!(
+            w,
+            MoveTo(start_x, panel_start_y + i),
+            SetForegroundColor(FINDER_BORDER),
+            Print("│"),
+            MoveTo(start_x + half_width, panel_start_y + i),
+            Print("│"),
+            MoveTo(start_x + width - 1, panel_start_y + i),
+            Print("│"),
+        )?;
+    }
+
+    // Draw middle horizontal divider
+    let middle_y = panel_start_y + panel_height;
+    execute!(
+        w,
+        MoveTo(start_x, middle_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("├"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┼"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┤"),
+    )?;
+
+    // Draw labels for bottom row
+    execute!(
+        w,
+        MoveTo(start_x + 2, middle_y),
+        SetForegroundColor(FINDER_FILE_COLOR),
+        Print(" ROOTS FILES "),
+        MoveTo(start_x + half_width + 2, middle_y),
+        Print(" SUB ROOTS FILES "),
+    )?;
+
+    // Draw sides and middle divider for bottom panels
+    for i in 1..panel_height {
+        execute!(
+            w,
+            MoveTo(start_x, middle_y + i),
+            SetForegroundColor(FINDER_BORDER),
+            Print("│"),
+            MoveTo(start_x + half_width, middle_y + i),
+            Print("│"),
+            MoveTo(start_x + width - 1, middle_y + i),
+            Print("│"),
+        )?;
+    }
+
+    // Draw bottom border of main grid
+    let bottom_y = middle_y + panel_height;
+    execute!(
+        w,
+        MoveTo(start_x, bottom_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("└"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Draw status footer (2x2 grid for founded counts)
+    let footer_y = bottom_y + 1;
+
+    execute!(
+        w,
+        MoveTo(start_x, footer_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, footer_y + 1),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" ROOT DIRS FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + half_width, footer_y + 1),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" SUB ROOTS DIRS FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, footer_y + 1),
+        Print("│"),
+        MoveTo(start_x, footer_y + 2),
+        Print("├"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┼"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┤"),
+        MoveTo(start_x, footer_y + 3),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" SUB ROOT DIRS FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + half_width, footer_y + 3),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" SUB ROOT FILES FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, footer_y + 3),
+        Print("│"),
+        MoveTo(start_x, footer_y + 4),
+        Print("└"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    Ok(())
 }
 
+fn draw_miller_finder<W: Write>(
+    w: &mut W,
+    research: String,
+    start_x: u16,
+    start_y: u16,
+    width: u16,
+    height: u16,
+) -> Result<()> {
+    // Draw research bar at top
+    execute!(
+        w,
+        MoveTo(start_x, start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, start_y + 1),
+        Print("│"),
+        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        Print(format!(" {} ", research)),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, start_y + 1),
+        Print("│"),
+        MoveTo(start_x, start_y + 2),
+        Print("└"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Calculate panel dimensions
+    let panel_start_y = start_y + 3;
+    let third_width = width / 3;
+    let dirs_height = (height.saturating_sub(8)) / 2;
+    let files_height = height.saturating_sub(8) - dirs_height;
+
+    // Draw top border of three-column directory panels
+    execute!(
+        w,
+        MoveTo(start_x, panel_start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((third_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((third_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((width - 2 * third_width - 2) as usize)),
+        Print("┐"),
+    )?;
+
+    // Draw labels for directory columns
+    execute!(
+        w,
+        MoveTo(start_x + 2, panel_start_y),
+        SetForegroundColor(FINDER_DIR_COLOR),
+        Print(" PARENT DIRS "),
+        MoveTo(start_x + third_width + 2, panel_start_y),
+        Print(" ACTIVE DIR "),
+        MoveTo(start_x + 2 * third_width + 2, panel_start_y),
+        Print(" CHILD DIRS "),
+    )?;
+
+    // Draw sides and vertical dividers for directory panels
+    for i in 1..dirs_height {
+        execute!(
+            w,
+            MoveTo(start_x, panel_start_y + i),
+            SetForegroundColor(FINDER_BORDER),
+            Print("│"),
+            MoveTo(start_x + third_width, panel_start_y + i),
+            Print("│"),
+            MoveTo(start_x + 2 * third_width, panel_start_y + i),
+            Print("│"),
+            MoveTo(start_x + width - 1, panel_start_y + i),
+            Print("│"),
+        )?;
+    }
+
+    // Draw horizontal divider between directories and files
+    let files_start_y = panel_start_y + dirs_height;
+    execute!(
+        w,
+        MoveTo(start_x, files_start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("├"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┤"),
+    )?;
+
+    // Draw FILES label
+    execute!(
+        w,
+        MoveTo(start_x + 2, files_start_y),
+        SetForegroundColor(FINDER_FILE_COLOR),
+        Print(" FILES "),
+    )?;
+
+    // Draw sides for files panel
+    for i in 1..files_height {
+        execute!(
+            w,
+            MoveTo(start_x, files_start_y + i),
+            SetForegroundColor(FINDER_BORDER),
+            Print("│"),
+            MoveTo(start_x + width - 1, files_start_y + i),
+            Print("│"),
+        )?;
+    }
+
+    // Draw bottom border of files panel
+    let bottom_y = files_start_y + files_height;
+    execute!(
+        w,
+        MoveTo(start_x, bottom_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("└"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Draw status footer
+    let footer_y = bottom_y + 1;
+    execute!(
+        w,
+        MoveTo(start_x, footer_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((third_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((third_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((width - 2 * third_width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, footer_y + 1),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" PARENT FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + third_width, footer_y + 1),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" DIRS FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + 2 * third_width, footer_y + 1),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" CHILD FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, footer_y + 1),
+        Print("│"),
+        MoveTo(start_x, footer_y + 2),
+        Print("└"),
+        Print("─".repeat((third_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((third_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((width - 2 * third_width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    Ok(())
+}
+
+fn draw_commander_finder<W: Write>(
+    w: &mut W,
+    research: String,
+    start_x: u16,
+    start_y: u16,
+    width: u16,
+    height: u16,
+) -> Result<()> {
+    // Draw research bar at top
+    execute!(
+        w,
+        MoveTo(start_x, start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, start_y + 1),
+        Print("│"),
+        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        Print(format!(" {} ", research)),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, start_y + 1),
+        Print("│"),
+        MoveTo(start_x, start_y + 2),
+        Print("└"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Calculate panel dimensions
+    let panel_start_y = start_y + 3;
+    let dirs_height = 3;
+    let main_panel_start_y = panel_start_y + dirs_height + 1;
+    let main_panel_height = height.saturating_sub(8 + dirs_height);
+    let half_width = width / 2;
+
+    // Draw directories section border
+    execute!(
+        w,
+        MoveTo(start_x, panel_start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, panel_start_y + 1),
+        Print("│"),
+        SetForegroundColor(FINDER_DIR_COLOR),
+        Print(" DIRECTORIES "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, panel_start_y + 1),
+        Print("│"),
+    )?;
+
+    // Draw sides for directories section
+    for i in 2..dirs_height {
+        execute!(
+            w,
+            MoveTo(start_x, panel_start_y + i),
+            SetForegroundColor(FINDER_BORDER),
+            Print("│"),
+            MoveTo(start_x + width - 1, panel_start_y + i),
+            Print("│"),
+        )?;
+    }
+
+    // Draw bottom border of directories section
+    execute!(
+        w,
+        MoveTo(start_x, panel_start_y + dirs_height),
+        SetForegroundColor(FINDER_BORDER),
+        Print("└"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Draw main panel (split: CURRENT DIRECTORY | CURRENT FILES)
+    execute!(
+        w,
+        MoveTo(start_x, main_panel_start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┐"),
+    )?;
+
+    // Draw labels for main panels
+    execute!(
+        w,
+        MoveTo(start_x + 2, main_panel_start_y),
+        SetForegroundColor(FINDER_DIR_COLOR),
+        Print(" CURRENT DIRECTORY "),
+        MoveTo(start_x + half_width + 2, main_panel_start_y),
+        SetForegroundColor(FINDER_FILE_COLOR),
+        Print(" CURRENT FILES "),
+    )?;
+
+    // Draw sides and middle divider for main panels
+    for i in 1..main_panel_height {
+        execute!(
+            w,
+            MoveTo(start_x, main_panel_start_y + i),
+            SetForegroundColor(FINDER_BORDER),
+            Print("│"),
+            MoveTo(start_x + half_width, main_panel_start_y + i),
+            Print("│"),
+            MoveTo(start_x + width - 1, main_panel_start_y + i),
+            Print("│"),
+        )?;
+    }
+
+    // Draw bottom border of main panels
+    let bottom_y = main_panel_start_y + main_panel_height;
+    execute!(
+        w,
+        MoveTo(start_x, bottom_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("└"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Draw status footer
+    let footer_y = bottom_y + 1;
+    execute!(
+        w,
+        MoveTo(start_x, footer_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, footer_y + 1),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" DIRS FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + half_width, footer_y + 1),
+        Print("│"),
+        SetForegroundColor(UI_TEXT_MUTED),
+        Print(" FILES FOUNDED "),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, footer_y + 1),
+        Print("│"),
+        MoveTo(start_x, footer_y + 2),
+        Print("└"),
+        Print("─".repeat((half_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((width - half_width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    Ok(())
+}
+fn draw_mosaic_finder<W: Write>(
+    w: &mut W,
+    research: String,
+    start_x: u16,
+    start_y: u16,
+    width: u16,
+    height: u16,
+) -> Result<()> {
+    // Draw research bar at top
+    execute!(
+        w,
+        MoveTo(start_x, start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┐"),
+        MoveTo(start_x, start_y + 1),
+        Print("│"),
+        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        Print(format!(" {} ", research)),
+        SetForegroundColor(FINDER_BORDER),
+        MoveTo(start_x + width - 1, start_y + 1),
+        Print("│"),
+        MoveTo(start_x, start_y + 2),
+        Print("└"),
+        Print("─".repeat((width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    // Calculate panel dimensions for mosaic layout
+    let panel_start_y = start_y + 3;
+    let panel_height = height.saturating_sub(3);
+    let left_panel_width = width / 3;
+    let right_panel_width = width - left_panel_width;
+    let grid_cell_width = right_panel_width / 2;
+    let grid_cell_height = panel_height / 2;
+
+    // Draw top border of main layout
+    execute!(
+        w,
+        MoveTo(start_x, panel_start_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("┌"),
+        Print("─".repeat((left_panel_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((grid_cell_width - 2) as usize)),
+        Print("┬"),
+        Print("─".repeat((right_panel_width - grid_cell_width - 2) as usize)),
+        Print("┐"),
+    )?;
+
+    // Draw "Root /" label in left panel
+    execute!(
+        w,
+        MoveTo(start_x + 2, panel_start_y),
+        SetForegroundColor(FINDER_DIR_COLOR),
+        Print(" Root / "),
+    )?;
+
+    // Draw labels for top-right grid cells
+    execute!(
+        w,
+        MoveTo(start_x + left_panel_width + 2, panel_start_y),
+        SetForegroundColor(FINDER_DIR_COLOR),
+        Print(" src/ "),
+        MoveTo(
+            start_x + left_panel_width + grid_cell_width + 2,
+            panel_start_y
+        ),
+        Print(" app/ "),
+    )?;
+
+    // Draw sides and vertical dividers for top half
+    for i in 1..grid_cell_height {
+        execute!(
+            w,
+            MoveTo(start_x, panel_start_y + i),
+            SetForegroundColor(FINDER_BORDER),
+            Print("│"),
+            MoveTo(start_x + left_panel_width, panel_start_y + i),
+            Print("│"),
+            MoveTo(
+                start_x + left_panel_width + grid_cell_width,
+                panel_start_y + i
+            ),
+            Print("│"),
+            MoveTo(start_x + width - 1, panel_start_y + i),
+            Print("│"),
+        )?;
+    }
+
+    // Draw middle horizontal divider
+    let middle_y = panel_start_y + grid_cell_height;
+    execute!(
+        w,
+        MoveTo(start_x, middle_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("│"),
+        MoveTo(start_x + left_panel_width, middle_y),
+        Print("├"),
+        Print("─".repeat((grid_cell_width - 2) as usize)),
+        Print("┼"),
+        Print("─".repeat((right_panel_width - grid_cell_width - 2) as usize)),
+        Print("┤"),
+    )?;
+
+    // Draw labels for bottom-right grid cells
+    execute!(
+        w,
+        MoveTo(start_x + left_panel_width + 2, middle_y),
+        SetForegroundColor(FINDER_FILE_COLOR),
+        Print(" doc/ "),
+        MoveTo(start_x + left_panel_width + grid_cell_width + 2, middle_y),
+        Print(" lib/ "),
+    )?;
+
+    // Draw sides and vertical dividers for bottom half
+    for i in 1..grid_cell_height {
+        execute!(
+            w,
+            MoveTo(start_x, middle_y + i),
+            SetForegroundColor(FINDER_BORDER),
+            Print("│"),
+            MoveTo(start_x + left_panel_width, middle_y + i),
+            Print("│"),
+            MoveTo(start_x + left_panel_width + grid_cell_width, middle_y + i),
+            Print("│"),
+            MoveTo(start_x + width - 1, middle_y + i),
+            Print("│"),
+        )?;
+    }
+
+    // Draw bottom border
+    let bottom_y = middle_y + grid_cell_height;
+    execute!(
+        w,
+        MoveTo(start_x, bottom_y),
+        SetForegroundColor(FINDER_BORDER),
+        Print("└"),
+        Print("─".repeat((left_panel_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((grid_cell_width - 2) as usize)),
+        Print("┴"),
+        Print("─".repeat((right_panel_width - grid_cell_width - 2) as usize)),
+        Print("┘"),
+    )?;
+
+    Ok(())
+}
+
+/// Deep search recursive function
 pub fn deep_search_recursive(query: &str, results: &mut Vec<String>) {
     let query_lower = query.to_lowercase();
     results.clear();
@@ -216,7 +967,42 @@ pub fn deep_search_recursive(query: &str, results: &mut Vec<String>) {
         }
     }
 }
-
+/// Recursively lists all files in the specified directory, returning their canonicalized paths as a vector of strings.
+///
+/// This function uses the `WalkDir` crate to traverse the given directory at the specified `path`.
+/// Only files (not directories) are included in the resulting list, and their paths are canonicalized
+/// and returned as UTF-8 strings.
+///
+/// # Parameters
+/// - `path`: A reference to a `Path` that represents the directory to be scanned for files.
+///
+/// # Returns
+/// - A `Vec<String>` containing the canonicalized paths (as strings) of all files in the directory.
+///
+/// # Behavior
+/// - The function performs a shallow scan of the directory using `WalkDir` with `max_depth(1)`
+///   and `min_depth(1)`. This means it only lists files directly within the provided directory
+///   without diving into subdirectories.
+/// - File paths are canonicalized to provide absolute paths and are sanitized by removing
+///   any leading `./` from the path string.
+///
+/// # Example
+/// ```no_run
+/// use std::path::Path;
+/// use qwx::finder::list_files;
+/// let files = list_files(Path::new("./my_directory"));
+/// for file in files {
+///     println!("{file}");
+/// }
+/// ```
+///
+/// # Dependencies
+/// - The `WalkDir` crate is required for directory traversal. Ensure the crate is included
+///   in your `Cargo.toml`.
+///
+/// # Panics
+/// - The function will panic if the `canonicalize` method fails for any file path. This could
+///   happen if there are underlying issues with the filesystem or permissions.
 pub fn list_files(path: &Path) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     for entry in WalkDir::new(path)
@@ -229,7 +1015,7 @@ pub fn list_files(path: &Path) -> Vec<String> {
             let path_str = entry
                 .path()
                 .canonicalize()
-                .expect("")
+                .expect("failed to canonicalize file path")
                 .to_string_lossy()
                 .to_string()
                 .replace("./", "");
@@ -238,6 +1024,51 @@ pub fn list_files(path: &Path) -> Vec<String> {
     }
     files
 }
+///
+/// Recursively lists all directories at the root level of the specified path.
+///
+/// This function traverses a given path using `WalkDir` with a maximum and minimum depth of 1,
+/// effectively listing only the immediate subdirectories present in the specified path.
+/// For each directory found, its name (as a `String`) is added to the output vector.
+///
+/// # Arguments
+///
+/// * `path` - A reference to a `Path` specifying the root directory to search for subdirectories.
+///
+/// # Returns
+///
+/// A `Vec<String>` containing the names of all subdirectories found within the specified path.
+///
+/// # Example
+///
+/// ```rust
+/// use std::path::Path;
+/// use qwx::finder::list_dirs;
+///
+/// let path = Path::new("/some/directory");
+/// let subdirectories = list_dirs(path);
+///
+/// for dir in subdirectories {
+///     println!("{}", dir);
+/// }
+/// ```
+///
+/// # Dependencies
+///
+/// This function depends on the `WalkDir` crate for directory traversal. Make sure to include it
+/// in your `Cargo.toml`:
+///
+/// ```toml
+/// [dependencies]
+/// walkdir = "2.3"
+/// ```
+///
+/// # Notes
+///
+/// * Only immediate subdirectories are listed. Files and nested subdirectories are ignored.
+/// * The directory names are returned as `String` in UTF-8 format.
+/// * If a directory name cannot be converted to `String` (non-UTF-8), it will not be included
+///   in the output vector.
 pub fn list_dirs(path: &Path) -> Vec<String> {
     let mut dirs: Vec<String> = Vec::new();
     for entry in WalkDir::new(path)
@@ -247,7 +1078,6 @@ pub fn list_dirs(path: &Path) -> Vec<String> {
         .flatten()
     {
         if entry.path().is_dir() {
-            // On extrait uniquement le nom du dossier
             if let Some(name) = entry.file_name().to_str() {
                 dirs.push(name.to_string());
             }
@@ -256,6 +1086,47 @@ pub fn list_dirs(path: &Path) -> Vec<String> {
     dirs
 }
 
+/// Lists the subdirectories located at a depth of 2 relative to the given path.
+///
+/// This function traverses the directory structure starting from the specified `path`
+/// and collects the relative paths of all subdirectories that are exactly at a depth of 2
+/// from the root directory. The traversal is performed using the `WalkDir` crate.
+///
+/// # Parameters
+/// - `path`: A reference to a `Path` specifying the root directory from which to start the search.
+///
+/// # Returns
+/// A `Vec<String>` containing the relative paths of subdirectories at depth 2. Each string in the vector
+/// represents a subdirectory path relative to the provided root directory. For example, if the input path
+/// is `/root` and there is a subdirectory `/root/parent/child`, the function will return
+/// `"parent/child"` if `parent` is at depth 1 and `child` is at depth 2.
+///
+/// # Panics
+/// This function does not handle panics directly. However, if the provided path does not exist
+/// or is not accessible, the iteration may result in errors which are silently ignored due
+/// to the use of `.flatten()` when iterating over directory entries.
+///
+/// # Example
+///
+/// ```no_run
+/// use std::path::Path;
+/// use qwx::finder::list_sub_dirs;
+/// let root_path = Path::new("/example/path");
+/// let sub_dirs = list_sub_dirs(root_path);
+///
+/// for dir in sub_dirs {
+///     println!("{}", dir);
+/// }
+/// ```
+///
+/// # Dependencies
+/// This function depends on the external crate `walkdir` for directory traversal.
+/// Ensure the crate is included as a dependency in your `Cargo.toml`:
+///
+/// ```toml
+/// [dependencies]
+/// walkdir = "2.3"
+/// ```
 pub fn list_sub_dirs(path: &Path) -> Vec<String> {
     let mut dirs: Vec<String> = Vec::new();
     for entry in WalkDir::new(path)
@@ -274,6 +1145,50 @@ pub fn list_sub_dirs(path: &Path) -> Vec<String> {
     dirs
 }
 
+/// Generates a list of files located within the subdirectories of a specified directory.
+///
+/// This function traverses the directory tree starting at the provided path and identifies
+/// files in subdirectories. The function only includes files that are exactly two levels
+/// deeper than the root directory (subdirectories of the provided path).
+///
+/// # Arguments
+///
+/// * `path` - A reference to a `Path` object pointing to the directory to traverse.
+///
+/// # Returns
+///
+/// * A `Vec<String>` containing the relative paths of files found in subdirectories.
+///   Each path is relative to the root directory specified by the input `path`.
+///
+/// # Example
+///
+/// ```rust
+/// use std::path::Path;
+/// use qwx::finder::list_sub_files;
+///
+/// let path = Path::new("/path/to/root");
+/// let files = list_sub_files(path);
+/// for file in files {
+///     println!("{file}");
+/// }
+/// ```
+///
+/// # Notes
+///
+/// * The function uses a depth-based filter. Files found directly in the `root` directory
+///   or in subdirectories more than two levels deep are ignored.
+/// * The `strip_prefix` method ensures that paths in the result are relative and clean
+///   (e.g., `"parent/enfant"`).
+///
+/// # Dependencies
+///
+/// This function relies on the `walkdir` crate for directory traversal. Make sure to add
+/// `walkdir` to your `Cargo.toml` to use this function:
+///
+/// ```toml
+/// [dependencies]
+/// walkdir = "2.3"
+/// ```
 pub fn list_sub_files(path: &Path) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     for entry in WalkDir::new(path)
@@ -283,7 +1198,6 @@ pub fn list_sub_files(path: &Path) -> Vec<String> {
         .flatten()
     {
         if entry.path().is_file() {
-            // Pour les sous-dossiers, on garde le chemin relatif propre (ex: "parent/enfant")
             if let Ok(rel_path) = entry.path().strip_prefix(path) {
                 files.push(rel_path.to_string_lossy().to_string());
             }
@@ -291,7 +1205,61 @@ pub fn list_sub_files(path: &Path) -> Vec<String> {
     }
     files
 }
-
+/// The `Finder` struct represents a file and directory management system
+/// with mechanisms to navigate and select directories and files.
+/// It is designed to facilitate operations such as deep searching,
+/// directory and file selection, and maintaining layout-related settings.
+///
+/// # Fields
+/// - `layout`:
+///     The layout configuration of the `Finder`. This is of type `FinderLayout`,
+///     which determines the UI structure of the finder tool.
+///
+/// - `directories`:
+///     A vector of strings representing the directories currently loaded or available in the `Finder`.
+///
+/// - `sub_directories`:
+///     A vector of strings containing subdirectories within the currently selected directory.
+///
+/// - `sub_files`:
+///     A vector of strings containing files within the currently selected directory's subdirectories.
+///
+/// - `files`:
+///     A vector of strings containing files directly accessible in the currently selected directory.
+///
+/// - `base_directories`:
+///     A vector of strings containing the base directories available in the initial state of the `Finder`.
+///
+/// - `base_sub_directories`:
+///     A vector of strings containing the subdirectories related to the `base_directories`.
+///
+/// - `base_sub_files`:
+///     A vector of strings containing the base files related to the `base_directories` and `base_sub_directories`.
+///
+/// - `selected_file`:
+///     A public field representing the index of the currently selected file in the `files` vector.
+///
+/// - `base_files`:
+///     A vector of strings representing the files associated with or derived from the `base_directories`.
+///
+/// - `deep_search_cache`:
+///     An optional tuple containing a string identifier and a vector of strings for caching the results of deep searches.
+///     The first element is a keyword or identifier, and the second element represents the cached list of matching files or directories.
+///
+/// - `selected_dir`:
+///     A public field representing the index of the currently selected directory in the `directories` vector.
+///
+/// - `selected_sub_dir`:
+///     A public field representing the index of the currently selected subdirectory in the `sub_directories` vector.
+///
+/// - `selected_sub_file`:
+///     A public field representing the index of the currently selected subfile in the `sub_files` vector.
+///
+/// - `width`:
+///     The width dimension (in units) of the `Finder` layout, used for display or visualization purposes.
+///
+/// - `height`:
+///     The height dimension (in units) of the `Finder` layout, used for display or visualization purposes.
 pub struct Finder {
     layout: FinderLayout,
     directories: Vec<String>,
@@ -312,6 +1280,7 @@ pub struct Finder {
 }
 
 impl Finder {
+    ///
     #[must_use]
     pub fn new(path: &Path, layout: FinderLayout) -> Self {
         let (w, h) = size().unwrap_or((80, 100));
@@ -338,16 +1307,35 @@ impl Finder {
             base_sub_files: s_files,
         }
     }
+    pub fn show<W: Write>(
+        &self,
+        w: &mut W,
+        research: String,
+        start_x: u16,
+        start_y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<()> {
+        execute!(w, Clear(ClearType::All))?;
+        self.layout
+            .draw(w, research, start_x, start_y, width, height)
+    }
+
+    /// Retrieves a list of subdirectory names.
+    ///
+    /// # Returns
+    /// A `Vec<String>` containing the names of all subdirectories.
     pub fn get_sub_directories(&self) -> Vec<String> {
         self.sub_directories.to_vec()
     }
 
+    /// Selects the next subdirectory in the list.
     pub fn next_sub_dir(&mut self) {
         if !self.sub_directories.is_empty() {
             self.selected_sub_dir = (self.selected_sub_dir + 1) % self.sub_directories.len();
         }
     }
-
+    /// Selects the previous subdirectory in the list.
     pub fn prev_sub_dir(&mut self) {
         if !self.sub_directories.is_empty() {
             self.selected_sub_dir = if self.selected_sub_dir > 0 {
@@ -357,12 +1345,35 @@ impl Finder {
             };
         }
     }
+    /// Advances the selected file to the next file in the list.
+    ///
+    /// This function increments the index of the currently selected file (`selected_file`)
+    /// by 1. If the end of the list is reached, it wraps around to the beginning (circular
+    /// indexing). The function ensures that the operation is only performed when the
+    /// `files` list is not empty.
+    ///
+    /// # Behavior
+    /// - If the `files` list is empty, the function does nothing.
+    /// - If the `files` list contains elements, the `selected_file` index is updated
+    ///   to point to the next file in a circular manner.
+    ///
+    /// # Requirements
+    /// - The `files` field must be a non-empty vector containing file names or paths.
+    /// - The `selected_file` field must be a valid index within the bounds of the `files` vector.
     pub fn next_file(&mut self) {
         if !self.files.is_empty() {
             self.selected_file = (self.selected_file + 1) % self.files.len();
         }
     }
-
+    /// Moves the selection to the previous file in the list of files.
+    ///
+    /// If the current selection is not the first file, the `selected_file` index is decremented by one.
+    /// If the current selection is the first file, the `selected_file` wraps around to the last file
+    /// in the list, implementing circular navigation.
+    ///
+    /// # Behavior
+    /// - If the `files` list is empty, this function does nothing.
+    /// - If `selected_file` is already at the beginning of the list, it wraps around to the end of the list.
     pub fn prev_file(&mut self) {
         if !self.files.is_empty() {
             self.selected_file = if self.selected_file > 0 {
@@ -372,22 +1383,51 @@ impl Finder {
             };
         }
     }
+    /// Resizes the dimensions of the current object.
+    ///
+    /// # Parameters
+    /// - `width`: The new width to set for the object.
+    /// - `height`: The new height to set for the object.
+    ///
+    /// # Notes
+    /// This function updates the internal `width` and `height` fields of the object.
     pub fn resize(&mut self, width: u16, height: u16) {
         self.width = width;
         self.height = height;
     }
+    /// Returns a vector containing the list of directories.
+    ///
+    /// # Description
+    /// This method retrieves the directories stored within the instance by
+    /// creating and returning a `Vec<String>` that represents the directories.
+    ///
+    /// # Returns
+    /// A `Vec<String>` containing the directories that have been stored.
     pub fn get_directories(&self) -> Vec<String> {
         self.directories.to_vec()
     }
+    /// Retrieves a list of files associated with the current instance.
+    ///
+    /// # Returns
+    /// A `Vec<String>` containing the names of the files. This method clones
+    /// the internal `files` attribute and returns its contents as a vector.
+    ///
+    /// # Note
+    /// This function performs a cloning operation on the `files` attribute
+    /// of the struct. If you need to avoid cloning for performance reasons,
+    /// consider providing a reference to the files instead.
     pub fn get_files(&self) -> Vec<String> {
         self.files.to_vec()
     }
+
+    /// Moves the selection to the next directory in the list.
     pub fn next_dir(&mut self) {
         if !self.directories.is_empty() {
             self.selected_dir = (self.selected_dir + 1) % self.directories.len();
         }
     }
 
+    /// Moves the selection to the previous directory in the list.
     pub fn prev_dir(&mut self) {
         if !self.directories.is_empty() {
             self.selected_dir = if self.selected_dir > 0 {
@@ -397,6 +1437,77 @@ impl Finder {
             };
         }
     }
+    /// Filters and updates the file and directory listings based on the given search query.
+    ///
+    /// # Parameters
+    /// - `&mut self`: The mutable reference to the current struct instance.
+    /// - `research: String`: The search query string to filter files and directories. The query
+    ///   supports modifiers for more specific filtering:
+    ///   - `=`: Matches exact names.
+    ///   - `^`: Matches names starting with the provided value.
+    ///   - `$`: Matches names ending with the provided value.
+    ///   - `!`: Excludes names containing the provided value.
+    ///   - `*`: (Default) Matches names containing the provided value.
+    ///
+    ///   Alternatively, if the search query starts with `?`, a "deep search" mode is triggered
+    ///   where further query modifiers can be applied to refine the results further.
+    ///
+    /// # Returns
+    /// - `(Vec<String>, Vec<String>)`: A tuple where:
+    ///   - The first element is a vector of filtered directory names.
+    ///   - The second element is a vector of filtered file names.
+    ///
+    /// # Behavior
+    /// - Resets the `selected_file` and `selected_dir` indices to `0`.
+    /// - Converts the search query to lowercase for case-insensitive filtering.
+    /// - Depending on the search query:
+    ///   - If the query starts with `?`, deep search logic is applied:
+    ///     - The query is split into multiple sub-queries using whitespace, with the first query acting
+    ///       as the base search.
+    ///     - Caches results from prior searches to minimize unnecessary disk scans.
+    ///     - Applies additional modifiers (if any) to refine the cached results.
+    ///   - If the query does not start with `?`, it performs basic filtering on existing `base_files`
+    ///     and `base_directories`, updating current directories and files accordingly using the provided
+    ///     query modifiers.
+    /// - Updates the following fields based on filtering:
+    ///   - `self.files`: List of matching files.
+    ///   - `self.directories`: List of matching directories.
+    ///   - `self.sub_directories` and `self.sub_files`: Sub-items filtered based on the provided query.
+    /// - Clears `self.deep_search_cache` if deep search is not used.
+    ///
+    /// # Examples
+    ///
+    /// ## Case 1: Basic search without modifiers
+    /// ```rust
+    /// let query = "example".to_string();
+    /// let (dirs, files) = instance.filter(query);
+    /// ```
+    /// Matches all files and directories containing the substring `"example"`.
+    ///
+    /// ## Case 2: Search with modifiers
+    /// ```rust
+    /// let query = "^start".to_string();
+    /// let (dirs, files) = instance.filter(query);
+    /// ```
+    /// Matches all files and directories starting with `"start"`.
+    ///
+    /// ## Case 3: Deep search with query refinement
+    /// ```rust
+    /// let query = "?primary ^subquery".to_string();
+    /// let (dirs, files) = instance.filter(query);
+    /// ```
+    /// Performs a deep search with `"primary"` as the base query and refines the results with
+    /// the additional modifier `^subquery`.
+    ///
+    /// # Notes
+    /// - Deep search uses recursion (`deep_search_recursive`) and a cache for optimization.
+    /// - Uses case-insensitive string matching for all queries and refinements.
+    ///
+    /// # Caveats
+    /// - The method assumes `self.base_files`, `self.base_directories`, `self.base_sub_directories`,
+    ///   and `self.base_sub_files` are populated before invocation and accessible for filtering.
+    /// - Potential performance impact if disk scans via `deep_search_recursive` are required for
+    ///   extensive searches in large directories.
     pub fn filter(&mut self, research: String) -> (Vec<String>, Vec<String>) {
         self.selected_file = 0;
         self.selected_dir = 0;
@@ -509,376 +1620,5 @@ impl Finder {
                 .collect();
             (self.get_directories(), self.get_files())
         }
-    }
-    pub fn draw<W: Write>(
-        &self,
-        w: &mut W,
-        research: String,
-        start_x: u16, // Marge gauche
-        start_y: u16, // Marge haute (souvent 0)
-        width: u16,   // Largeur restreinte (ex: 180 max)
-        height: u16,  // Hauteur totale
-    ) -> Result<()> {
-        let empty_line = " ".repeat(width as usize);
-        for y in start_y..(start_y + height) {
-            queue!(w, MoveTo(start_x, y), Print(&empty_line))?;
-        }
-
-        if self.layout == FinderLayout::Grid {
-            let display_text = if research.is_empty() {
-                "Type to search"
-            } else {
-                research.as_str()
-            };
-
-            let mid_x = start_x + (width / 2);
-            let right_x = start_x + width.saturating_sub(1);
-
-            let header_h = 3;
-            let footer_h = 5;
-
-            let main_y_start = start_y + header_h;
-            let main_h = height.saturating_sub(header_h + footer_h);
-            let mid_y = main_y_start + (main_h / 2);
-            let text_x = start_x + (width.saturating_sub(display_text.len() as u16) / 2);
-
-            // ==========================================
-            // 1. DESSIN DE L'EN-TÊTE (RESEARCH)
-            // ==========================================
-
-            queue!(
-                w,
-                MoveTo(start_x, start_y),
-                SetForegroundColor(FINDER_BORDER),
-                Print(format!(
-                    "┌{}┐",
-                    "─".repeat((width.saturating_sub(2)) as usize)
-                )),
-                MoveTo(start_x, start_y + 1),
-                Print("│"),
-                MoveTo(text_x, start_y + 1),
-                SetForegroundColor(FINDER_TEXT_MUTED),
-                Print(display_text),
-                SetForegroundColor(FINDER_BORDER),
-                MoveTo(right_x, start_y + 1),
-                Print("│"),
-                MoveTo(start_x, start_y + 2),
-                Print(format!(
-                    "├{}┤",
-                    "─".repeat((width.saturating_sub(2)) as usize)
-                )),
-                MoveTo(mid_x, start_y + 2),
-                Print("┬")
-            )?;
-
-            // ==========================================
-            // 2. ZONE PRINCIPALE : BORDURES DES QUADRANTS
-            // ==========================================
-
-            // Ligne de séparation horizontale centrale
-            for x in (start_x + 1)..right_x {
-                queue!(
-                    w,
-                    MoveTo(x, mid_y),
-                    SetForegroundColor(FINDER_BORDER),
-                    Print("─")
-                )?;
-            }
-
-            // Lignes verticales (Gauche, Centre, Droite)
-            for y in main_y_start..(start_y + height.saturating_sub(footer_h)) {
-                queue!(
-                    w,
-                    SetForegroundColor(FINDER_BORDER),
-                    MoveTo(start_x, y),
-                    Print("│"),
-                    MoveTo(mid_x, y),
-                    Print("│"),
-                    MoveTo(right_x, y),
-                    Print("│")
-                )?;
-            }
-
-            // Intersections de la ligne centrale horizontale
-            queue!(
-                w,
-                SetForegroundColor(FINDER_BORDER),
-                MoveTo(start_x, mid_y),
-                Print("├"),
-                MoveTo(mid_x, mid_y),
-                Print("┼"),
-                MoveTo(right_x, mid_y),
-                Print("┤")
-            )?;
-
-            // Titres et calcul des dimensions
-            let max_files_display =
-                (start_y + height.saturating_sub(footer_h) - mid_y - 2) as usize;
-            let max_dirs_display = (mid_y - main_y_start - 2) as usize;
-            let max_sub_dirs_display = (mid_y - main_y_start - 2) as usize;
-            let max_sub_files_display =
-                (start_y + height.saturating_sub(footer_h) - mid_y - 2) as usize;
-
-            let pane_width = (mid_x.saturating_sub(start_x + 5)) as usize;
-
-            let format_padded = |text: &str, total_w: usize| -> String {
-                let safe_text = text.replace('\t', "    ").replace(['\n', '\t'], "");
-                let max_text_w = total_w.saturating_sub(1);
-                let mut acc = 0;
-                let mut truncated = String::new();
-                for c in safe_text.chars() {
-                    let cw = c.width().unwrap_or(0);
-                    if acc + cw > max_text_w {
-                        break;
-                    }
-                    truncated.push(c);
-                    acc += cw;
-                }
-                truncated
-            };
-
-            let dir_offset = if max_dirs_display.gt(&0) {
-                (self.selected_dir / max_dirs_display) * max_dirs_display
-            } else {
-                0
-            };
-            let file_offset = if max_files_display.gt(&0) {
-                (self.selected_file / max_files_display) * max_files_display
-            } else {
-                0
-            };
-            let sub_dir_offset = if max_sub_dirs_display.gt(&0) {
-                (self.selected_sub_dir / max_sub_dirs_display) * max_sub_dirs_display
-            } else {
-                0
-            };
-            let sub_file_offset = if max_sub_files_display.gt(&0) {
-                (self.selected_sub_file / max_sub_files_display) * max_sub_files_display
-            } else {
-                0
-            };
-
-            // ==========================================
-            // AFFICHAGE DES DOSSIERS
-            // ==========================================
-            // ✨ Ajout de .skip(dir_offset) pour glisser la vue vers le bas
-            for (i, dir) in self
-                .directories
-                .iter()
-                .skip(dir_offset)
-                .take(max_dirs_display)
-                .enumerate()
-            {
-                let actual_idx = i + dir_offset; // L'index réel dans ton vecteur global
-                let padded_name = format_padded(dir, pane_width);
-                if actual_idx == self.selected_dir {
-                    // On compare avec l'index réel
-                    queue!(
-                        w,
-                        MoveTo(start_x + 4, main_y_start + 2 + i as u16),
-                        SetForegroundColor(FINDER_ACTIVE_SELECT),
-                        Print(padded_name),
-                        ResetColor
-                    )?;
-                } else {
-                    queue!(
-                        w,
-                        MoveTo(start_x + 4, main_y_start + 2 + i as u16),
-                        ResetColor,
-                        SetForegroundColor(FINDER_DIR_COLOR),
-                        Print(padded_name)
-                    )?;
-                }
-            }
-
-            // ==========================================
-            // AFFICHAGE DES FICHIERS
-            // ==========================================
-            let cwd = std::env::current_dir().unwrap_or_default();
-            let cwd_str = cwd.to_str().unwrap_or("");
-
-            for (i, file) in self
-                .files
-                .iter()
-                .skip(file_offset)
-                .take(max_files_display)
-                .enumerate()
-            {
-                let actual_idx = i + file_offset;
-                let display_name = if let Some(stripped) = file.strip_prefix(cwd_str) {
-                    stripped.trim_start_matches(['/', '\\'])
-                } else {
-                    file.as_str()
-                };
-
-                let padded_name = format_padded(display_name, pane_width);
-
-                if actual_idx == self.selected_file {
-                    queue!(
-                        w,
-                        MoveTo(start_x + 4, mid_y + 2 + i as u16),
-                        SetForegroundColor(FINDER_ACTIVE_SELECT),
-                        Print(padded_name),
-                        ResetColor
-                    )?;
-                } else {
-                    queue!(
-                        w,
-                        MoveTo(start_x + 4, mid_y + 2 + i as u16),
-                        ResetColor,
-                        SetForegroundColor(FINDER_FILE_COLOR),
-                        Print(padded_name)
-                    )?;
-                }
-            }
-
-            // ==========================================
-            // AFFICHAGE DES SOUS-DOSSIERS (Haut Droite)
-            // ==========================================
-            let right_pane_x = mid_x + 4;
-
-            for (i, sub_dir) in self
-                .sub_directories
-                .iter()
-                .skip(sub_dir_offset)
-                .take(max_sub_dirs_display)
-                .enumerate()
-            {
-                let actual_idx = i + sub_dir_offset;
-                let padded_name = format_padded(sub_dir, pane_width);
-                if actual_idx == self.selected_sub_dir {
-                    queue!(
-                        w,
-                        MoveTo(right_pane_x, main_y_start + 2 + i as u16),
-                        SetForegroundColor(FINDER_ACTIVE_SELECT),
-                        Print(padded_name),
-                        ResetColor
-                    )?;
-                } else {
-                    queue!(
-                        w,
-                        MoveTo(right_pane_x, main_y_start + 2 + i as u16),
-                        ResetColor,
-                        SetForegroundColor(FINDER_TEXT_MUTED),
-                        Print(padded_name)
-                    )?;
-                }
-            }
-
-            // ==========================================
-            // AFFICHAGE DES SOUS-FICHIERS (Bas Droite)
-            // ==========================================
-            for (i, sub_file) in self
-                .sub_files
-                .iter()
-                .skip(sub_file_offset)
-                .take(max_sub_files_display)
-                .enumerate()
-            {
-                let actual_idx = i + sub_file_offset;
-                let padded_name = format_padded(sub_file, pane_width);
-                if actual_idx == self.selected_sub_file {
-                    queue!(
-                        w,
-                        MoveTo(right_pane_x, mid_y + 2 + i as u16),
-                        SetForegroundColor(FINDER_FILE_COLOR),
-                        Print(padded_name),
-                        ResetColor
-                    )?;
-                } else {
-                    queue!(
-                        w,
-                        MoveTo(right_pane_x, mid_y + 2 + i as u16),
-                        ResetColor,
-                        SetForegroundColor(FINDER_TEXT_MUTED),
-                        Print(padded_name)
-                    )?;
-                }
-            }
-
-            let footer_y = start_y + height.saturating_sub(footer_h);
-            let bottom_y = start_y + height.saturating_sub(1);
-
-            // Lignes horizontales du footer (en évitant les coins)
-            for x in (start_x + 1)..right_x {
-                queue!(
-                    w,
-                    MoveTo(x, footer_y),
-                    SetForegroundColor(FINDER_BORDER),
-                    Print("─")
-                )?;
-                queue!(
-                    w,
-                    MoveTo(x, footer_y + 2),
-                    SetForegroundColor(FINDER_BORDER),
-                    Print("─")
-                )?;
-                queue!(
-                    w,
-                    MoveTo(x, bottom_y),
-                    SetForegroundColor(FINDER_BORDER),
-                    Print("─")
-                )?;
-            }
-
-            // Lignes verticales du footer
-            for y in footer_y..bottom_y {
-                queue!(
-                    w,
-                    SetForegroundColor(FINDER_BORDER),
-                    MoveTo(start_x, y),
-                    Print("│"),
-                    MoveTo(mid_x, y),
-                    Print("│"),
-                    MoveTo(right_x, y),
-                    Print("│")
-                )?;
-            }
-
-            // Toutes les intersections du footer pour une grille parfaite
-            queue!(
-                w,
-                SetForegroundColor(FINDER_BORDER),
-                MoveTo(start_x, footer_y),
-                Print("├"),
-                MoveTo(mid_x, footer_y),
-                Print("┼"),
-                MoveTo(right_x, footer_y),
-                Print("┤"),
-                MoveTo(start_x, footer_y + 2),
-                Print("├"),
-                MoveTo(mid_x, footer_y + 2),
-                Print("┼"),
-                MoveTo(right_x, footer_y + 2),
-                Print("┤"),
-                MoveTo(start_x, bottom_y),
-                Print("└"),
-                MoveTo(mid_x, bottom_y),
-                Print("┴"),
-                MoveTo(right_x, bottom_y),
-                Print("┘")
-            )?;
-
-            // Affichage des compteurs dynamiques
-            let dir_count_str = format!(" ROOT DIRS FOUND : {} ", self.directories.len());
-            let file_count_str = format!(" ROOT FILES FOUND : {} ", self.files.len());
-            let sub_dir_count_str =
-                format!(" SUB ROOTS DIRS FOUND : {} ", self.sub_directories.len());
-
-            queue!(
-                w,
-                MoveTo(start_x + 2, footer_y + 1),
-                SetForegroundColor(FINDER_TEXT_MUTED),
-                Print(dir_count_str),
-                MoveTo(mid_x + 2, footer_y + 1),
-                Print(sub_dir_count_str),
-                MoveTo(start_x + 2, footer_y + 3),
-                Print(" SUB ROOT FILES FOUND : 0 "),
-                MoveTo(mid_x + 2, footer_y + 3),
-                Print(file_count_str)
-            )?;
-        }
-        queue!(w, ResetColor)?;
-        Ok(())
     }
 }

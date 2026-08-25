@@ -1,8 +1,8 @@
 [package]
 name = "qwx"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2024"
-description = "Quaternary Walk eXtended"
+description = "Quaternary Walk Extended"
 license = "AGPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/kognitara/qwx.git"
