@@ -1,15 +1,13 @@
-use crate::apps::App;
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 use clap_complete::{Shell, generate};
 use git2::build::RepoBuilder;
 use git2::{FetchOptions, RemoteCallbacks};
 use indicatif::{ProgressBar, ProgressStyle};
+use qwx::editor::{Mode, Qwx};
 use std::env::{current_dir, set_current_dir};
 use std::io;
 use std::path::Path;
-mod apps;
-mod editor;
-mod finder;
+
 const HELP_CONTENT: &str = include_str!("../help.txt");
 
 fn cli() -> Command {
@@ -65,7 +63,7 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
 
     if p.is_dir() {
         set_current_dir(p.as_path())?;
-        return App::new(p.as_path())?.run();
+        return Qwx::new(p.as_path(), qwx::editor::Mode::Normal)?.run();
     }
 
     // 1. Initialisation avec un template adapté aux "objets" et non aux octets
@@ -114,7 +112,7 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     if builder.clone(url, dest).is_ok() {
         pb.finish_with_message("Clone and checkout completed.");
         set_current_dir(p.as_path())?;
-        App::new(p.as_path())?.run()
+        Qwx::new(p.as_path(), Mode::Normal)?.run()
     } else {
         pb.abandon_with_message("Clone failed.");
         Ok(())
@@ -127,7 +125,7 @@ fn main() -> io::Result<()> {
         Some(("open", sub)) => {
             let p = sub.get_one::<String>("path").expect("required");
             if Path::new(p.as_str()).is_dir() {
-                App::new(Path::new(p.as_str()))?.run()
+                Qwx::new(Path::new(p.as_str()), Mode::Normal)?.run()
             } else {
                 app.clone().print_help()?;
                 Ok(())
