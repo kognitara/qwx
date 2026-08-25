@@ -4,3 +4,5 @@ pub mod editor;
 pub mod finder;
 #[doc = "`Qwx` module for draw ui"]
 pub mod painter;
+
+pub mod search;

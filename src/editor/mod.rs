@@ -130,6 +130,11 @@ pub trait QwxUi<W: Write> {
 
 impl<W: Write> QwxUi<W> for Qwx {
     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
+        if self.mode == Mode::WebSearch {
+            self.search_hub.draw(w, 0, 0, self.width, self.height)?;
+            w.flush()?;
+            return Ok(());
+        }
         execute!(w, Hide)?;
         let max_width = 180.min(self.width);
 
@@ -704,6 +709,7 @@ pub struct Qwx {
     editor: Ji,
     search_input: String,
     pub last_search_query: Option<String>,
+    pub search_hub: crate::search::SearchHub,
 }
 
 /// A `View` structure that represents the current state of a view in the application.
@@ -945,13 +951,14 @@ pub struct PaneState {
 ///     println!("The application is not in menu mode.");
 /// }
 /// ```
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Mode {
     Normal,
     Menu,
     Finder,
     Editor,
     Search,
+    WebSearch,
 }
 ///
 /// A trait that provides functionality for managing a cursor in the context of a writable output.
@@ -1451,6 +1458,11 @@ impl Qwx {
                     self.mode = Mode::Search;
                     self.search_input.clear();
                 }
+                (KeyModifiers::ALT, KeyCode::Char('s'))
+                | (KeyModifiers::ALT, KeyCode::Char('w'))
+                | (KeyModifiers::NONE, KeyCode::Char('s')) => {
+                    self.mode = Mode::WebSearch;
+                }
                 (KeyModifiers::NONE, KeyCode::Char('q')) => {
                     self.running = false;
                 }
@@ -1832,6 +1844,287 @@ impl Qwx {
             _ => {}
         }
     }
+    fn handle_web_search(&mut self) {
+        match read().expect("msg") {
+            Event::Key(key) => {
+                if let Some(ref mut prompt) = self.search_hub.prompt {
+                    match (key.modifiers, key.code) {
+                        (KeyModifiers::NONE, KeyCode::Esc) => {
+                            self.search_hub.prompt = None;
+                            self.search_hub.status_message = Some("Action cancelled.".to_string());
+                        }
+                        (KeyModifiers::NONE, KeyCode::Enter) => {
+                            match prompt {
+                                crate::search::ActionPrompt::CloneRepo { repo_url, dest_input } => {
+                                    let dest_path = self.current_dir.join(dest_input.trim());
+                                    let url = repo_url.clone();
+                                    self.search_hub.status_message = Some("Cloning repository in progress...".to_string());
+                                    let res = crate::search::clone_repository(&url, &dest_path);
+                                    match res {
+                                        Ok(msg) => {
+                                            self.search_hub.status_message = Some(msg);
+                                            self.search_hub.prompt = None;
+                                        }
+                                        Err(err) => {
+                                            self.search_hub.status_message = Some(format!("Error: {}", err));
+                                            self.search_hub.prompt = None;
+                                        }
+                                    }
+                                }
+                                crate::search::ActionPrompt::CreateBranch { branch_input } => {
+                                    let branch_name = branch_input.trim().to_string();
+                                    let res = crate::search::create_git_branch(&self.current_dir, &branch_name);
+                                    match res {
+                                        Ok(msg) => {
+                                            self.search_hub.status_message = Some(msg);
+                                            self.search_hub.prompt = None;
+                                        }
+                                        Err(err) => {
+                                            self.search_hub.status_message = Some(format!("Error: {}", err));
+                                            self.search_hub.prompt = None;
+                                        }
+                                    }
+                                }
+                                crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
+                                    let branch_name = branch_input.trim().to_string();
+                                    let res = crate::search::checkout_git_branch(&self.current_dir, &branch_name);
+                                    match res {
+                                        Ok(msg) => {
+                                            self.search_hub.status_message = Some(msg);
+                                            self.search_hub.prompt = None;
+                                        }
+                                        Err(err) => {
+                                            self.search_hub.status_message = Some(format!("Error: {}", err));
+                                            self.search_hub.prompt = None;
+                                        }
+                                    }
+                                }
+                                crate::search::ActionPrompt::ExportReport { path_input } => {
+                                    let dest_path = self.current_dir.join(path_input.trim());
+                                    let res = crate::search::export_report_to_file(&dest_path, &self.search_hub.results);
+                                    match res {
+                                        Ok(msg) => {
+                                            self.search_hub.status_message = Some(msg);
+                                            self.search_hub.prompt = None;
+                                        }
+                                        Err(err) => {
+                                            self.search_hub.status_message = Some(format!("Error: {}", err));
+                                            self.search_hub.prompt = None;
+                                        }
+                                    }
+                                }
+                                crate::search::ActionPrompt::CreatePullRequest {
+                                    repo_input,
+                                    title_input,
+                                    body_input,
+                                    head_input,
+                                    base_input,
+                                    token_input,
+                                    step,
+                                } => {
+                                    if *step < 5 {
+                                        *step += 1;
+                                        self.search_hub.status_message = Some(format!(
+                                            "Creating Pull Request - Step {}/6",
+                                            *step + 1
+                                        ));
+                                    } else {
+                                        let repo = repo_input.clone();
+                                        let title = title_input.clone();
+                                        let body = body_input.clone();
+                                        let head = head_input.clone();
+                                        let base = base_input.clone();
+                                        let token = if token_input.trim().is_empty() {
+                                            None
+                                        } else {
+                                            Some(token_input.as_str())
+                                        };
+                                        self.search_hub.status_message = Some("Submitting Pull Request...".to_string());
+                                        let res = crate::search::create_github_pull_request(
+                                            &repo, &title, &body, &head, &base, token,
+                                        );
+                                        match res {
+                                            Ok(msg) => {
+                                                self.search_hub.status_message = Some(msg);
+                                                self.search_hub.prompt = None;
+                                            }
+                                            Err(err) => {
+                                                self.search_hub.status_message = Some(format!("PR Error: {}", err));
+                                                self.search_hub.prompt = None;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        (KeyModifiers::NONE, KeyCode::Backspace) => {
+                            match prompt {
+                                crate::search::ActionPrompt::CloneRepo { dest_input, .. } => {
+                                    dest_input.pop();
+                                }
+                                crate::search::ActionPrompt::CreateBranch { branch_input } => {
+                                    branch_input.pop();
+                                }
+                                crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
+                                    branch_input.pop();
+                                }
+                                crate::search::ActionPrompt::ExportReport { path_input } => {
+                                    path_input.pop();
+                                }
+                                crate::search::ActionPrompt::CreatePullRequest {
+                                    repo_input,
+                                    title_input,
+                                    body_input,
+                                    head_input,
+                                    base_input,
+                                    token_input,
+                                    step,
+                                } => {
+                                    match step {
+                                        0 => { repo_input.pop(); }
+                                        1 => { title_input.pop(); }
+                                        2 => { body_input.pop(); }
+                                        3 => { head_input.pop(); }
+                                        4 => { base_input.pop(); }
+                                        5 => { token_input.pop(); }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                            match prompt {
+                                crate::search::ActionPrompt::CloneRepo { dest_input, .. } => {
+                                    dest_input.push(c);
+                                }
+                                crate::search::ActionPrompt::CreateBranch { branch_input } => {
+                                    branch_input.push(c);
+                                }
+                                crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
+                                    branch_input.push(c);
+                                }
+                                crate::search::ActionPrompt::ExportReport { path_input } => {
+                                    path_input.push(c);
+                                }
+                                crate::search::ActionPrompt::CreatePullRequest {
+                                    repo_input,
+                                    title_input,
+                                    body_input,
+                                    head_input,
+                                    base_input,
+                                    token_input,
+                                    step,
+                                } => {
+                                    match step {
+                                        0 => { repo_input.push(c); }
+                                        1 => { title_input.push(c); }
+                                        2 => { body_input.push(c); }
+                                        3 => { head_input.push(c); }
+                                        4 => { base_input.push(c); }
+                                        5 => { token_input.push(c); }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // SearchHub Navigation & Input
+                match (key.modifiers, key.code) {
+                    (KeyModifiers::NONE, KeyCode::Esc) => {
+                        self.mode = Mode::Normal;
+                    }
+                    (KeyModifiers::NONE, KeyCode::Tab) => {
+                        self.search_hub.next_provider();
+                    }
+                    (KeyModifiers::SHIFT, KeyCode::BackTab) | (KeyModifiers::SHIFT, KeyCode::Tab) => {
+                        self.search_hub.prev_provider();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Up) => {
+                        self.search_hub.prev_result();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Down) => {
+                        self.search_hub.next_result();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                        self.search_hub.prev_result();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+                        self.search_hub.next_result();
+                    }
+                    (KeyModifiers::NONE, KeyCode::PageUp) => {
+                        self.search_hub.scroll_preview_up();
+                    }
+                    (KeyModifiers::NONE, KeyCode::PageDown) => {
+                        self.search_hub.scroll_preview_down();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('o')) | (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
+                        self.search_hub.open_selected_in_browser();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('e')) | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
+                        self.search_hub.start_export_report();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('s')) => {
+                        self.search_hub.start_checkout_branch();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('c')) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                        self.search_hub.start_clone_selected();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('b')) | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
+                        self.search_hub.start_create_branch();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('p')) => {
+                        self.search_hub.start_create_pull_request();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('a')) | (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+                        self.search_hub.set_provider(crate::search::SearchProvider::LocalAudit);
+                        self.search_hub.perform_search(&self.current_dir);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('1')) | (KeyModifiers::CONTROL, KeyCode::Char('1')) => {
+                        self.search_hub.set_provider(crate::search::SearchProvider::All);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('2')) | (KeyModifiers::CONTROL, KeyCode::Char('2')) => {
+                        self.search_hub.set_provider(crate::search::SearchProvider::GitHub);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('3')) | (KeyModifiers::CONTROL, KeyCode::Char('3')) => {
+                        self.search_hub.set_provider(crate::search::SearchProvider::GitLab);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('4')) | (KeyModifiers::CONTROL, KeyCode::Char('4')) => {
+                        self.search_hub.set_provider(crate::search::SearchProvider::Wikipedia);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('5')) | (KeyModifiers::CONTROL, KeyCode::Char('5')) => {
+                        self.search_hub.set_provider(crate::search::SearchProvider::Cve);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('6')) | (KeyModifiers::CONTROL, KeyCode::Char('6')) => {
+                        self.search_hub.set_provider(crate::search::SearchProvider::HackerNews);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('7')) | (KeyModifiers::CONTROL, KeyCode::Char('7')) => {
+                        self.search_hub.set_provider(crate::search::SearchProvider::LocalAudit);
+                    }
+                    (KeyModifiers::NONE, KeyCode::Enter) => {
+                        self.search_hub.perform_search(&self.current_dir);
+                    }
+                    (KeyModifiers::NONE, KeyCode::Backspace) => {
+                        self.search_hub.query.pop();
+                    }
+                    (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                        self.search_hub.query.push(c);
+                    }
+                    _ => {}
+                }
+            }
+            Event::Resize(cols, rows) => {
+                self.width = cols;
+                self.height = rows;
+                let _ = execute!(stdout(), Clear(ClearType::All));
+            }
+            _ => {}
+        }
+    }
+
     pub fn handle_events(&mut self) {
         match self.mode {
             Mode::Normal => self.handle_normal(),
@@ -1839,6 +2132,7 @@ impl Qwx {
             Mode::Menu => self.handle_menu(),
             Mode::Editor => self.handle_editor(),
             Mode::Search => self.handle_search(),
+            Mode::WebSearch => self.handle_web_search(),
         }
     }
     /// Creates a new instance of the editor with the specified path and open mode.
@@ -2021,6 +2315,7 @@ impl Qwx {
             editor,
             search_input: String::new(),
             last_search_query: None,
+            search_hub: crate::search::SearchHub::new(),
         })
     }
 
