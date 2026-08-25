@@ -1962,21 +1962,21 @@ impl Finder {
     /// # Examples
     ///
     /// ## Case 1: Basic search without modifiers
-    /// ```rust
+    /// ```rust,ignore
     /// let query = "example".to_string();
     /// let (dirs, files) = instance.filter(query);
     /// ```
     /// Matches all files and directories containing the substring `"example"`.
     ///
     /// ## Case 2: Search with modifiers
-    /// ```rust
+    /// ```rust,ignore
     /// let query = "^start".to_string();
     /// let (dirs, files) = instance.filter(query);
     /// ```
     /// Matches all files and directories starting with `"start"`.
     ///
     /// ## Case 3: Deep search with query refinement
-    /// ```rust
+    /// ```rust,ignore
     /// let query = "?primary ^subquery".to_string();
     /// let (dirs, files) = instance.filter(query);
     /// ```

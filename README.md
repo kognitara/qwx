@@ -81,6 +81,9 @@ The Editor Mode is dedicated to direct text insertion and modification.
 |:------------|:---------------------|:---------------------------------------------------------------------------------------------------------|
 | `Esc`       | **Exit / Clear**     | Clears the current text selection. If no selection exists, exits Editor mode and returns to Normal mode. |
 | `Ctrl + s`  | **Save**             | Writes the current file modifications to the disk.                                                       |
+| `Ctrl + z`  | **Undo**             | Reverts the latest text change.                                                                          |
+| `Ctrl + y`  | **Redo**             | Restores the previously reverted text change.                                                            |
+| `Ctrl + v`  | **Paste**            | Inserts the clipboard contents at the cursor position.                                                   |
 | `Ctrl + k`  | **Delete to End**    | Deletes all characters from the current cursor position to the end of the line.                          |
 | `Alt + x`   | **Select Line**      | Selects the entire line currently under the cursor.                                                      |
 | `Alt + d`   | **Delete Selection** | Deletes the currently selected text block.                                                               |
@@ -99,6 +102,13 @@ The Normal Mode is the default state of qwx, used for lightning-fast spatial nav
 | `o`                 | **Append New Line**  | Jumps to the end of the current line, inserts a new line, and enters Editor mode. |
 | `h`, `j`, `k`, `l`  | **Move Cursor**      | Moves the cursor Left (`h`), Down (`j`), Up (`k`), or Right (`l`).                |
 | `PageUp` / `PageDn` | **Fast Scroll**      | Jumps 15 lines up or down for rapid vertical navigation through the file.         |
+| `u`                 | **Undo**             | Reverts the last edit operation.                                                  |
+| `U` / `Ctrl + y`    | **Redo**             | Restores the undone edit operation.                                               |
+| `y`                 | **Yank (Copy)**      | Copies the current line or selection to the clipboard.                            |
+| `p`                 | **Paste**            | Pastes the clipboard contents at the current cursor position.                     |
+| `n`                 | **Next Match**       | Jumps to the next search match.                                                   |
+| `N`                 | **Prev Match**       | Jumps to the previous search match.                                               |
+| `Ctrl + s`          | **Save**             | Writes changes to disk.                                                           |
 | `x`                 | **Select Line**      | Selects the current line for quick manipulation.                                  |
 | `d`                 | **Delete Selection** | Instantly deletes the currently highlighted selection.                            |
 | `Esc`               | **Clear Selection**  | Drops the current text selection.                                                 |

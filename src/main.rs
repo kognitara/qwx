@@ -15,15 +15,7 @@ fn cli() -> Command {
         .about(env!("CARGO_PKG_DESCRIPTION"))
         .version(env!("CARGO_PKG_VERSION"))
         .long_about(HELP_CONTENT)
-        .subcommand(
-            Command::new("open").about("Open a directory").arg(
-                Arg::new("path")
-                    .required(false)
-                    .value_parser(value_parser!(String))
-                    .action(ArgAction::Set)
-                    .default_value("."),
-            ),
-        )
+        .subcommand(Command::new("open").about("Open a directory or file"))
         .subcommand(
             Command::new("gen")
                 .about("Gen auto completion for shell")
@@ -66,7 +58,6 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
         return Qwx::new(p.as_path(), qwx::editor::Mode::Normal)?.run();
     }
 
-    // 1. Initialisation avec un template adapté aux "objets" et non aux octets
     let pb = ProgressBar::new(0);
     pb.set_style(
         ProgressStyle::default_bar()
@@ -81,7 +72,6 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     let mut callbacks = RemoteCallbacks::new();
     let pb_clone = pb.clone();
 
-    // 2. Traitement des deux phases du clone Git
     callbacks.transfer_progress(move |stats| {
         if stats.received_objects() < stats.total_objects() {
             // PHASE 1 : Réception depuis le serveur
@@ -108,28 +98,25 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
 
     pb.set_message(format!("Connecting to {}...", url));
 
-    // 4. Clonage avec notre constructeur personnalisé
-    if builder.clone(url, dest).is_ok() {
-        pb.finish_with_message("Clone and checkout completed.");
-        set_current_dir(p.as_path())?;
-        Qwx::new(p.as_path(), Mode::Normal)?.run()
-    } else {
-        pb.abandon_with_message("Clone failed.");
-        Ok(())
+    if let Err(e) = builder.clone(url, dest) {
+        pb.abandon_with_message(format!("Clone failed: {e}"));
+        return Err(io::Error::new(io::ErrorKind::Other, e.to_string()));
     }
+    pb.finish_with_message("Clone and checkout completed.");
+    set_current_dir(p.as_path())?;
+    Qwx::new(p.as_path(), Mode::Normal)?.run()
 }
 fn main() -> io::Result<()> {
     let mut app = cli();
     let matches = app.clone().get_matches();
     match matches.subcommand() {
         Some(("open", sub)) => {
-            let p = sub.get_one::<String>("path").expect("required");
-            if Path::new(p.as_str()).is_dir() {
-                Qwx::new(Path::new(p.as_str()), Mode::Normal)?.run()
-            } else {
-                app.clone().print_help()?;
-                Ok(())
-            }
+            let p = sub
+                .get_one::<String>("path")
+                .map(|s| s.as_str())
+                .unwrap_or(".");
+            let path = Path::new(p);
+            Qwx::new(path, Mode::Normal)?.run()
         }
         Some(("gen", sub)) => {
             let shell = sub.get_one::<String>("shell").expect("shell is required");
@@ -145,6 +132,14 @@ fn main() -> io::Result<()> {
             Ok(())
         }
         Some(("clone", sub)) => clone_and_open(sub),
+        None => {
+            if let Some(p) = matches.get_one::<String>("path") {
+                let path = Path::new(p);
+                Qwx::new(path, Mode::Normal)?.run()
+            } else {
+                Qwx::new(Path::new("."), Mode::Normal)?.run()
+            }
+        }
         _ => {
             app.clone().print_help()?;
             Ok(())

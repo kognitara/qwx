@@ -108,7 +108,7 @@ pub fn get_superscript(num: u8) -> &'static str {
 ///
 /// # Example
 /// ```
-/// use std::io::Write;
+/// use std::io::{Write, Error};
 /// use qwx::editor::QwxUi;
 /// struct MyUiElement;
 ///
@@ -280,7 +280,15 @@ impl<W: Write> QwxUi<W> for Qwx {
                 0
             };
             let expo = get_superscript(pane.view);
-            let info_display = format!("{}% {}{}", percentage_str, pane.workspace, expo);
+            let dirty_prefix = if is_active && self.editor.is_dirty {
+                "*"
+            } else {
+                ""
+            };
+            let info_display = format!(
+                "{}{} % {}{}",
+                dirty_prefix, percentage_str, pane.workspace, expo
+            );
             let indicator_x = start_x + p_width.saturating_sub(info_display.len() as u16);
             let indicator_y = start_y + p_height.saturating_sub(1);
             queue!(w, MoveTo(indicator_x, indicator_y))?;
@@ -288,7 +296,7 @@ impl<W: Write> QwxUi<W> for Qwx {
                 queue!(
                     w,
                     SetForegroundColor(UI_BORDER_ACTIVE),
-                    Print(format!("{}% ", percentage_str)),
+                    Print(format!("{}{} % ", dirty_prefix, percentage_str)),
                     Print(pane.workspace),
                     Print(expo)
                 )?;
@@ -296,7 +304,7 @@ impl<W: Write> QwxUi<W> for Qwx {
                 queue!(
                     w,
                     SetForegroundColor(UI_TEXT_MUTED),
-                    Print(format!("{}% ", percentage_str)),
+                    Print(format!("{} % ", percentage_str)),
                     Print(pane.workspace),
                     Print(expo)
                 )?;
@@ -332,7 +340,7 @@ impl<W: Write> QwxUi<W> for Qwx {
                 PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, (right_x - mid_x)),
             };
 
-            let prompt = format!(" /{} ", self.search_input); // Le fameux slash de recherche
+            let prompt = format!(" /{} ", self.search_input);
             let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
             queue!(
                 w,
@@ -695,6 +703,7 @@ pub struct Qwx {
     menu_input: String,
     editor: Ji,
     search_input: String,
+    pub last_search_query: Option<String>,
 }
 
 /// A `View` structure that represents the current state of a view in the application.
@@ -895,9 +904,9 @@ pub struct Node {
 /// - `cursor` (`u16`): Stores the position of the cursor in the pane.
 #[derive(Copy, Clone)]
 pub struct PaneState {
-    workspace: u8,
-    view: u8,
-    cursor: u16,
+    pub workspace: u8,
+    pub view: u8,
+    pub cursor: u16,
 }
 
 /// An enumeration representing the different operational modes of an application.
@@ -1209,7 +1218,6 @@ impl Qwx {
                         }
                     }
                 } else {
-                    // Secours en blanc au cas où l'arbre syntaxique saute pendant la frappe
                     for line in &node.content {
                         new_colored.push(vec![(line.clone(), Color::White)]);
                     }
@@ -1246,7 +1254,6 @@ impl Qwx {
         match read().expect("failed to get terminal input") {
             Event::Key(key) => match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, KeyCode::Char('j')) => {
-                    // On vérifie qu'on ne dépasse pas la fin du fichier avec le curseur logique
                     if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
                         self.editor.cursor_line += 1;
 
@@ -1335,7 +1342,6 @@ impl Qwx {
                     self.follow();
                 }
 
-                // --- ÉDITION RAPIDE & PRESSE-PAPIER ---
                 (KeyModifiers::NONE, KeyCode::Char('x')) => {
                     self.editor.select_line();
                     self.follow();
@@ -1347,13 +1353,43 @@ impl Qwx {
                         self.follow();
                     }
                 }
+                (KeyModifiers::NONE, KeyCode::Char('u')) => {
+                    self.editor.undo();
+                    self.sync_node_content();
+                    self.follow();
+                }
+                (KeyModifiers::NONE, KeyCode::Char('U'))
+                | (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
+                    self.editor.redo();
+                    self.sync_node_content();
+                    self.follow();
+                }
+                (KeyModifiers::NONE, KeyCode::Char('y')) => {
+                    self.editor.yank();
+                }
+                (KeyModifiers::NONE, KeyCode::Char('p')) => {
+                    self.editor.paste();
+                    self.sync_node_content();
+                    self.follow();
+                }
+                (KeyModifiers::NONE, KeyCode::Char('n')) => {
+                    self.search_next();
+                    self.sync_node_content();
+                    self.follow();
+                }
+                (KeyModifiers::NONE, KeyCode::Char('N')) => {
+                    self.search_prev();
+                    self.sync_node_content();
+                    self.follow();
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
+                    let _ = self.editor.save();
+                }
                 (KeyModifiers::NONE, KeyCode::Esc) => {
                     if self.editor.selection.is_some() {
                         self.editor.selection = None;
                     }
                 }
-
-                // --- PANNEAUX (Ctrl + hjkl) ---
                 (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
                     self.focus = match self.focus {
                         PaneFocus::TopLeft => PaneFocus::TopRight,
@@ -1470,6 +1506,7 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
+                let _ = execute!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1527,6 +1564,7 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
+                let _ = execute!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1555,6 +1593,21 @@ impl Qwx {
                     if self.editor.save().is_err() {
                         eprintln!("Erreur lors de la sauvegarde");
                     }
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('z')) => {
+                    self.editor.undo();
+                    self.sync_node_content();
+                    self.follow();
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
+                    self.editor.redo();
+                    self.sync_node_content();
+                    self.follow();
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('v')) => {
+                    self.editor.paste();
+                    self.sync_node_content();
+                    self.follow();
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
                     let current_line = self.editor.cursor_line;
@@ -1600,9 +1653,19 @@ impl Qwx {
                 }
                 _ => {}
             },
+            Event::Paste(x) => {
+                self.editor.record_undo();
+                for ch in x.chars() {
+                    self.editor.insert_char_raw(ch);
+                }
+                self.editor.update_syntax_tree();
+                self.sync_node_content();
+                self.follow();
+            }
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
+                let _ = execute!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1730,6 +1793,7 @@ impl Qwx {
                 self.width = cols;
                 self.height = rows;
                 self.finder.resize(cols, rows);
+                let _ = execute!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1743,21 +1807,11 @@ impl Qwx {
                     self.search_input.clear();
                 }
                 (KeyModifiers::NONE, KeyCode::Enter) => {
-                    if let Ok(re) = regex::Regex::new(&self.search_input) {
-                        let text = self.editor.rope.to_string();
-                        let cursor_char = self.editor.rope.line_to_char(self.editor.cursor_line)
-                            + self.editor.cursor_col;
-                        let cursor_byte = self.editor.rope.char_to_byte(cursor_char);
-
-                        let found = re.find_at(&text, cursor_byte).or_else(|| re.find(&text));
-
-                        if let Some(m) = found {
-                            let match_char = self.editor.rope.byte_to_char(m.start());
-                            self.editor.cursor_line = self.editor.rope.char_to_line(match_char);
-                            self.editor.cursor_col =
-                                match_char - self.editor.rope.line_to_char(self.editor.cursor_line);
-                            self.active_pane_mut().cursor = self.editor.cursor_line as u16;
-                        }
+                    if !self.search_input.is_empty() {
+                        self.last_search_query = Some(self.search_input.clone());
+                        self.search_next();
+                        self.sync_node_content();
+                        self.follow();
                     }
                     self.mode = Mode::Normal;
                     self.search_input.clear();
@@ -1773,11 +1827,12 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
+                let _ = execute!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
     }
-    fn handle_events(&mut self) {
+    pub fn handle_events<W: Write>(&mut self, w: &mut W) {
         match self.mode {
             Mode::Normal => self.handle_normal(),
             Mode::Finder => self.handle_finder(),
@@ -1797,7 +1852,7 @@ impl Qwx {
         self.clear_screen(&mut stdout)?;
         while self.running {
             self.draw(&mut stdout)?;
-            self.handle_events();
+            self.handle_events(&mut stdout);
         }
         execute!(stdout, LeaveAlternateScreen, Show)?;
         terminal::disable_raw_mode()?;
@@ -1900,36 +1955,124 @@ impl Qwx {
     /// Creates a new instance of the editor with the specified path and open mode.
     pub fn new(path: &Path, open_mode: Mode) -> Result<Self, Error> {
         let (width, height) = size()?;
+        let (dir_path, target_file) = if path.is_file() {
+            (path.parent().unwrap_or_else(|| Path::new(".")), Some(path))
+        } else {
+            (path, None)
+        };
+
         let mut nodes: Vec<Node> = Vec::new();
         let mut views: Vec<View> = Vec::new();
-        for (i, filename) in list_files(path).iter().enumerate() {
-            if let Ok(node) = qwx_load_node(i, PathBuf::from(filename).as_path()) {
+        let mut target_node_id = 0;
+
+        let file_list = list_files(dir_path);
+        for (i, filename) in file_list.iter().enumerate() {
+            let fpath = PathBuf::from(filename);
+            if let Ok(node) = qwx_load_node(i, fpath.as_path()) {
+                if let Some(target) = target_file {
+                    if let (Ok(p1), Ok(p2)) = (fpath.canonicalize(), target.canonicalize()) {
+                        if p1 == p2 {
+                            target_node_id = i;
+                        }
+                    } else if fpath == target {
+                        target_node_id = i;
+                    }
+                }
                 nodes.push(node);
                 views.push(View { active_node_id: i });
             }
         }
+
+        let mut editor = Ji::default();
+        if let Some(target) = target_file {
+            if let Ok(ed) = Ji::open(target) {
+                editor = ed;
+            }
+        } else if let Some(first_file) = file_list.first() {
+            if let Ok(ed) = Ji::open(Path::new(first_file)) {
+                editor = ed;
+            }
+        }
+
+        let mut panes = [
+            INIT_PANE_STATE,
+            INIT_PANE_STATE,
+            INIT_PANE_STATE,
+            INIT_PANE_STATE,
+        ];
+        if target_file.is_some() && target_node_id < views.len() {
+            panes[0].view = target_node_id as u8;
+        }
+
         Ok(Self {
             width,
             height,
             running: true,
             focus: PaneFocus::TopLeft,
-            panes: [
-                INIT_PANE_STATE,
-                INIT_PANE_STATE,
-                INIT_PANE_STATE,
-                INIT_PANE_STATE,
-            ],
+            panes,
             mode: open_mode,
             menu_input: String::new(),
             nodes: nodes.clone(),
             views,
             finder_layout: FinderLayout::Grid,
-            finder: Finder::new(path, FinderLayout::Grid),
+            finder: Finder::new(dir_path, FinderLayout::Grid),
             finder_research: String::new(),
-            current_dir: path.into(),
-            editor: Ji::default(),
+            current_dir: dir_path.into(),
+            editor,
             search_input: String::new(),
+            last_search_query: None,
         })
+    }
+
+    pub fn search_next(&mut self) {
+        if let Some(ref pattern) = self.last_search_query {
+            if let Ok(re) = regex::Regex::new(pattern) {
+                let text = self.editor.rope.to_string();
+                let cursor_char =
+                    self.editor.rope.line_to_char(self.editor.cursor_line) + self.editor.cursor_col;
+                let cursor_byte = self.editor.rope.char_to_byte(cursor_char);
+
+                let search_start = (cursor_byte + 1).min(text.len());
+                let found = re.find_at(&text, search_start).or_else(|| re.find(&text));
+
+                if let Some(m) = found {
+                    let match_char = self.editor.rope.byte_to_char(m.start());
+                    self.editor.cursor_line = self.editor.rope.char_to_line(match_char);
+                    self.editor.cursor_col =
+                        match_char - self.editor.rope.line_to_char(self.editor.cursor_line);
+                    self.active_pane_mut().cursor = self.editor.cursor_line as u16;
+                }
+            }
+        }
+    }
+
+    pub fn search_prev(&mut self) {
+        if let Some(ref pattern) = self.last_search_query {
+            if let Ok(re) = regex::Regex::new(pattern) {
+                let text = self.editor.rope.to_string();
+                let cursor_char =
+                    self.editor.rope.line_to_char(self.editor.cursor_line) + self.editor.cursor_col;
+                let cursor_byte = self.editor.rope.char_to_byte(cursor_char);
+
+                let mut prev_match = None;
+                let mut last_match = None;
+                for m in re.find_iter(&text) {
+                    if m.start() < cursor_byte {
+                        prev_match = Some(m);
+                    }
+                    last_match = Some(m);
+                }
+
+                let target = prev_match.or(last_match);
+                if let Some(m) = target {
+                    let match_char = self.editor.rope.byte_to_char(m.start());
+                    self.editor.cursor_line = self.editor.rope.char_to_line(match_char);
+                    self.editor.cursor_col =
+                        match_char - self.editor.rope.line_to_char(self.editor.cursor_line);
+                    self.active_pane_mut().cursor = self.editor.cursor_line as u16;
+                }
+            }
+        }
     }
     /// Creates a new instance of the editor with the specified path and open mode.
     pub fn draw_finder<W: Write>(&mut self, w: &mut W) -> io::Result<()> {
@@ -1974,9 +2117,42 @@ pub fn create_config(
         query_string: query,
     })
 }
-
-/// Associe une extension de fichier à sa configuration Tree-sitter correspondante.
-fn detect_langage(extension: &str, theme_keys: &[&'static str]) -> Option<LangConfig> {
+/// Detects the programming language based on the given file extension.
+///
+/// This function maps a file extension (e.g., "cpp", "html") to a specific language
+/// configuration using the appropriate tree-sitter language grammars and highlight queries.
+///
+/// # Arguments
+///
+/// * `extension` - A string slice representing the file extension (e.g., "cpp", "md", "html").
+/// * `theme_keys` - A reference to an array slice of theme-specific keys for syntax highlighting.
+///
+/// # Returns
+///
+/// Returns an `Option<LangConfig>`:
+/// - Some(`LangConfig`) if the file extension matches a known language.
+/// - `None` if the file extension is not mapped to a known language.
+///
+/// # Supported Extensions and Corresponding Languages
+///
+/// Below are some of the file extensions supported and their mapped languages:
+///
+/// | Extensions            | Language       | Tree-Sitter Grammar                       | Highlight Query              |
+/// |-----------------------|----------------|------------------------------------------|------------------------------|
+/// | `ada`, `adb`          | Ada            | `tree_sitter_ada::LANGUAGE`              | None                         |
+/// | `ps1`, `psm1`, `psd1` | PowerShell     | `tree_sitter_powershell::LANGUAGE`       | `tree_sitter_powershell::HIGHLIGHTS_QUERY` |
+/// | `c`, `h`              | C              | `tree_sitter_c::LANGUAGE`                | `tree_sitter_c::HIGHLIGHT_QUERY`          |
+/// | `cpp`, `cc`, `hpp`    | C++            | `tree_sitter_cpp::LANGUAGE`              | `tree_sitter_cpp::HIGHLIGHT_QUERY`        |
+/// | `html`, `htm`         | HTML           | `tree_sitter_html::LANGUAGE`             | `tree_sitter_html::HIGHLIGHTS_QUERY`      |
+///
+/// Check the function implementation for an exhaustive list of supported extensions and languages.
+///
+/// # Notes
+///
+/// - Some languages, such as `d`, `hcl`, and `glsl`, do not have associated highlight queries.
+/// - File extensions for the same language may vary (e.g., `cpp`, `cc`, `hpp` for C++).
+/// - This function relies on the `create_config` helper for building language configurations.
+fn detect_language(extension: &str, theme_keys: &[&'static str]) -> Option<LangConfig> {
     match extension {
         "ada" | "adb" => create_config(
             "ada",
@@ -1997,7 +2173,7 @@ fn detect_langage(extension: &str, theme_keys: &[&'static str]) -> Option<LangCo
             theme_keys,
         ),
         "Kconfig" => create_config(
-            "kconfig",
+            "Kconfig",
             Language::from(tree_sitter_kconfig::LANGUAGE),
             tree_sitter_kconfig::HIGHLIGHTS_QUERY,
             theme_keys,
@@ -2305,40 +2481,18 @@ pub struct LangConfig {
     pub ts_config: HighlightConfiguration,
     pub query_string: &'static str,
 }
+/// Snapshot representing an editor state for undo/redo.
+#[derive(Clone, Debug)]
+pub struct EditSnapshot {
+    pub rope: Rope,
+    pub cursor_line: usize,
+    pub cursor_col: usize,
+}
+
 /// Represents the core state and metadata for a text editing structure.
 ///
 /// The `Ji` struct holds various components necessary for managing text,
 /// syntax parsing, and other related features in a text editor.
-///
-/// # Fields
-///
-/// - `rope`: A `Rope` instance representing the text content of the editor.
-///           This efficient data structure handles large text content and edits efficiently.
-///
-/// - `file_path`: An optional `PathBuf` indicating the file path associated with
-///                the content. If `None`, the content is not currently tied to a file.
-///
-/// - `query`: An optional `Query` used for performing and managing search functionalities
-///            in the editor, such as text search or navigation commands.
-///
-/// - `cursor_line`: A `usize` representing the current line of the cursor, allowing
-///                  tracking and positioning within the text.
-///
-/// - `cursor_col`: A `usize` representing the current column position of the cursor
-///                 in the text editor.
-///
-/// - `parser`: A `Parser` instance responsible for analyzing and generating
-///             a syntax tree from the text content.
-///
-/// - `syntax_tree`: An optional `Tree` representing the parsed syntax tree of the text.
-///                  If `None`, no syntax tree has been generated or is available.
-///
-/// - `lang_config`: An optional `LangConfig` that provides language-specific settings
-///                  or metadata, such as syntax highlighting rules or parsing behaviors.
-///                  If `None`, there is no active language configuration.
-///
-/// - `selection`: An optional tuple `(usize, usize)` representing the start and end
-///                positions of text selection in the editor. If `None`, no selection is active.
 #[derive(Default)]
 pub struct Ji {
     pub rope: Rope,
@@ -2350,9 +2504,95 @@ pub struct Ji {
     pub syntax_tree: Option<Tree>,
     pub lang_config: Option<LangConfig>,
     pub selection: Option<(usize, usize)>,
+    pub undo_stack: Vec<EditSnapshot>,
+    pub redo_stack: Vec<EditSnapshot>,
+    pub clipboard: Option<String>,
+    pub is_dirty: bool,
 }
 
 impl Ji {
+    /// Records the current state onto the undo stack and clears the redo stack.
+    pub fn record_undo(&mut self) {
+        if self.undo_stack.len() >= 100 {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push(EditSnapshot {
+            rope: self.rope.clone(),
+            cursor_line: self.cursor_line,
+            cursor_col: self.cursor_col,
+        });
+        self.redo_stack.clear();
+        self.is_dirty = true;
+    }
+
+    /// Reverts the text editor to the previous state on the undo stack.
+    pub fn undo(&mut self) {
+        if let Some(snapshot) = self.undo_stack.pop() {
+            if self.redo_stack.len() >= 100 {
+                self.redo_stack.remove(0);
+            }
+            self.redo_stack.push(EditSnapshot {
+                rope: self.rope.clone(),
+                cursor_line: self.cursor_line,
+                cursor_col: self.cursor_col,
+            });
+            self.rope = snapshot.rope;
+            self.cursor_line = snapshot.cursor_line;
+            self.cursor_col = snapshot.cursor_col;
+            self.selection = None;
+            self.update_syntax_tree();
+        }
+    }
+
+    /// Restores the next state from the redo stack.
+    pub fn redo(&mut self) {
+        if let Some(snapshot) = self.redo_stack.pop() {
+            if self.undo_stack.len() >= 100 {
+                self.undo_stack.remove(0);
+            }
+            self.undo_stack.push(EditSnapshot {
+                rope: self.rope.clone(),
+                cursor_line: self.cursor_line,
+                cursor_col: self.cursor_col,
+            });
+            self.rope = snapshot.rope;
+            self.cursor_line = snapshot.cursor_line;
+            self.cursor_col = snapshot.cursor_col;
+            self.selection = None;
+            self.update_syntax_tree();
+        }
+    }
+
+    /// Copies selected lines or current line into the internal clipboard.
+    pub fn yank(&mut self) -> Option<String> {
+        let text = if let Some((start, end)) = self.selection {
+            let mut s = String::new();
+            for line_idx in start..=end.min(self.rope.len_lines().saturating_sub(1)) {
+                if line_idx < self.rope.len_lines() {
+                    s.push_str(&self.rope.line(line_idx).to_string());
+                }
+            }
+            s
+        } else if self.cursor_line < self.rope.len_lines() {
+            self.rope.line(self.cursor_line).to_string()
+        } else {
+            return None;
+        };
+        self.clipboard = Some(text.clone());
+        Some(text)
+    }
+
+    /// Pastes text from the internal clipboard at the current cursor position.
+    pub fn paste(&mut self) {
+        if let Some(text) = self.clipboard.clone() {
+            self.record_undo();
+            for ch in text.chars() {
+                self.insert_char_raw(ch);
+            }
+            self.update_syntax_tree();
+        }
+    }
+
     /// Selects the entire line where the cursor is currently positioned.
     pub fn select_line(&mut self) {
         if let Some((start, end)) = self.selection {
@@ -2368,6 +2608,7 @@ impl Ji {
     /// Deletes the currently selected text in the editor.
     pub fn delete_selection(&mut self) {
         if let Some((start, end)) = self.selection {
+            self.record_undo();
             let start_char = self.rope.line_to_char(start);
             let end_char = if end + 1 < self.rope.len_lines() {
                 self.rope.line_to_char(end + 1)
@@ -2398,6 +2639,7 @@ impl Ji {
             self.update_syntax_tree();
         }
     }
+
     /// Deletes the character immediately under the cursor (Delete key).
     pub fn delete(&mut self) {
         // 1. Calculate the absolute index of the cursor
@@ -2407,6 +2649,8 @@ impl Ji {
         if cursor_char_idx >= self.rope.len_chars() {
             return;
         }
+
+        self.record_undo();
 
         // 2. Identify the target character (exactly under the cursor)
         let target_char = self.rope.char(cursor_char_idx);
@@ -2442,90 +2686,19 @@ impl Ji {
 
         self.update_syntax_tree();
     }
+
     /// Saves the current state of the data to a file at the specified file path.
-    ///
-    /// This function attempts to write the contents of `self.rope` to the file
-    /// pointed to by `self.file_path`. If the file already exists, it will be
-    /// overwritten. The function uses a buffered writer (`BufWriter`) to optimize
-    /// disk writing performance.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `io::Result` error if:
-    /// - The file cannot be created or opened at the specified path.
-    /// - An I/O error occurs during the writing process.
-    ///
-    /// # Implementation Details
-    ///
-    /// - The `File::create` method is used to open or create the file.
-    /// - `BufWriter` is employed to minimize the number of system calls by buffering
-    ///   the write operations.
-    /// - The `rope.write_to` method ensures efficient writing of the in-memory
-    ///   text structure to the file.
-    ///
-    /// # Preconditions
-    ///
-    /// - The `self.file_path` field must be `Some` and contain
     pub fn save(&mut self) -> io::Result<()> {
         if let Some(ref path) = self.file_path {
             let file = File::create(path)?;
-
             let writer = std::io::BufWriter::new(file);
-
             self.rope.write_to(writer)?;
+            self.is_dirty = false;
         }
         Ok(())
     }
+
     /// Opens a file at the specified path and initializes a custom editor instance.
-    ///
-    /// This function attempts to read the file at the given path, process its contents into a `rope`
-    /// (a data structure suitable for efficient text editing), and conditionally applies syntax highlighting
-    /// and Tree-sitter parsing support if the file's language is recognized.
-    ///
-    /// # Type Parameters
-    /// - `P`: A type that can be referenced as a `Path`. Commonly `&str` or `PathBuf`.
-    ///
-    /// # Arguments
-    /// - `path`: The file path to be opened. It can be provided as any type that implements `AsRef<Path>`.
-    ///
-    /// # Returns
-    /// - `io::Result<Self>`: On success, returns an instance of the editor containing the loaded text,
-    ///   syntax tree (if applicable), and other configuration. Returns an `io::Error` if the operation
-    ///   fails.
-    ///
-    /// # Details
-    /// 1. **File Processing**:
-    ///    - The file at the specified path is opened.
-    ///    - The contents of the file are read into a `rope` using a buffered reader for efficient text handling.
-    ///
-    /// 2. **Editor Initialization**:
-    ///    - Creates and initializes the editor instance with the loaded `rope`, file path, and default settings.
-    ///    - Includes the cursor position, the syntax parser, and optional syntax tree and language configuration.
-    ///
-    /// 3. **Tree-sitter Syntax Highlighting** *(optional)*:
-    ///    - The function attempts to detect the file's language from its extension.
-    ///    - If successful, applies a language-specific query for highlighting using the Tree-sitter library.
-    ///    - Generates an initial syntax tree for the text.
-    ///
-    /// 4. **Output**:
-    ///    - Returns the fully initialized editor instance whether or not syntax highlighting is applied.
-    ///
-    /// # Panics
-    /// - Panics if the file name or extension cannot be extracted from the provided path. Ensure the provided file path is valid.
-    ///
-    /// # Errors
-    /// - Returns an error if:
-    ///   - The file at the specified path cannot be opened.
-    ///   - Reading the file fails or is interrupted.
-    ///   - The `rope` cannot be created due to an I/O issue.
-    ///
-    /// # See Also
-    /// - [`std::fs::File::open`] for file handling.
-    /// - [`Tree-sitter`](https://tree-sitter.github.io/) for syntax highlighting and parsing.
-    ///
-    /// # Notes
-    /// - Language detection is based on file extensions. If the language is unknown, syntax highlighting will be skipped.
-    /// - The `theme_keys` vector includes a predefined set of syntax elements applicable for highlighting.
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let path_ref = path.as_ref();
         let file = File::open(path_ref)?;
@@ -2583,9 +2756,13 @@ impl Ji {
             lang_config: None,
             query: None,
             selection: None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            clipboard: None,
+            is_dirty: false,
         };
 
-        if let Some(config) = detect_langage(ext.to_str().expect(""), &theme_keys) {
+        if let Some(config) = detect_language(ext.to_str().expect(""), &theme_keys) {
             ji.query = Query::new(&config.ts_config.language, config.query_string).ok();
             let _ = ji.parser.set_language(&config.ts_config.language);
             ji.lang_config = Some(config);
@@ -2594,16 +2771,14 @@ impl Ji {
         }
         Ok(ji)
     }
-    /// Insert a character at the current cursor position (line, col)
-    pub fn insert_char(&mut self, ch: char) {
-        // 1. Calculate the absolute index in characters and bytes
+
+    /// Raw insertion of a character without pushing to undo stack.
+    pub fn insert_char_raw(&mut self, ch: char) {
         let char_idx = self.rope.line_to_char(self.cursor_line) + self.cursor_col;
         let byte_idx = self.rope.char_to_byte(char_idx);
 
-        // 2. Define the starting graphical coordinates
         let start_point = Point::new(self.cursor_line, self.cursor_col);
 
-        // 3. Calculate the new graphical coordinates after insertion
         let mut new_end_point = start_point;
         if ch == '\n' {
             new_end_point.row += 1;
@@ -2612,7 +2787,6 @@ impl Ji {
             new_end_point.column += ch.len_utf8();
         }
 
-        // 4. Notify the syntax tree of the change (if a tree exists)
         if let Some(ref mut tree) = self.syntax_tree {
             let edit = InputEdit {
                 start_byte: byte_idx,
@@ -2632,55 +2806,22 @@ impl Ji {
         } else {
             self.cursor_col += 1;
         }
+    }
 
+    /// Insert a character at the current cursor position (line, col)
+    pub fn insert_char(&mut self, ch: char) {
+        self.record_undo();
+        self.insert_char_raw(ch);
         self.update_syntax_tree();
     }
 
     /// Deletes the character positioned just before the current cursor position in the text editor.
-    ///
-    /// This function handles various cases such as dealing with line breaks and single characters, as well
-    /// as updating both the internal text structure and the syntax tree. Once the deletion is performed,
-    /// the cursor is updated to reflect its new position.
-    ///
-    /// # Behavior
-    ///
-    /// - If the cursor is at the beginning of the document (line 0, column 0), the function returns without
-    ///   deleting anything.
-    /// - If a newline character (`\n`) is deleted, the cursor moves up to the end of the previous line
-    ///   (before the lines are merged).
-    /// - For other characters, the cursor simply moves one column to the left.
-    ///
-    /// # Steps
-    ///
-    /// 1. **Determine Position of Deletion**:
-    ///     - Compute the index of the character to be deleted, which is located just before the cursor.
-    ///     - Retrieve the character and its length in bytes.
-    ///
-    /// 2. **Calculate Cursor Update**:
-    ///     - If deleting a newline, adjust the cursor to move up to the previous line's end position.
-    ///     - For other cases, reduce the column position by one.
-    ///
-    /// 3. **Notify Syntax Tree**:
-    ///     - If the syntax tree exists, inform it of the deletion via an `InputEdit` object containing
-    ///       the updated byte range, cursor positions, and other details.
-    ///
-    /// 4. **Remove Character**:
-    ///     - Delete the specified character from the internal text representation (`self.rope`).
-    ///
-    /// 5. **Update Cursor**:
-    ///     - Reposition the cursor to its new logical position in the text editor.
-    ///
-    /// 6. **Refresh Syntax Tree**:
-    ///     - Update the syntax tree to reflect changes in the document.
-    ///
-    /// # Panics
-    ///
-    /// This function does not explicitly panic, but operations on the internal structures such as
-    /// `self.rope` or syntax tree manipulation assume valid internal state.
     pub fn backspace(&mut self) {
         if self.cursor_line == 0 && self.cursor_col == 0 {
             return;
         }
+
+        self.record_undo();
 
         let cursor_char_idx = self.rope.line_to_char(self.cursor_line) + self.cursor_col;
         let target_char_idx = cursor_char_idx - 1;
@@ -2874,5 +3015,122 @@ impl Ji {
             spans.push((text_slice.to_string(), theme::FG_DEFAULT));
         }
         spans
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ji_insert_and_undo_redo() {
+        let mut ji = Ji::default();
+        assert!(!ji.is_dirty);
+        assert_eq!(ji.rope.to_string(), "");
+
+        ji.insert_char('a');
+        ji.insert_char('b');
+        ji.insert_char('c');
+        assert_eq!(ji.rope.to_string(), "abc");
+        assert!(ji.is_dirty);
+
+        ji.undo();
+        assert_eq!(ji.rope.to_string(), "ab");
+
+        ji.undo();
+        assert_eq!(ji.rope.to_string(), "a");
+
+        ji.redo();
+        assert_eq!(ji.rope.to_string(), "ab");
+
+        ji.redo();
+        assert_eq!(ji.rope.to_string(), "abc");
+    }
+
+    #[test]
+    fn test_ji_backspace_and_delete() {
+        let mut ji = Ji::default();
+        ji.insert_char('h');
+        ji.insert_char('e');
+        ji.insert_char('l');
+        ji.insert_char('l');
+        ji.insert_char('o');
+
+        assert_eq!(ji.rope.to_string(), "hello");
+
+        ji.backspace();
+        assert_eq!(ji.rope.to_string(), "hell");
+
+        ji.undo();
+        assert_eq!(ji.rope.to_string(), "hello");
+
+        ji.cursor_col = 0;
+        ji.delete();
+        assert_eq!(ji.rope.to_string(), "ello");
+
+        ji.undo();
+        assert_eq!(ji.rope.to_string(), "hello");
+    }
+
+    #[test]
+    fn test_ji_yank_and_paste() {
+        let mut ji = Ji::default();
+        ji.insert_char('l');
+        ji.insert_char('i');
+        ji.insert_char('n');
+        ji.insert_char('e');
+        ji.insert_char('1');
+        ji.insert_char('\n');
+        ji.insert_char('l');
+        ji.insert_char('i');
+        ji.insert_char('n');
+        ji.insert_char('e');
+        ji.insert_char('2');
+
+        ji.cursor_line = 0;
+        ji.cursor_col = 0;
+
+        let yanked = ji.yank();
+        assert_eq!(yanked, Some("line1\n".to_string()));
+
+        ji.cursor_line = 1;
+        ji.cursor_col = 5;
+        ji.insert_char('\n');
+        ji.paste();
+
+        assert!(ji.rope.to_string().contains("line1\nline2\nline1\n"));
+
+        ji.undo();
+        assert_eq!(ji.rope.to_string(), "line1\nline2\n");
+    }
+
+    #[test]
+    fn test_ji_selection_and_delete() {
+        let mut ji = Ji::default();
+        ji.insert_char('f');
+        ji.insert_char('i');
+        ji.insert_char('r');
+        ji.insert_char('s');
+        ji.insert_char('t');
+        ji.insert_char('\n');
+        ji.insert_char('s');
+        ji.insert_char('e');
+        ji.insert_char('c');
+        ji.insert_char('o');
+        ji.insert_char('n');
+        ji.insert_char('d');
+
+        ji.cursor_line = 0;
+        ji.select_line();
+        assert_eq!(ji.selection, Some((0, 0)));
+
+        let yanked = ji.yank();
+        assert_eq!(yanked, Some("first\n".to_string()));
+
+        ji.delete_selection();
+        assert_eq!(ji.rope.to_string(), "second");
+
+        ji.undo();
+        assert_eq!(ji.rope.to_string(), "first\nsecond");
     }
 }
