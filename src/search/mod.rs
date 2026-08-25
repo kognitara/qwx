@@ -588,7 +588,7 @@ impl SearchHub {
                 queue!(
                     w,
                     MoveTo(tab_x, tab_y),
-                    SetBackgroundColor(Color::Rgb { r: 50, g: 60, b: 80 }),
+                    SetBackgroundColor(tab_active_bg),
                     SetForegroundColor(Color::White),
                     Print(&tab_text)
                 )?;
@@ -596,7 +596,7 @@ impl SearchHub {
                 queue!(
                     w,
                     MoveTo(tab_x, tab_y),
-                    SetBackgroundColor(bg_color),
+                    SetBackgroundColor(tab_inactive_bg),
                     SetForegroundColor(text_dim),
                     Print(&tab_text)
                 )?;

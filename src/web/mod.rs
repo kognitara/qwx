@@ -18,7 +18,7 @@ use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegrou
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 use std::time::Instant;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Style applied to a span of text in the rendered web page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,7 +56,13 @@ impl WebLineSpan {
     }
 
     pub fn link(text: impl Into<String>, id: usize, url: impl Into<String>) -> Self {
-        Self::new(text, SpanStyle::Link { id, url: url.into() })
+        Self::new(
+            text,
+            SpanStyle::Link {
+                id,
+                url: url.into(),
+            },
+        )
     }
 
     pub fn code(text: impl Into<String>) -> Self {
@@ -268,10 +274,7 @@ impl WebPage {
                         if !trimmed.is_empty() {
                             lines.push(WebLine::new(
                                 LineType::Paragraph,
-                                vec![
-                                    WebLineSpan::normal("    "),
-                                    WebLineSpan::muted(trimmed),
-                                ],
+                                vec![WebLineSpan::normal("    "), WebLineSpan::muted(trimmed)],
                             ));
                         }
                     }
@@ -441,7 +444,10 @@ impl UrlHelper {
             return "https://html.duckduckgo.com/html/".to_string();
         }
 
-        if let Some(query) = trimmed.strip_prefix("ddg:").or_else(|| trimmed.strip_prefix("web:")) {
+        if let Some(query) = trimmed
+            .strip_prefix("ddg:")
+            .or_else(|| trimmed.strip_prefix("web:"))
+        {
             return format!(
                 "https://html.duckduckgo.com/html/?q={}",
                 urlencoding::encode(query.trim())
@@ -707,8 +713,8 @@ impl HtmlReaderEngine {
         while i < len {
             if bytes[i] == b'<' {
                 // Check comment <!-- ... -->
-                if i + 4 <= len && &html[i..i + 4] == "<!--" {
-                    if let Some(end) = html[i + 4..].find("-->") {
+                if i + 4 <= len && &bytes[i..i + 4] == b"<!--" {
+                    if let Some(end) = bytes[i + 4..].windows(3).position(|w| w == b"-->") {
                         i += 4 + end + 3;
                         continue;
                     } else {
@@ -721,17 +727,17 @@ impl HtmlReaderEngine {
                 let mut dropped = false;
                 for tag in drop_tags {
                     let start_tag = format!("<{}", tag);
-                    if i + start_tag.len() <= len
-                        && html[i..i + start_tag.len()].eq_ignore_ascii_case(&start_tag)
+                    let start_tag_bytes = start_tag.as_bytes();
+                    if i + start_tag_bytes.len() <= len
+                        && bytes[i..i + start_tag_bytes.len()].eq_ignore_ascii_case(start_tag_bytes)
                     {
                         let close_tag = format!("</{}>", tag);
-                        let close_tag_upper = format!("</{}>", tag.to_uppercase());
-                        if let Some(end) = html[i..].find(&close_tag) {
-                            i += end + close_tag.len();
-                            dropped = true;
-                            break;
-                        } else if let Some(end) = html[i..].find(&close_tag_upper) {
-                            i += end + close_tag_upper.len();
+                        let close_tag_bytes = close_tag.as_bytes();
+                        if let Some(end) = bytes[i..]
+                            .windows(close_tag_bytes.len())
+                            .position(|w| w.eq_ignore_ascii_case(close_tag_bytes))
+                        {
+                            i += end + close_tag_bytes.len();
                             dropped = true;
                             break;
                         }
@@ -743,8 +749,12 @@ impl HtmlReaderEngine {
                 }
             }
 
-            result.push(html[i..].chars().next().unwrap());
-            i += html[i..].chars().next().unwrap().len_utf8();
+            if let Some(c) = html[i..].chars().next() {
+                result.push(c);
+                i += c.len_utf8();
+            } else {
+                break;
+            }
         }
 
         result
@@ -752,19 +762,27 @@ impl HtmlReaderEngine {
 
     /// Extracts `<title>` from HTML document.
     pub fn extract_title(html: &str) -> Option<String> {
-        let lower = html.to_lowercase();
-        if let Some(start) = lower.find("<title>") {
-            let after = &html[start + 7..];
-            if let Some(end) = after.to_lowercase().find("</title>") {
-                let raw_title = &after[..end];
-                let unescaped = Self::unescape_entities(raw_title);
-                let cleaned = unescaped.split_whitespace().collect::<Vec<_>>().join(" ");
-                if !cleaned.is_empty() {
-                    return Some(cleaned);
-                }
-            }
+        let bytes = html.as_bytes();
+        let target_open = b"<title>";
+        let target_close = b"</title>";
+
+        let start_pos = bytes
+            .windows(target_open.len())
+            .position(|w| w.eq_ignore_ascii_case(target_open))?;
+
+        let content_start = start_pos + target_open.len();
+        let close_pos = bytes[content_start..]
+            .windows(target_close.len())
+            .position(|w| w.eq_ignore_ascii_case(target_close))?;
+
+        let raw_title = &html[content_start..content_start + close_pos];
+        let unescaped = Self::unescape_entities(raw_title);
+        let cleaned = unescaped.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !cleaned.is_empty() {
+            Some(cleaned)
+        } else {
+            None
         }
-        None
     }
 
     /// Converts raw HTML string into a structured `WebPage`.
@@ -832,7 +850,9 @@ impl HtmlReaderEngine {
                     .iter()
                     .any(|t| t == "b" || t == "strong" || t == "th");
                 let is_italic = tag_stack.iter().any(|t| t == "i" || t == "em");
-                let is_code = tag_stack.iter().any(|t| t == "code" || t == "pre" || t == "kbd");
+                let is_code = tag_stack
+                    .iter()
+                    .any(|t| t == "code" || t == "pre" || t == "kbd");
                 let header_level = tag_stack.iter().find_map(|t| {
                     if t.starts_with('h') && t.len() == 2 {
                         t[1..2].parse::<u8>().ok()
@@ -1035,10 +1055,14 @@ impl HtmlReaderEngine {
 
     /// Extracts attribute value (e.g. href="..." or href='...') from HTML tag string.
     pub fn extract_attribute_value(tag: &str, attr: &str) -> Option<String> {
-        let lower = tag.to_lowercase();
+        let bytes = tag.as_bytes();
         let target = format!("{}=", attr);
-        if let Some(idx) = lower.find(&target) {
-            let rest = tag[idx + target.len()..].trim_start();
+        let target_bytes = target.as_bytes();
+        if let Some(idx) = bytes
+            .windows(target_bytes.len())
+            .position(|w| w.eq_ignore_ascii_case(target_bytes))
+        {
+            let rest = tag[idx + target_bytes.len()..].trim_start();
             if rest.starts_with('"') {
                 if let Some(end) = rest[1..].find('"') {
                     return Some(rest[1..1 + end].to_string());
@@ -1105,10 +1129,8 @@ impl HtmlReaderEngine {
                 }
 
                 if !current_span_word_buf.is_empty() {
-                    current_wrapped_spans.push(WebLineSpan::new(
-                        current_span_word_buf,
-                        span.style.clone(),
-                    ));
+                    current_wrapped_spans
+                        .push(WebLineSpan::new(current_span_word_buf, span.style.clone()));
                 }
             }
 
@@ -1153,7 +1175,10 @@ impl WebFetcher {
         let response = self
             .client
             .get(&target_url)
-            .header("Accept", "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8")
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+            )
             .header("Accept-Language", "fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3")
             .send()
             .map_err(|e| format!("HTTP request failed: {}", e))?;
@@ -1243,7 +1268,9 @@ impl WebBrowser {
             selected_link_idx: None,
             view_mode: WebReaderViewMode::Reader,
             is_loading: false,
-            status_message: Some("Ready. Press 'o' to open URL, 'b' back, 'f' forward, 'l' links.".to_string()),
+            status_message: Some(
+                "Ready. Press 'o' to open URL, 'b' back, 'f' forward, 'l' links.".to_string(),
+            ),
             url_input: String::new(),
             url_prompt_active: false,
             link_input: String::new(),
@@ -1354,7 +1381,8 @@ impl WebBrowser {
                 } else if link.line_idx > self.scroll_offset + 20 {
                     self.scroll_offset = link.line_idx.saturating_sub(5);
                 }
-                self.status_message = Some(format!("Link [{}]: {} -> {}", link.id, link.text, link.url));
+                self.status_message =
+                    Some(format!("Link [{}]: {} -> {}", link.id, link.text, link.url));
             }
         }
     }
@@ -1377,7 +1405,8 @@ impl WebBrowser {
                 } else if link.line_idx > self.scroll_offset + 20 {
                     self.scroll_offset = link.line_idx.saturating_sub(5);
                 }
-                self.status_message = Some(format!("Link [{}]: {} -> {}", link.id, link.text, link.url));
+                self.status_message =
+                    Some(format!("Link [{}]: {} -> {}", link.id, link.text, link.url));
             }
         }
     }
@@ -1407,7 +1436,11 @@ impl WebBrowser {
     }
 
     /// Opens a `SearchResultItem` from the `search` module in the web reader.
-    pub fn open_search_result(&mut self, item: &crate::search::SearchResultItem, terminal_width: u16) {
+    pub fn open_search_result(
+        &mut self,
+        item: &crate::search::SearchResultItem,
+        terminal_width: u16,
+    ) {
         if !item.url.is_empty() {
             self.open_url(&item.url, terminal_width);
         } else if let Some(ref content) = item.raw_content {
@@ -1568,50 +1601,115 @@ impl WebBrowser {
         }
 
         let bg_main = Color::Black;
-        let fg_normal = Color::Rgb { r: 210, g: 220, b: 235 };
-        let fg_muted = Color::Rgb { r: 110, g: 120, b: 145 };
-        let bg_header = Color::Rgb { r: 28, g: 32, b: 45 };
-        let fg_accent = Color::Rgb { r: 130, g: 180, b: 250 };
-        let fg_link = Color::Rgb { r: 100, g: 210, b: 240 };
-        let bg_link_sel = Color::Rgb { r: 70, g: 60, b: 120 };
-        let fg_code = Color::Rgb { r: 140, g: 220, b: 180 };
-        let bg_code = Color::Rgb { r: 25, g: 30, b: 40 };
+        let fg_normal = Color::Rgb {
+            r: 210,
+            g: 220,
+            b: 235,
+        };
+        let fg_muted = Color::Rgb {
+            r: 110,
+            g: 120,
+            b: 145,
+        };
+        let bg_header = Color::Rgb {
+            r: 28,
+            g: 32,
+            b: 45,
+        };
+        let fg_accent = Color::Rgb {
+            r: 130,
+            g: 180,
+            b: 250,
+        };
+        let fg_link = Color::Rgb {
+            r: 100,
+            g: 210,
+            b: 240,
+        };
+        let bg_link_sel = Color::Rgb {
+            r: 70,
+            g: 60,
+            b: 120,
+        };
+        let fg_code = Color::Rgb {
+            r: 140,
+            g: 220,
+            b: 180,
+        };
+        let bg_code = Color::Rgb {
+            r: 25,
+            g: 30,
+            b: 40,
+        };
 
         // 1. Draw Header / URL Bar
-        queue!(writer, MoveTo(0, 0), SetBackgroundColor(bg_header), SetForegroundColor(fg_accent))?;
+        queue!(
+            writer,
+            MoveTo(0, 0),
+            SetBackgroundColor(bg_header),
+            SetForegroundColor(fg_accent)
+        )?;
         let title_str = self
             .current_page
             .as_ref()
             .map(|p| p.title.as_str())
             .unwrap_or("QWX Web Reader");
         let truncated_title = if title_str.width() > w.saturating_sub(30) {
-            format!("{}…", &title_str[..w.saturating_sub(32)])
+            let max_width = w.saturating_sub(32);
+            let mut truncated = String::new();
+            let mut current_width = 0;
+            for ch in title_str.chars() {
+                let ch_width = ch.width().unwrap_or(0);
+                if current_width + ch_width > max_width {
+                    break;
+                }
+                truncated.push(ch);
+                current_width += ch_width;
+            }
+            format!("{}…", truncated)
         } else {
             title_str.to_string()
         };
 
         let mode_badge = format!(" [{}] ", self.view_mode.name());
-        let header_left = format!(" 🌐 QWX Web | {} ", truncated_title);
+        let header_left = format!(" QWX Web | {} ", truncated_title);
         let header_space = w.saturating_sub(header_left.width() + mode_badge.width());
         queue!(
             writer,
             Print(header_left),
             SetForegroundColor(fg_muted),
             Print(" ".repeat(header_space)),
-            SetForegroundColor(Color::Rgb { r: 240, g: 190, b: 110 }),
+            SetForegroundColor(Color::Rgb {
+                r: 240,
+                g: 190,
+                b: 110
+            }),
             Print(mode_badge),
             ResetColor
         )?;
 
         // 2. Draw URL bar / Navigation info
-        queue!(writer, MoveTo(0, 1), SetBackgroundColor(bg_header), SetForegroundColor(fg_normal))?;
+        queue!(
+            writer,
+            MoveTo(0, 1),
+            SetBackgroundColor(bg_header),
+            SetForegroundColor(fg_normal)
+        )?;
         let current_url = self
             .current_page
             .as_ref()
             .map(|p| p.url.as_str())
             .unwrap_or("about:blank");
-        let back_ind = if self.history.can_go_back() { "◄" } else { "◁" };
-        let fwd_ind = if self.history.can_go_forward() { "►" } else { "▷" };
+        let back_ind = if self.history.can_go_back() {
+            "◄"
+        } else {
+            "◁"
+        };
+        let fwd_ind = if self.history.can_go_forward() {
+            "►"
+        } else {
+            "▷"
+        };
 
         let url_bar = format!(" {} {} URL: {} ", back_ind, fwd_ind, current_url);
         let url_bar_padded = if url_bar.width() < w {
@@ -1622,7 +1720,15 @@ impl WebBrowser {
         queue!(writer, Print(url_bar_padded), ResetColor)?;
 
         // 3. Separator
-        queue!(writer, MoveTo(0, 2), SetForegroundColor(Color::Rgb { r: 45, g: 52, b: 72 }))?;
+        queue!(
+            writer,
+            MoveTo(0, 2),
+            SetForegroundColor(Color::Rgb {
+                r: 45,
+                g: 52,
+                b: 72
+            })
+        )?;
         queue!(writer, Print("─".repeat(w)), ResetColor)?;
 
         // 4. Main Body Content Rendering
@@ -1635,7 +1741,11 @@ impl WebBrowser {
                     let total_lines = page.lines.len();
                     for y in 0..content_height {
                         let line_idx = self.scroll_offset + y;
-                        queue!(writer, MoveTo(0, (content_start_y + y) as u16), SetBackgroundColor(bg_main))?;
+                        queue!(
+                            writer,
+                            MoveTo(0, (content_start_y + y) as u16),
+                            SetBackgroundColor(bg_main)
+                        )?;
 
                         if line_idx < total_lines {
                             let line = &page.lines[line_idx];
@@ -1653,12 +1763,32 @@ impl WebBrowser {
                                 match &span.style {
                                     SpanStyle::Header(level) => {
                                         let h_color = match level {
-                                            1 => Color::Rgb { r: 255, g: 215, b: 120 },
-                                            2 => Color::Rgb { r: 160, g: 200, b: 255 },
-                                            3 => Color::Rgb { r: 180, g: 160, b: 240 },
-                                            _ => Color::Rgb { r: 200, g: 200, b: 200 },
+                                            1 => Color::Rgb {
+                                                r: 255,
+                                                g: 215,
+                                                b: 120,
+                                            },
+                                            2 => Color::Rgb {
+                                                r: 160,
+                                                g: 200,
+                                                b: 255,
+                                            },
+                                            3 => Color::Rgb {
+                                                r: 180,
+                                                g: 160,
+                                                b: 240,
+                                            },
+                                            _ => Color::Rgb {
+                                                r: 200,
+                                                g: 200,
+                                                b: 200,
+                                            },
                                         };
-                                        queue!(writer, SetForegroundColor(h_color), Print(&span.text))?;
+                                        queue!(
+                                            writer,
+                                            SetForegroundColor(h_color),
+                                            Print(&span.text)
+                                        )?;
                                     }
                                     SpanStyle::Code => {
                                         queue!(
@@ -1672,39 +1802,71 @@ impl WebBrowser {
                                     SpanStyle::Bold => {
                                         queue!(
                                             writer,
-                                            SetForegroundColor(Color::Rgb { r: 250, g: 250, b: 255 }),
+                                            SetForegroundColor(Color::Rgb {
+                                                r: 250,
+                                                g: 250,
+                                                b: 255
+                                            }),
                                             Print(&span.text)
                                         )?;
                                     }
                                     SpanStyle::Italic => {
                                         queue!(
                                             writer,
-                                            SetForegroundColor(Color::Rgb { r: 190, g: 205, b: 220 }),
+                                            SetForegroundColor(Color::Rgb {
+                                                r: 190,
+                                                g: 205,
+                                                b: 220
+                                            }),
                                             Print(&span.text)
                                         )?;
                                     }
                                     SpanStyle::Link { id, .. } => {
-                                        let is_sel = self.selected_link_idx.and_then(|idx| page.links.get(idx)).map(|l| l.id) == Some(*id);
+                                        let is_sel = self
+                                            .selected_link_idx
+                                            .and_then(|idx| page.links.get(idx))
+                                            .map(|l| l.id)
+                                            == Some(*id);
                                         if is_sel {
                                             queue!(
                                                 writer,
                                                 SetBackgroundColor(bg_link_sel),
-                                                SetForegroundColor(Color::Rgb { r: 255, g: 255, b: 255 }),
+                                                SetForegroundColor(Color::Rgb {
+                                                    r: 255,
+                                                    g: 255,
+                                                    b: 255
+                                                }),
                                                 Print(&span.text),
                                                 SetBackgroundColor(bg_main)
                                             )?;
                                         } else {
-                                            queue!(writer, SetForegroundColor(fg_link), Print(&span.text))?;
+                                            queue!(
+                                                writer,
+                                                SetForegroundColor(fg_link),
+                                                Print(&span.text)
+                                            )?;
                                         }
                                     }
                                     SpanStyle::Accent => {
-                                        queue!(writer, SetForegroundColor(fg_accent), Print(&span.text))?;
+                                        queue!(
+                                            writer,
+                                            SetForegroundColor(fg_accent),
+                                            Print(&span.text)
+                                        )?;
                                     }
                                     SpanStyle::Muted => {
-                                        queue!(writer, SetForegroundColor(fg_muted), Print(&span.text))?;
+                                        queue!(
+                                            writer,
+                                            SetForegroundColor(fg_muted),
+                                            Print(&span.text)
+                                        )?;
                                     }
                                     _ => {
-                                        queue!(writer, SetForegroundColor(fg_normal), Print(&span.text))?;
+                                        queue!(
+                                            writer,
+                                            SetForegroundColor(fg_normal),
+                                            Print(&span.text)
+                                        )?;
                                     }
                                 }
                                 current_col += span.text.width();
@@ -1722,42 +1884,109 @@ impl WebBrowser {
                 } else {
                     // Empty / Welcome state
                     for y in 0..content_height {
-                        queue!(writer, MoveTo(0, (content_start_y + y) as u16), SetBackgroundColor(bg_main))?;
+                        queue!(
+                            writer,
+                            MoveTo(0, (content_start_y + y) as u16),
+                            SetBackgroundColor(bg_main)
+                        )?;
                         if y == 2 {
                             let msg = "  🌐 Bienvenue dans le mode Web Reader de QWX";
-                            queue!(writer, SetForegroundColor(fg_accent), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(fg_accent),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y == 4 {
                             let msg = "  Raccourcis clavier :";
-                            queue!(writer, SetForegroundColor(Color::Rgb { r: 240, g: 200, b: 120 }), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(Color::Rgb {
+                                    r: 240,
+                                    g: 200,
+                                    b: 120
+                                }),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y == 5 {
                             let msg = "    • 'o' ou 'g' : Ouvrir une URL ou chercher (ex: ddg:rust, crates:tokio, https://...)";
-                            queue!(writer, SetForegroundColor(fg_normal), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(fg_normal),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y == 6 {
                             let msg = "    • 'Tab' / 'Shift-Tab' : Naviguer de lien en lien";
-                            queue!(writer, SetForegroundColor(fg_normal), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(fg_normal),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y == 7 {
                             let msg = "    • 'Enter' : Suivre le lien sélectionné | 'f' : Taper le numéro du lien [N]";
-                            queue!(writer, SetForegroundColor(fg_normal), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(fg_normal),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y == 8 {
                             let msg = "    • 'b' : Page précédente (Back) | 'Shift-f' : Page suivante (Forward) | 'r' : Recharger";
-                            queue!(writer, SetForegroundColor(fg_normal), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(fg_normal),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y == 9 {
                             let msg = "    • '/' : Rechercher dans la page | 'n' / 'N' : Occurrence suivante/précédente";
-                            queue!(writer, SetForegroundColor(fg_normal), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(fg_normal),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y == 10 {
                             let msg = "    • 'm' : Basculer le mode d'affichage (Reader / Index des Liens / Code Source)";
-                            queue!(writer, SetForegroundColor(fg_normal), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(fg_normal),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y == 11 {
                             let msg = "    • 'B' : Ajouter la page aux favoris (Bookmarks)";
-                            queue!(writer, SetForegroundColor(fg_normal), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(fg_normal),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y == 13 {
                             let msg = "  Signets prédéfinis :";
-                            queue!(writer, SetForegroundColor(Color::Rgb { r: 240, g: 200, b: 120 }), Print(msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(Color::Rgb {
+                                    r: 240,
+                                    g: 200,
+                                    b: 120
+                                }),
+                                Print(msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else if y >= 14 && y < 14 + self.bookmarks.len() {
                             let b_idx = y - 14;
                             let bm = &self.bookmarks[b_idx];
                             let msg = format!("    [{}] {} ({})", b_idx + 1, bm.title, bm.url);
-                            queue!(writer, SetForegroundColor(fg_link), Print(&msg), Print(" ".repeat(w.saturating_sub(msg.width()))))?;
+                            queue!(
+                                writer,
+                                SetForegroundColor(fg_link),
+                                Print(&msg),
+                                Print(" ".repeat(w.saturating_sub(msg.width())))
+                            )?;
                         } else {
                             queue!(writer, Print(" ".repeat(w)))?;
                         }
@@ -1766,16 +1995,35 @@ impl WebBrowser {
             }
             WebReaderViewMode::LinksList => {
                 let empty_vec = Vec::new();
-                let links = self.current_page.as_ref().map(|p| &p.links).unwrap_or(&empty_vec);
+                let links = self
+                    .current_page
+                    .as_ref()
+                    .map(|p| &p.links)
+                    .unwrap_or(&empty_vec);
                 for y in 0..content_height {
                     let idx = self.scroll_offset + y;
-                    queue!(writer, MoveTo(0, (content_start_y + y) as u16), SetBackgroundColor(bg_main))?;
+                    queue!(
+                        writer,
+                        MoveTo(0, (content_start_y + y) as u16),
+                        SetBackgroundColor(bg_main)
+                    )?;
                     if idx < links.len() {
                         let link = &links[idx];
                         let is_sel = self.selected_link_idx == Some(idx);
                         let prefix = if is_sel { " ▶ " } else { "   " };
-                        let line_str = format!("{}[{:>3}] {:<40} -> {}", prefix, link.id, link.text, link.url);
-                        let color = if is_sel { Color::Rgb { r: 255, g: 255, b: 255 } } else { fg_link };
+                        let line_str = format!(
+                            "{}[{:>3}] {:<40} -> {}",
+                            prefix, link.id, link.text, link.url
+                        );
+                        let color = if is_sel {
+                            Color::Rgb {
+                                r: 255,
+                                g: 255,
+                                b: 255,
+                            }
+                        } else {
+                            fg_link
+                        };
                         let bg = if is_sel { bg_link_sel } else { bg_main };
                         queue!(
                             writer,
@@ -1800,10 +2048,18 @@ impl WebBrowser {
 
                 for y in 0..content_height {
                     let idx = self.scroll_offset + y;
-                    queue!(writer, MoveTo(0, (content_start_y + y) as u16), SetBackgroundColor(bg_main))?;
+                    queue!(
+                        writer,
+                        MoveTo(0, (content_start_y + y) as u16),
+                        SetBackgroundColor(bg_main)
+                    )?;
                     if idx < raw_lines.len() {
                         let line_str = format!(" {:>5} │ {}", idx + 1, raw_lines[idx]);
-                        let trun = if line_str.width() > w { &line_str[..w] } else { &line_str };
+                        let trun = if line_str.width() > w {
+                            &line_str[..w]
+                        } else {
+                            &line_str
+                        };
                         queue!(
                             writer,
                             SetForegroundColor(fg_muted),
@@ -1822,7 +2078,11 @@ impl WebBrowser {
             let total = match self.view_mode {
                 WebReaderViewMode::Reader => page.total_lines(),
                 WebReaderViewMode::LinksList => page.links.len(),
-                WebReaderViewMode::RawSource => page.raw_html.as_ref().map(|h| h.lines().count()).unwrap_or(0),
+                WebReaderViewMode::RawSource => page
+                    .raw_html
+                    .as_ref()
+                    .map(|h| h.lines().count())
+                    .unwrap_or(0),
             };
             if total > content_height {
                 let pct = ((self.scroll_offset + content_height).min(total) * 100) / total;
@@ -1830,7 +2090,10 @@ impl WebBrowser {
                 let badge_x = w.saturating_sub(pct_badge.width() + 2);
                 queue!(
                     writer,
-                    MoveTo(badge_x as u16, (content_start_y + content_height - 1) as u16),
+                    MoveTo(
+                        badge_x as u16,
+                        (content_start_y + content_height - 1) as u16
+                    ),
                     SetBackgroundColor(bg_header),
                     SetForegroundColor(fg_muted),
                     Print(pct_badge),
@@ -1845,10 +2108,22 @@ impl WebBrowser {
             queue!(
                 writer,
                 MoveTo(0, prompt_y),
-                SetBackgroundColor(Color::Rgb { r: 35, g: 45, b: 65 }),
-                SetForegroundColor(Color::Rgb { r: 255, g: 215, b: 120 }),
+                SetBackgroundColor(Color::Rgb {
+                    r: 35,
+                    g: 45,
+                    b: 65
+                }),
+                SetForegroundColor(Color::Rgb {
+                    r: 255,
+                    g: 215,
+                    b: 120
+                }),
                 Print(" 🌐 Enter URL / Search: "),
-                SetForegroundColor(Color::Rgb { r: 255, g: 255, b: 255 }),
+                SetForegroundColor(Color::Rgb {
+                    r: 255,
+                    g: 255,
+                    b: 255
+                }),
                 Print(&self.url_input),
                 Print("█"),
                 Print(" ".repeat(w.saturating_sub(25 + self.url_input.width()))),
@@ -1858,10 +2133,18 @@ impl WebBrowser {
             queue!(
                 writer,
                 MoveTo(0, prompt_y),
-                SetBackgroundColor(Color::Rgb { r: 35, g: 45, b: 65 }),
+                SetBackgroundColor(Color::Rgb {
+                    r: 35,
+                    g: 45,
+                    b: 65
+                }),
                 SetForegroundColor(fg_link),
                 Print(" 🔗 Jump to Link ID [#]: "),
-                SetForegroundColor(Color::Rgb { r: 255, g: 255, b: 255 }),
+                SetForegroundColor(Color::Rgb {
+                    r: 255,
+                    g: 255,
+                    b: 255
+                }),
                 Print(&self.link_input),
                 Print("█"),
                 Print(" ".repeat(w.saturating_sub(27 + self.link_input.width()))),
@@ -1871,10 +2154,22 @@ impl WebBrowser {
             queue!(
                 writer,
                 MoveTo(0, prompt_y),
-                SetBackgroundColor(Color::Rgb { r: 35, g: 45, b: 65 }),
-                SetForegroundColor(Color::Rgb { r: 160, g: 240, b: 180 }),
+                SetBackgroundColor(Color::Rgb {
+                    r: 35,
+                    g: 45,
+                    b: 65
+                }),
+                SetForegroundColor(Color::Rgb {
+                    r: 160,
+                    g: 240,
+                    b: 180
+                }),
                 Print(" 🔍 Search: "),
-                SetForegroundColor(Color::Rgb { r: 255, g: 255, b: 255 }),
+                SetForegroundColor(Color::Rgb {
+                    r: 255,
+                    g: 255,
+                    b: 255
+                }),
                 Print(&self.search_query),
                 Print("█"),
                 Print(" ".repeat(w.saturating_sub(14 + self.search_query.width()))),
@@ -1903,7 +2198,11 @@ impl WebBrowser {
         queue!(
             writer,
             MoveTo(0, footer_y),
-            SetBackgroundColor(Color::Rgb { r: 15, g: 18, b: 25 }),
+            SetBackgroundColor(Color::Rgb {
+                r: 15,
+                g: 18,
+                b: 25
+            }),
             SetForegroundColor(fg_muted)
         )?;
         let keybinds_text = " [o] Open | [b] Back | [f] Jump Link | [Tab] Next Link | [/] Search | [m] View Mode | [r] Reload | [q] Quit";
@@ -1970,10 +2269,7 @@ mod tests {
             UrlHelper::resolve("gh:qwx"),
             "https://github.com/search?q=qwx"
         );
-        assert_eq!(
-            UrlHelper::resolve("example.com"),
-            "https://example.com"
-        );
+        assert_eq!(UrlHelper::resolve("example.com"), "https://example.com");
     }
 
     #[test]
@@ -2043,7 +2339,10 @@ mod tests {
     fn test_browser_bookmarks() {
         let mut browser = WebBrowser::new();
         let initial_len = browser.bookmarks.len();
-        browser.current_page = Some(WebPage::new("https://doc.rust-lang.org/book/", "The Rust Book"));
+        browser.current_page = Some(WebPage::new(
+            "https://doc.rust-lang.org/book/",
+            "The Rust Book",
+        ));
         browser.bookmark_current_page();
 
         assert_eq!(browser.bookmarks.len(), initial_len + 1);
@@ -2052,17 +2351,15 @@ mod tests {
 
     #[test]
     fn test_web_search_integration() {
-        let results = vec![
-            crate::search::SearchResultItem {
-                provider: crate::search::SearchProvider::GitHub,
-                title: "qwx-editor".to_string(),
-                description: "Rust 2x2 modal text editor".to_string(),
-                url: "https://github.com/saigo/qwx".to_string(),
-                extra_info: "★ 100".to_string(),
-                clone_url: Some("https://github.com/saigo/qwx.git".to_string()),
-                raw_content: None,
-            },
-        ];
+        let results = vec![crate::search::SearchResultItem {
+            provider: crate::search::SearchProvider::GitHub,
+            title: "qwx-editor".to_string(),
+            description: "Rust 2x2 modal text editor".to_string(),
+            url: "https://github.com/saigo/qwx".to_string(),
+            extra_info: "★ 100".to_string(),
+            clone_url: Some("https://github.com/saigo/qwx.git".to_string()),
+            raw_content: None,
+        }];
 
         let page = WebPage::from_search_results("qwx", "GitHub", &results, 80);
         assert_eq!(page.title, "Search: qwx (GitHub)");
