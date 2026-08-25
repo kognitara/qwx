@@ -960,7 +960,6 @@ impl App {
     }
 
     fn handle_events<W: Write>(&mut self, w: &mut W) -> Result<()> {
-        queue!(w, Clear(ClearType::All))?;
         match self.mode {
             Mode::Normal => self.handle_normal(w),
             Mode::Finder => self.handle_finder(w),
@@ -972,6 +971,7 @@ impl App {
 
     /// Gère l'affichage de l'interface
     fn draw<W: Write>(&mut self, w: &mut W) -> Result<()> {
+        execute!(w, Hide)?;
         // ==========================================
         // CALCUL DES MARGES POUR CENTRER LA GRILLE
         // ==========================================
