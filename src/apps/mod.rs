@@ -77,7 +77,7 @@ struct PaneState {
     cursor: u16,
 }
 
-/// To init correct panel state in panel 
+/// To init correct panel state in panel
 const INIT_PANE_STATE: PaneState = PaneState {
     workspace: 1,
     view: 1,
@@ -937,6 +937,55 @@ impl App {
                 }
                 (KeyModifiers::NONE, KeyCode::Char('q')) => {
                     self.running = false;
+                }
+                // --- Rotation Horaire (Ctrl + r) ---
+                (KeyModifiers::CONTROL, KeyCode::Char('r')) => {
+                    let old_panes = self.panes;
+                    self.panes[1] = old_panes[0];
+                    self.panes[3] = old_panes[1];
+                    self.panes[2] = old_panes[3];
+                    self.panes[0] = old_panes[2];
+
+                    if self.views.len() < 4 {
+                        self.views.resize_with(4, || View { active_node_id: 0 });
+                    }
+
+                    let v0 = self.views[0].active_node_id;
+                    let v1 = self.views[1].active_node_id;
+                    let v2 = self.views[2].active_node_id;
+                    let v3 = self.views[3].active_node_id;
+
+                    self.views[1].active_node_id = v0;
+                    self.views[3].active_node_id = v1;
+                    self.views[2].active_node_id = v3;
+                    self.views[0].active_node_id = v2;
+
+                    self.load_active_pane_file();
+                }
+
+                // --- Rotation Anti-Horaire (Alt + r) ---
+                (KeyModifiers::ALT, KeyCode::Char('r')) => {
+                    let old_panes = self.panes;
+                    self.panes[2] = old_panes[0];
+                    self.panes[3] = old_panes[2];
+                    self.panes[1] = old_panes[3];
+                    self.panes[0] = old_panes[1];
+
+                    if self.views.len() < 4 {
+                        self.views.resize_with(4, || View { active_node_id: 0 });
+                    }
+
+                    let v0 = self.views[0].active_node_id;
+                    let v1 = self.views[1].active_node_id;
+                    let v2 = self.views[2].active_node_id;
+                    let v3 = self.views[3].active_node_id;
+
+                    self.views[2].active_node_id = v0;
+                    self.views[3].active_node_id = v2;
+                    self.views[1].active_node_id = v3;
+                    self.views[0].active_node_id = v1;
+
+                    self.load_active_pane_file();
                 }
                 _ => {}
             },
