@@ -22,6 +22,7 @@ use tree_sitter::{Parser, Tree};
 use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use crate::player::MusicPlayer;
 
 pub mod theme;
 /// Represents the initial state of a `PaneState` in the application.
@@ -132,6 +133,11 @@ impl<W: Write> QwxUi<W> for Qwx {
     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
         if self.mode == Mode::WebSearch {
             self.search_hub.draw(w, 0, 0, self.width, self.height)?;
+            w.flush()?;
+            return Ok(());
+        }
+        if self.mode == Mode::Player {
+            self.player.draw_player(w, self.width, self.height)?;
             w.flush()?;
             return Ok(());
         }
@@ -710,6 +716,7 @@ pub struct Qwx {
     search_input: String,
     pub last_search_query: Option<String>,
     pub search_hub: crate::search::SearchHub,
+    pub player: crate::player::MusicPlayer,
 }
 
 /// A `View` structure that represents the current state of a view in the application.
@@ -959,6 +966,7 @@ pub enum Mode {
     Editor,
     Search,
     WebSearch,
+    Player,
 }
 ///
 /// A trait that provides functionality for managing a cursor in the context of a writable output.
@@ -1463,6 +1471,12 @@ impl Qwx {
                 | (KeyModifiers::NONE, KeyCode::Char('s')) => {
                     self.mode = Mode::WebSearch;
                 }
+                (KeyModifiers::ALT, KeyCode::Char('p'))
+                | (KeyModifiers::ALT, KeyCode::Char('m')) => {
+                    self.mode = Mode::Player;
+                    self.player.refresh_playback_state();
+                    let _ = execute!(stdout(), Clear(ClearType::All));
+                }
                 (KeyModifiers::NONE, KeyCode::Char('q')) => {
                     self.running = false;
                 }
@@ -1572,6 +1586,15 @@ impl Qwx {
                         self.search_hub.query = q_clean;
                         self.search_hub.show_web_reader = false;
                         self.search_hub.perform_search(&self.current_dir);
+                        self.menu_input.clear();
+                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        return;
+                    } else if self.menu_input.trim() == ":player"
+                        || self.menu_input.trim() == ":music"
+                        || self.menu_input.trim() == ":spotify"
+                    {
+                        self.mode = Mode::Player;
+                        self.player.refresh_playback_state();
                         self.menu_input.clear();
                         let _ = execute!(stdout(), Clear(ClearType::All));
                         return;
@@ -2333,6 +2356,24 @@ impl Qwx {
             Mode::Editor => self.handle_editor(),
             Mode::Search => self.handle_search(),
             Mode::WebSearch => self.handle_web_search(),
+            Mode::Player => self.handle_player(),
+        }
+    }
+
+    fn handle_player(&mut self) {
+        match read().expect("failed to get terminal input") {
+            Event::Key(key) => {
+                if !self.player.handle_key(key.code, key.modifiers) {
+                    self.mode = Mode::Normal;
+                    let _ = execute!(stdout(), Clear(ClearType::All));
+                }
+            }
+            Event::Resize(cols, rows) => {
+                self.width = cols;
+                self.height = rows;
+                let _ = execute!(stdout(), Clear(ClearType::All));
+            }
+            _ => {}
         }
     }
     /// Creates a new instance of the editor with the specified path and open mode.
@@ -2516,6 +2557,7 @@ impl Qwx {
             search_input: String::new(),
             last_search_query: None,
             search_hub: crate::search::SearchHub::new(),
+            player: MusicPlayer::default(),
         })
     }
 
