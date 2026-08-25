@@ -497,15 +497,11 @@ impl SearchHub {
             b: 28,
         };
         let tab_active_bg = Color::Rgb {
-            r: 130,
-            g: 110,
-            b: 190, // Cosmic violet from theme
+            r: 50,
+            g: 60,
+            b: 80,
         };
-        let tab_inactive_bg = Color::Rgb {
-            r: 24,
-            g: 28,
-            b: 38,
-        };
+        let tab_inactive_bg = bg_color;
         let text_color = Color::Rgb {
             r: 220,
             g: 225,
@@ -559,39 +555,29 @@ impl SearchHub {
             )?;
         }
 
-        // 1. Header & Title Bar
+        // 1. Header & Title Bar (Clean & Sobere)
+        let title_text = " QWX RECHERCHE ";
         queue!(
             w,
             MoveTo(start_x, start_y),
             SetBackgroundColor(header_bg),
-            SetForegroundColor(title_color),
-            Print(" ◈ QWX SEARCH ENGINE & DEV HUB ◈ ")
+            SetForegroundColor(Color::White),
+            Print(title_text)
         )?;
-        let title_len = " ◈ QWX SEARCH ENGINE & DEV HUB ◈ ".width() as u16;
-        let tag_text = " [2x2 Grid Hub] ";
-        let tag_len = tag_text.width() as u16;
-        if width > title_len + tag_len {
-            let padding_len = width - title_len - tag_len;
-            let padding = " ".repeat(padding_len as usize);
-            queue!(
-                w,
-                Print(padding),
-                SetForegroundColor(text_dim),
-                Print(tag_text)
-            )?;
-        } else if width > title_len {
+        let title_len = title_text.width() as u16;
+        if width > title_len {
             let padding = " ".repeat((width - title_len) as usize);
             queue!(w, Print(padding))?;
         }
 
-        // 2. Filter Tabs
+        // 2. Filter Tabs (Texte sobre sans icônes)
         let mut tab_x = start_x + 1;
         let tab_y = start_y + 1;
         queue!(w, MoveTo(tab_x, tab_y), SetBackgroundColor(bg_color))?;
 
         for provider in SearchProvider::all_variants() {
             let is_active = *provider == self.active_provider;
-            let tab_text = format!(" {}:{} ", provider.shortcut_key(), provider.name());
+            let tab_text = format!(" [{}:{}] ", provider.shortcut_key(), provider.name());
             let tab_width = tab_text.width() as u16;
 
             if tab_x + tab_width > start_x + width - 1 {
@@ -602,7 +588,7 @@ impl SearchHub {
                 queue!(
                     w,
                     MoveTo(tab_x, tab_y),
-                    SetBackgroundColor(tab_active_bg),
+                    SetBackgroundColor(Color::Rgb { r: 50, g: 60, b: 80 }),
                     SetForegroundColor(Color::White),
                     Print(&tab_text)
                 )?;
@@ -610,7 +596,7 @@ impl SearchHub {
                 queue!(
                     w,
                     MoveTo(tab_x, tab_y),
-                    SetBackgroundColor(tab_inactive_bg),
+                    SetBackgroundColor(bg_color),
                     SetForegroundColor(text_dim),
                     Print(&tab_text)
                 )?;
@@ -618,195 +604,141 @@ impl SearchHub {
             tab_x += tab_width + 1;
         }
 
-        // 3. Search Input Bar
-        let search_y = start_y + 2;
-        let search_prompt = format!(" 🔍 [{}] Search: {} ", self.active_provider.name(), self.query);
-        let cursor_char = if self.prompt.is_none() { "█" } else { " " };
-        let full_search = format!("{}{}", search_prompt, cursor_char);
+        // 3. Search Input Bar avec Bordure Blanche
+        let search_box_top = start_y + 2;
+        let search_box_h = 3u16;
+        let search_inner_w = (width.saturating_sub(4)) as usize;
 
+        if height > 8 && width > 10 {
+            // Top border of search box
+            queue!(
+                w,
+                MoveTo(start_x + 1, search_box_top),
+                SetBackgroundColor(bg_color),
+                SetForegroundColor(Color::White),
+                Print("┌"),
+                Print("─".repeat(search_inner_w)),
+                Print("┐")
+            )?;
+
+            // Middle input line with white side borders
+            let cursor_char = if self.prompt.is_none() { "█" } else { " " };
+            let prompt_label = format!(" Recherche [{}]: ", self.active_provider.name());
+            let current_query = format!("{}{}", self.query, cursor_char);
+            let input_content = format!("{}{}", prompt_label, current_query);
+            let truncated_input = truncate_to_width(&input_content, search_inner_w);
+            let pad_len = search_inner_w.saturating_sub(truncated_input.width());
+            let pad_str = " ".repeat(pad_len);
+
+            queue!(
+                w,
+                MoveTo(start_x + 1, search_box_top + 1),
+                SetBackgroundColor(bg_color),
+                SetForegroundColor(Color::White),
+                Print("│"),
+                SetForegroundColor(Color::White),
+                Print(&truncated_input),
+                Print(&pad_str),
+                SetForegroundColor(Color::White),
+                Print("│")
+            )?;
+
+            // Bottom border of search box
+            queue!(
+                w,
+                MoveTo(start_x + 1, search_box_top + 2),
+                SetBackgroundColor(bg_color),
+                SetForegroundColor(Color::White),
+                Print("└"),
+                Print("─".repeat(search_inner_w)),
+                Print("┘")
+            )?;
+        }
+
+        // 4. Layout des Résultats en Colonnes (par Catégorie)
+        let results_start_y = search_box_top + search_box_h;
+        let available_height = height.saturating_sub(results_start_y).saturating_sub(3); // leave room for preview & status
+        let preview_height = if available_height > 10 { 4u16 } else if available_height > 6 { 3u16 } else { 0u16 };
+        let table_height = available_height.saturating_sub(preview_height);
+
+        // Column widths calculation: [CATEGORIE] [TITRE] [DETAILS / INFOS]
+        let cat_col_w = 14usize;
+        let details_col_w = if width > 90 { 32usize } else if width > 60 { 20usize } else { 12usize };
+        let title_col_w = (width as usize).saturating_sub(cat_col_w + details_col_w + 8).max(15);
+
+        // Draw Table Header
+        let table_header_y = results_start_y;
         queue!(
             w,
-            MoveTo(start_x + 1, search_y),
-            SetBackgroundColor(Color::Rgb {
-                r: 18,
-                g: 22,
-                b: 32
-            }),
-            SetForegroundColor(accent_gold),
-            Print(&full_search)
+            MoveTo(start_x + 1, table_header_y),
+            SetBackgroundColor(header_bg),
+            SetForegroundColor(Color::White),
+            Print(format!(
+                "  {:<cat_w$} │ {:<title_w$} │ {:<det_w$}",
+                "CATEGORIE",
+                "TITRE",
+                "DETAILS / SOURCE",
+                cat_w = cat_col_w,
+                title_w = title_col_w,
+                det_w = details_col_w
+            ))
         )?;
-        let search_rendered_width = full_search.width() as u16;
-        if width.saturating_sub(2) > search_rendered_width {
-            let pad = " ".repeat((width.saturating_sub(2) - search_rendered_width) as usize);
+        let header_rendered_w = format!(
+            "  {:<cat_w$} │ {:<title_w$} │ {:<det_w$}",
+            "CATEGORIE",
+            "TITRE",
+            "DETAILS / SOURCE",
+            cat_w = cat_col_w,
+            title_w = title_col_w,
+            det_w = details_col_w
+        ).width() as u16;
+        if width.saturating_sub(2) > header_rendered_w {
+            let pad = " ".repeat((width.saturating_sub(2) - header_rendered_w) as usize);
             queue!(w, Print(pad))?;
         }
 
-        // 4. 2x2 Grid Layout Calculation
-        let grid_top_y = start_y + 3;
-        let grid_height = height.saturating_sub(6).max(6);
-        let half_width = (width / 2).max(20).min(width.saturating_sub(15));
-        let left_inner_w = (half_width.saturating_sub(1)) as usize;
-        let right_inner_w = (width.saturating_sub(half_width).saturating_sub(2)) as usize;
-
-        let row_top_h = (grid_height / 2).max(3);
-        let row_bot_h = grid_height.saturating_sub(row_top_h).max(3);
-        let middle_y = grid_top_y + row_top_h;
-        let bottom_y = grid_top_y + grid_height;
-
-        let inner_top_h = (row_top_h.saturating_sub(1)) as usize;
-        let inner_bot_h = (row_bot_h.saturating_sub(1)) as usize;
-
-        // --- DRAW 2x2 BORDERS ---
-        // 4.1 Top border
-        let left_border_line = "─".repeat(left_inner_w);
-        let right_border_line = "─".repeat(right_inner_w);
+        // Separator line under table header
+        let table_sep_y = table_header_y + 1;
         queue!(
             w,
-            MoveTo(start_x, grid_top_y),
+            MoveTo(start_x + 1, table_sep_y),
             SetBackgroundColor(bg_color),
             SetForegroundColor(border_color),
-            Print("┌"),
-            Print(&left_border_line),
-            Print("┬"),
-            Print(&right_border_line),
-            Print("┐")
+            Print("─".repeat((width.saturating_sub(2)) as usize))
         )?;
 
-        // Top labels in border
-        let count_str = if self.results.is_empty() {
-            String::new()
-        } else {
-            format!(" ({}/{})", self.selected_index + 1, self.results.len())
-        };
-        let top_left_title = format!(" ◈ 1. SEARCH RESULTS{} ", count_str);
-        let top_right_title = " ◈ 2. RESOURCE OVERVIEW ";
-
-        queue!(
-            w,
-            MoveTo(start_x + 2, grid_top_y),
-            SetForegroundColor(title_color),
-            Print(&top_left_title),
-            MoveTo(start_x + half_width + 2, grid_top_y),
-            SetForegroundColor(accent_gold),
-            Print(top_right_title)
-        )?;
-
-        // 4.2 Top half vertical dividers
-        for r in 1..row_top_h {
-            let y = grid_top_y + r;
-            queue!(
-                w,
-                MoveTo(start_x, y),
-                SetForegroundColor(border_color),
-                Print("│"),
-                MoveTo(start_x + half_width, y),
-                Print("│"),
-                MoveTo(start_x + width - 1, y),
-                Print("│")
-            )?;
-        }
-
-        // 4.3 Middle horizontal divider
-        queue!(
-            w,
-            MoveTo(start_x, middle_y),
-            SetForegroundColor(border_color),
-            Print("├"),
-            Print(&left_border_line),
-            Print("┼"),
-            Print(&right_border_line),
-            Print("┤")
-        )?;
-
-        // Middle labels in divider
-        let bot_left_title = " ◈ 3. DEV TOOLS & PROVIDERS ";
-        let scroll_info = if self.preview_scroll > 0 {
-            format!(" [▲ Line {}] ", self.preview_scroll + 1)
-        } else {
-            " ".to_string()
-        };
-        let bot_right_title = format!(" ◈ 4. CONTENT & CODE PREVIEW{} ", scroll_info);
-
-        queue!(
-            w,
-            MoveTo(start_x + 2, middle_y),
-            SetForegroundColor(Color::Rgb {
-                r: 160,
-                g: 140,
-                b: 240,
-            }),
-            Print(bot_left_title),
-            MoveTo(start_x + half_width + 2, middle_y),
-            SetForegroundColor(accent_green),
-            Print(&bot_right_title)
-        )?;
-
-        // 4.4 Bottom half vertical dividers
-        for r in 1..row_bot_h {
-            let y = middle_y + r;
-            queue!(
-                w,
-                MoveTo(start_x, y),
-                SetForegroundColor(border_color),
-                Print("│"),
-                MoveTo(start_x + half_width, y),
-                Print("│"),
-                MoveTo(start_x + width - 1, y),
-                Print("│")
-            )?;
-        }
-
-        // 4.5 Bottom border
-        queue!(
-            w,
-            MoveTo(start_x, bottom_y),
-            SetForegroundColor(border_color),
-            Print("└"),
-            Print(&left_border_line),
-            Print("┴"),
-            Print(&right_border_line),
-            Print("┘")
-        )?;
-
-        // --- RENDER QUADRANT 1 (Top-Left): SEARCH RESULTS ---
-        let q1_x = start_x + 1;
-        let q1_y = grid_top_y + 1;
-        let q1_w = left_inner_w.saturating_sub(1);
-        let q1_h = inner_top_h;
+        // Results rows
+        let rows_start_y = table_sep_y + 1;
+        let visible_count = (table_height.saturating_sub(2)) as usize;
 
         if self.results.is_empty() {
             let empty_msg = if self.is_loading {
                 match self.active_provider {
-                    SearchProvider::GitHub => "⚡ Searching GitHub repositories & issues...",
-                    SearchProvider::GitLab => "⚡ Searching GitLab projects & repositories...",
-                    SearchProvider::Wikipedia => "🌐 Fetching Wikipedia articles & docs...",
-                    SearchProvider::Cve => "🛡 Scanning & analyzing CVE vulnerabilities...",
-                    SearchProvider::HackerNews => "📡 Fetching Hacker News discussions...",
-                    SearchProvider::LocalAudit => "📦 Auditing dependencies & scanning CVEs...",
-                    SearchProvider::Web => "🌐 Searching web via DuckDuckGo...",
-                    SearchProvider::All => "⚙ Multi-source live search in progress...",
+                    SearchProvider::GitHub => "Recherche en cours sur GitHub...",
+                    SearchProvider::GitLab => "Recherche en cours sur GitLab...",
+                    SearchProvider::Wikipedia => "Recherche en cours sur Wikipedia...",
+                    SearchProvider::Cve => "Scan et recherche CVE...",
+                    SearchProvider::HackerNews => "Recherche sur Hacker News...",
+                    SearchProvider::LocalAudit => "Audit des dependances locales...",
+                    SearchProvider::Web => "Recherche sur le web...",
+                    SearchProvider::All => "Recherche multi-sources en cours...",
                 }
             } else {
-                "No results. Type a query and press [Enter]."
+                "Aucun resultat. Entrez une recherche et appuyez sur [Entree]."
             };
 
             queue!(
                 w,
-                MoveTo(q1_x + 1, q1_y + 1),
+                MoveTo(start_x + 2, rows_start_y + 1),
                 SetBackgroundColor(bg_color),
-                SetForegroundColor(if self.is_loading {
-                    accent_gold
-                } else {
-                    text_dim
-                }),
+                SetForegroundColor(if self.is_loading { accent_gold } else { text_dim }),
                 Print(empty_msg)
             )?;
         } else {
-            let visible_count = q1_h;
             let mut scroll_offset = self.scroll_offset;
             if self.selected_index < scroll_offset {
                 scroll_offset = self.selected_index;
-            } else if self.selected_index >= scroll_offset + visible_count {
+            } else if self.selected_index >= scroll_offset + visible_count && visible_count > 0 {
                 scroll_offset = self.selected_index + 1 - visible_count;
             }
 
@@ -819,209 +751,87 @@ impl SearchHub {
             {
                 let absolute_idx = scroll_offset + idx;
                 let is_selected = absolute_idx == self.selected_index;
-                let line_y = q1_y + idx as u16;
+                let line_y = rows_start_y + idx as u16;
 
-                let pointer = if is_selected { "▶" } else { " " };
-                let item_line = format!("{} {}", pointer, item.title);
-                let truncated_title = truncate_to_width(&item_line, q1_w);
+                let pointer = if is_selected { "> " } else { "  " };
+                let cat_str = truncate_to_width(item.provider.name(), cat_col_w);
+                let cat_padded = format!("{:<width$}", cat_str, width = cat_col_w);
+
+                let title_str = truncate_to_width(&item.title, title_col_w);
+                let title_padded = format!("{:<width$}", title_str, width = title_col_w);
+
+                let extra = if !item.extra_info.is_empty() {
+                    &item.extra_info
+                } else if !item.url.is_empty() {
+                    &item.url
+                } else {
+                    ""
+                };
+                let extra_str = truncate_to_width(extra, details_col_w);
+                let extra_padded = format!("{:<width$}", extra_str, width = details_col_w);
+
+                let row_str = format!(
+                    "{}{} │ {} │ {}",
+                    pointer, cat_padded, title_padded, extra_padded
+                );
+                let truncated_row = truncate_to_width(&row_str, (width.saturating_sub(2)) as usize);
+                let row_pad = (width.saturating_sub(2) as usize).saturating_sub(truncated_row.width());
 
                 if is_selected {
                     queue!(
                         w,
-                        MoveTo(q1_x, line_y),
+                        MoveTo(start_x + 1, line_y),
                         SetBackgroundColor(highlight_bg),
                         SetForegroundColor(Color::White),
-                        Print(&truncated_title)
+                        Print(&truncated_row),
+                        Print(" ".repeat(row_pad))
                     )?;
-                    let tw = truncated_title.width() as u16;
-                    if (q1_w as u16) > tw {
-                        let pad = " ".repeat((q1_w as u16 - tw) as usize);
-                        queue!(w, Print(pad))?;
-                    }
                 } else {
                     queue!(
                         w,
-                        MoveTo(q1_x, line_y),
+                        MoveTo(start_x + 1, line_y),
                         SetBackgroundColor(bg_color),
                         SetForegroundColor(text_color),
-                        Print(&truncated_title)
+                        Print(&truncated_row),
+                        Print(" ".repeat(row_pad))
                     )?;
                 }
             }
         }
 
-        // --- RENDER QUADRANT 2 (Top-Right): RESOURCE OVERVIEW ---
-        let q2_x = start_x + half_width + 1;
-        let q2_y = grid_top_y + 1;
-        let q2_w = right_inner_w.saturating_sub(1);
-        let q2_h = inner_top_h;
+        // Preview / Details panel (Sobre, en bas des résultats)
+        if preview_height > 0 {
+            let preview_top_y = rows_start_y + table_height.saturating_sub(2);
+            queue!(
+                w,
+                MoveTo(start_x + 1, preview_top_y),
+                SetBackgroundColor(bg_color),
+                SetForegroundColor(border_color),
+                Print("─".repeat((width.saturating_sub(2)) as usize))
+            )?;
 
-        if let Some(selected) = self.selected_item() {
-            let mut overview_lines = Vec::new();
-            overview_lines.push((format!("• Title   : {}", selected.title), Color::White));
-            overview_lines.push((format!("• Source  : {}", selected.provider.name()), title_color));
-            if !selected.extra_info.is_empty() {
-                overview_lines.push((format!("• Metrics : {}", selected.extra_info), accent_gold));
-            }
-            if !selected.url.is_empty() {
-                overview_lines.push((format!("• URL     : {}", selected.url), Color::Rgb { r: 100, g: 190, b: 255 }));
-            }
-            if let Some(ref clone_url) = selected.clone_url {
-                overview_lines.push((format!("• GitClone: {}", clone_url), accent_green));
-            }
-            overview_lines.push(("• Actions : [w] WebReader  [o] ExtBrowser  [c] Clone  [p] PR".to_string(), text_dim));
+            if let Some(selected) = self.selected_item() {
+                let desc_line = if !selected.description.is_empty() {
+                    format!("Info: {}", selected.description.lines().next().unwrap_or(""))
+                } else if !selected.url.is_empty() {
+                    format!("URL: {}", selected.url)
+                } else {
+                    format!("Titre: {}", selected.title)
+                };
+                let actions_line = "Actions: [w] Lecteur Web  [o] Navigateur  [c] Cloner  [p] Pull Request  [b] Branche";
 
-            for (idx, (line, color)) in overview_lines.iter().take(q2_h).enumerate() {
-                let line_y = q2_y + idx as u16;
-                let truncated = truncate_to_width(line, q2_w);
+                let max_preview_w = (width.saturating_sub(4)) as usize;
                 queue!(
                     w,
-                    MoveTo(q2_x, line_y),
+                    MoveTo(start_x + 2, preview_top_y + 1),
                     SetBackgroundColor(bg_color),
-                    SetForegroundColor(*color),
-                    Print(&truncated)
+                    SetForegroundColor(accent_gold),
+                    Print(truncate_to_width(&desc_line, max_preview_w)),
+                    MoveTo(start_x + 2, preview_top_y + 2),
+                    SetForegroundColor(text_dim),
+                    Print(truncate_to_width(actions_line, max_preview_w))
                 )?;
             }
-        } else {
-            queue!(
-                w,
-                MoveTo(q2_x + 1, q2_y + 1),
-                SetBackgroundColor(bg_color),
-                SetForegroundColor(text_dim),
-                Print("Select an item to view detailed resource metadata.")
-            )?;
-        }
-
-        // --- RENDER QUADRANT 3 (Bottom-Left): DEV TOOLS & PROVIDERS ---
-        let q3_x = start_x + 1;
-        let q3_y = middle_y + 1;
-        let q3_w = left_inner_w.saturating_sub(1);
-        let q3_h = inner_bot_h;
-
-        let mut provider_lines: Vec<(String, Color)> = Vec::new();
-        provider_lines.push(("Providers & Shortcuts:".to_string(), title_color));
-        provider_lines.push((
-            format!(
-                "  {} [1] All Sources    {} [2] GitHub",
-                if self.active_provider == SearchProvider::All { "●" } else { "○" },
-                if self.active_provider == SearchProvider::GitHub { "●" } else { "○" }
-            ),
-            if self.active_provider == SearchProvider::All || self.active_provider == SearchProvider::GitHub {
-                Color::White
-            } else {
-                text_dim
-            },
-        ));
-        provider_lines.push((
-            format!(
-                "  {} [3] GitLab         {} [4] Wikipedia",
-                if self.active_provider == SearchProvider::GitLab { "●" } else { "○" },
-                if self.active_provider == SearchProvider::Wikipedia { "●" } else { "○" }
-            ),
-            if self.active_provider == SearchProvider::GitLab || self.active_provider == SearchProvider::Wikipedia {
-                Color::White
-            } else {
-                text_dim
-            },
-        ));
-        provider_lines.push((
-            format!(
-                "  {} [5] CVE Security   {} [6] Hacker News",
-                if self.active_provider == SearchProvider::Cve { "●" } else { "○" },
-                if self.active_provider == SearchProvider::HackerNews { "●" } else { "○" }
-            ),
-            if self.active_provider == SearchProvider::Cve || self.active_provider == SearchProvider::HackerNews {
-                Color::White
-            } else {
-                text_dim
-            },
-        ));
-        provider_lines.push((
-            format!(
-                "  {} [7] Local Audit    {} [8] Web (DuckDuckGo)",
-                if self.active_provider == SearchProvider::LocalAudit { "●" } else { "○" },
-                if self.active_provider == SearchProvider::Web { "●" } else { "○" }
-            ),
-            if self.active_provider == SearchProvider::LocalAudit || self.active_provider == SearchProvider::Web {
-                accent_gold
-            } else {
-                text_dim
-            },
-        ));
-        provider_lines.push(("Dev Actions & Web:".to_string(), accent_gold));
-        provider_lines.push(("  [w] Open in Web Reader   [v] View as Web Page".to_string(), text_color));
-        provider_lines.push(("  [c] Clone Repo           [b] Create Branch".to_string(), text_color));
-        provider_lines.push(("  [s] Switch Branch        [p] Create Pull Request".to_string(), text_color));
-        provider_lines.push(("  [e] Export Report        [a] Audit Local CVEs".to_string(), text_color));
-
-        for (idx, (line, color)) in provider_lines.iter().take(q3_h).enumerate() {
-            let line_y = q3_y + idx as u16;
-            let truncated = truncate_to_width(line, q3_w);
-            queue!(
-                w,
-                MoveTo(q3_x, line_y),
-                SetBackgroundColor(bg_color),
-                SetForegroundColor(*color),
-                Print(&truncated)
-            )?;
-        }
-
-        // --- RENDER QUADRANT 4 (Bottom-Right): CONTENT & CODE PREVIEW ---
-        let q4_x = start_x + half_width + 1;
-        let q4_y = middle_y + 1;
-        let q4_w = right_inner_w.saturating_sub(1);
-        let q4_h = inner_bot_h;
-
-        if let Some(selected) = self.selected_item() {
-            let mut preview_lines = Vec::new();
-            if !selected.description.is_empty() {
-                preview_lines.push("Description:".to_string());
-                for line in selected.description.lines() {
-                    preview_lines.push(format!("  {}", line));
-                }
-            }
-
-            if let Some(ref raw) = selected.raw_content {
-                preview_lines.push("─".repeat(q4_w.min(40)));
-                preview_lines.push("Details / Advisory / Body:".to_string());
-                for line in raw.lines() {
-                    preview_lines.push(format!("  {}", line));
-                }
-            }
-
-            if preview_lines.is_empty() {
-                preview_lines.push("No additional description or body available.".to_string());
-            }
-
-            for (idx, line) in preview_lines
-                .iter()
-                .skip(self.preview_scroll)
-                .take(q4_h)
-                .enumerate()
-            {
-                let line_y = q4_y + idx as u16;
-                let truncated = truncate_to_width(line, q4_w);
-                let is_header = line.starts_with("Description:") || line.starts_with("Details / Advisory");
-                queue!(
-                    w,
-                    MoveTo(q4_x, line_y),
-                    SetBackgroundColor(bg_color),
-                    SetForegroundColor(if is_header {
-                        accent_green
-                    } else {
-                        text_color
-                    }),
-                    Print(&truncated)
-                )?;
-            }
-        } else {
-            queue!(
-                w,
-                MoveTo(q4_x + 1, q4_y + 1),
-                SetBackgroundColor(bg_color),
-                SetForegroundColor(text_dim),
-                Print("Preview documentation, CVE advisories, or repository summaries here.")
-            )?;
         }
 
         // 5. Action Dialog / Modal Prompt (if active)
@@ -1075,7 +885,7 @@ impl SearchHub {
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
                         SetForegroundColor(accent_gold),
-                        Print("📦 CLONE GIT REPOSITORY"),
+                        Print("CLONE GIT REPOSITORY"),
                         MoveTo(modal_x + 2, modal_y + 2),
                         SetForegroundColor(Color::White),
                         Print(format!("URL   : {}", truncate_to_width(repo_url, modal_w as usize - 12))),
@@ -1102,7 +912,7 @@ impl SearchHub {
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
                         SetForegroundColor(title_color),
-                        Print("🚀 CLONING IN PROGRESS..."),
+                        Print("CLONING IN PROGRESS..."),
                         MoveTo(modal_x + 2, modal_y + 2),
                         SetForegroundColor(Color::White),
                         Print(format!("Repository: {}", truncate_to_width(repo_url, modal_w as usize - 14))),
@@ -1122,7 +932,7 @@ impl SearchHub {
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
                         SetForegroundColor(accent_gold),
-                        Print("🌿 CREATE GIT BRANCH"),
+                        Print("CREATE GIT BRANCH"),
                         MoveTo(modal_x + 2, modal_y + 3),
                         SetForegroundColor(accent_green),
                         Print(format!("Branch name: {}█", branch_input)),
@@ -1136,7 +946,7 @@ impl SearchHub {
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
                         SetForegroundColor(accent_gold),
-                        Print("🔀 SWITCH GIT BRANCH"),
+                        Print("SWITCH GIT BRANCH"),
                         MoveTo(modal_x + 2, modal_y + 3),
                         SetForegroundColor(accent_green),
                         Print(format!("Target branch: {}█", branch_input)),
@@ -1150,7 +960,7 @@ impl SearchHub {
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
                         SetForegroundColor(accent_gold),
-                        Print("📄 EXPORT MARKDOWN REPORT"),
+                        Print("EXPORT MARKDOWN REPORT"),
                         MoveTo(modal_x + 2, modal_y + 3),
                         SetForegroundColor(accent_green),
                         Print(format!("Output file: {}█", path_input)),
@@ -1181,7 +991,7 @@ impl SearchHub {
                         w,
                         MoveTo(modal_x + 2, modal_y + 1),
                         SetForegroundColor(accent_gold),
-                        Print(format!("🚀 CREATE PULL REQUEST (Step {}/6)", step + 1)),
+                        Print(format!("CREATE PULL REQUEST (Step {}/6)", step + 1)),
                         MoveTo(modal_x + 2, modal_y + 3),
                         SetForegroundColor(accent_green),
                         Print(step_desc),
