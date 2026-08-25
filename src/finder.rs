@@ -19,7 +19,6 @@ use crate::editor::theme::{
 #[derive(Clone, PartialEq, Eq)]
 pub enum FinderLayout {
     ///
-    ///
     /// ```txt
     /// ┌──────────────────────────────────────────────────┐
     /// │                   RESEARCH                       │

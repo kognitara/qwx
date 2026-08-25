@@ -107,7 +107,7 @@ pub const UI_TEXT_MUTED: Color = Color::Rgb {
     b: 120,
 };
 
-// Pour la barre Dmenu : un fond sombre et un texte clair, fini le vert fluo !
+// Pour la barre Menu : un fond sombre et un texte clair, fini le vert fluo !
 pub const UI_DMENU_BG: Color = Color::Rgb {
     r: 45,
     g: 50,

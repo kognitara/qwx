@@ -3,7 +3,7 @@
 `qwx` is an ultra-fast, modal terminal application designed for developers, system administrators,
 and teams looking to optimize their workflow without ever leaving the command line.
 
-Developed to eliminate distractions, `qwx` renders heavy graphical IDEs unnecessary by merging code
+Developed to remove distractions, `qwx` renders heavy graphical IDEs unnecessary by merging code
 editing, server management, and collaboration into a single, cohesive, and lightning fast
 text-based interface.
 
@@ -40,7 +40,7 @@ Inspired by the mathematical rigor of tiling window managers and the efficiency 
 It was built because there was no environment capable of treating data not merely as a fill
 trapped in a window but as a particle of pure information.
 
-By utilizing a Tesseract-based architecture, `qwx` allows you to view a single source of truth
+By using a Tesseract-based architecture, `qwx` allows you to view a single source of truth
 from infinite angles (Views) and within infinite contexts (Workspaces), all while ensuring
 absolute control over the interface via atomic keyboard commands.
 
@@ -77,35 +77,35 @@ the speed of thought.
 
 The Editor Mode is dedicated to direct text insertion and modification.
 
-| Shortcut | Action | Description |
-| :--- | :--- | :--- |
-| `Esc` | **Exit / Clear** | Clears the current text selection. If no selection exists, exits Editor mode and returns to Normal mode. |
-| `Ctrl + s` | **Save** | Writes the current file modifications to the disk. |
-| `Ctrl + k` | **Delete to End** | Deletes all characters from the current cursor position to the end of the line. |
-| `Alt + x` | **Select Line** | Selects the entire line currently under the cursor. |
-| `Alt + d` | **Delete Selection** | Deletes the currently selected text block. |
-| `Tab` | **Indent** | Inserts 4 spaces for strict and consistent indentation. |
-| `Enter` | **New Line** | Inserts a line break and moves the cursor to the next line. |
-| `Backspace` | **Delete Left** | Removes the character immediately preceding the cursor. |
-| `Delete` | **Delete Right** | Removes the character immediately under the cursor. |
+| Shortcut    | Action               | Description                                                                                              |
+|:------------|:---------------------|:---------------------------------------------------------------------------------------------------------|
+| `Esc`       | **Exit / Clear**     | Clears the current text selection. If no selection exists, exits Editor mode and returns to Normal mode. |
+| `Ctrl + s`  | **Save**             | Writes the current file modifications to the disk.                                                       |
+| `Ctrl + k`  | **Delete to End**    | Deletes all characters from the current cursor position to the end of the line.                          |
+| `Alt + x`   | **Select Line**      | Selects the entire line currently under the cursor.                                                      |
+| `Alt + d`   | **Delete Selection** | Deletes the currently selected text block.                                                               |
+| `Tab`       | **Indent**           | Inserts 4 spaces for strict and consistent indentation.                                                  |
+| `Enter`     | **New Line**         | Inserts a line break and moves the cursor to the next line.                                              |
+| `Backspace` | **Delete Left**      | Removes the character immediately preceding the cursor.                                                  |
+| `Delete`    | **Delete Right**     | Removes the character immediately under the cursor.                                                      |
 
 ### Normal Mode Shortcuts (Navigation & Layout)
 
 The Normal Mode is the default state of qwx, used for lightning-fast spatial navigation, panel management, and quick text manipulations without entering insert mode.
 
-| Shortcut | Action | Description |
-| :--- | :--- | :--- |
-| `e` | **Enter Editor** | Switches to Editor mode at the current cursor position. |
-| `o` | **Append New Line** | Jumps to the end of the current line, inserts a new line, and enters Editor mode. |
-| `h`, `j`, `k`, `l` | **Move Cursor** | Moves the cursor Left (`h`), Down (`j`), Up (`k`), or Right (`l`). |
-| `PageUp` / `PageDn` | **Fast Scroll** | Jumps 15 lines up or down for rapid vertical navigation through the file. |
-| `x` | **Select Line** | Selects the current line for quick manipulation. |
-| `d` | **Delete Selection** | Instantly deletes the currently highlighted selection. |
-| `Esc` | **Clear Selection** | Drops the current text selection. |
-| `Ctrl + h, j, k, l` | **Shift Focus** | Shifts the active workspace focus to the Left, Bottom, Top, or Right panel. |
-| `Ctrl + r` | **Rotate Clockwise** | Rotates the physical views of the panels in a clockwise direction. |
-| `Alt + r` | **Rotate Counter** | Rotates the physical views of the panels in a counter-clockwise direction. |
-| `Alt + f` | **Finder Mode** | Opens the file finder overlay to navigate the project directory. |
-| `Alt + d` | **Dmenu Mode** | Opens the command menu (dmenu) for rapid execution. |
-| `Alt + /` | **Search Mode** | Opens the search buffer to find patterns within the active node. |
-| `q` | **Quit** | Terminates the qwx environment. |
+| Shortcut            | Action               | Description                                                                       |
+|:--------------------|:---------------------|:----------------------------------------------------------------------------------|
+| `e`                 | **Enter Editor**     | Switches to Editor mode at the current cursor position.                           |
+| `o`                 | **Append New Line**  | Jumps to the end of the current line, inserts a new line, and enters Editor mode. |
+| `h`, `j`, `k`, `l`  | **Move Cursor**      | Moves the cursor Left (`h`), Down (`j`), Up (`k`), or Right (`l`).                |
+| `PageUp` / `PageDn` | **Fast Scroll**      | Jumps 15 lines up or down for rapid vertical navigation through the file.         |
+| `x`                 | **Select Line**      | Selects the current line for quick manipulation.                                  |
+| `d`                 | **Delete Selection** | Instantly deletes the currently highlighted selection.                            |
+| `Esc`               | **Clear Selection**  | Drops the current text selection.                                                 |
+| `Ctrl + h, j, k, l` | **Shift Focus**      | Shifts the active workspace focus to the Left, Bottom, Top, or Right panel.       |
+| `Ctrl + r`          | **Rotate Clockwise** | Rotates the physical views of the panels in a clockwise direction.                |
+| `Alt + r`           | **Rotate Counter**   | Rotates the physical views of the panels in a counter-clockwise direction.        |
+| `Alt + f`           | **Finder Mode**      | Opens the file finder overlay to navigate the project directory.                  |
+| `Alt + d`           | **Dmenu Mode**       | Opens the command menu (dmenu) for rapid execution.                               |
+| `Alt + /`           | **Search Mode**      | Opens the search buffer to find patterns within the active node.                  |
+| `q`                 | **Quit**             | Terminates the qwx environment.                                                   |

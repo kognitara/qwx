@@ -24,12 +24,59 @@ use tree_sitter_highlight::HighlightConfiguration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub mod theme;
-/// To init correct panel state in panel
+/// Represents the initial state of a `PaneState` in the application.
+///
+/// This constant defines default values for the pane's configuration:
+/// - `workspace`: The default workspace index, set to `1`.
+/// - `view`: The default view index, set to `1`.
+/// - `cursor`: The initial cursor position, set to `0`.
+///
+/// # Example
+/// ```rust
+/// use qwx::editor::INIT_PANE_STATE;
+/// let pane_state = INIT_PANE_STATE;
+/// assert_eq!(pane_state.workspace, 1);
+/// assert_eq!(pane_state.view, 1);
+/// assert_eq!(pane_state.cursor, 0);
+/// ```
+///
+/// This constant can be used to initialize or reset pane states in the system.
 pub const INIT_PANE_STATE: PaneState = PaneState {
     workspace: 1,
     view: 1,
     cursor: 0,
 };
+
+/// Converts a numerical value (0-9) into its corresponding superscript Unicode character.
+///
+/// # Parameters
+/// - `num`: A `u8` value representing the number to be converted to superscript. Valid input is between 0 and 9.
+///
+/// # Returns
+/// A string slice (`&'static str`) representing the superscript Unicode character for the given number:
+/// - `1` → "¹"
+/// - `2` → "²"
+/// - `3` → "³"
+/// - `4` → "⁴"
+/// - `5` → "⁵"
+/// - `6` → "⁶"
+/// - `7` → "⁷"
+/// - `8` → "⁸"
+/// - `9` → "⁹"
+/// - Any other value (including 0) → "⁰"
+///
+/// # Examples
+/// ```
+/// use qwx::editor::get_superscript;
+/// let result = get_superscript(3);
+/// assert_eq!(result, "³");
+///
+/// let result = get_superscript(9);
+/// assert_eq!(result, "⁹");
+///
+/// let result = get_superscript(0);
+/// assert_eq!(result, "⁰");
+/// ```
 pub fn get_superscript(num: u8) -> &'static str {
     match num {
         1 => "¹",
@@ -44,6 +91,39 @@ pub fn get_superscript(num: u8) -> &'static str {
         _ => "⁰",
     }
 }
+/// The `QwxUi` trait defines a user interface element that can be drawn to a given writer.
+///
+/// # Type Parameters
+/// - `W`: A type that implements the `Write` trait, representing the output stream where
+///        the UI element will be rendered.
+///
+/// # Required Methods
+/// - `draw`:
+///   - Draws the user interface element to the specified writer.
+///   - Accepts a mutable reference to the writer where the content should be drawn.
+///   - Returns a `Result` indicating success (`Ok(())`) or an error (`Err(Error)`).
+///
+/// # Errors
+/// - If an error occurs while writing to the given writer, the method can return an `Error`.
+///
+/// # Example
+/// ```
+/// use std::io::Write;
+/// use qwx::editor::QwxUi;
+/// struct MyUiElement;
+///
+/// impl<W: Write> QwxUi<W> for MyUiElement {
+///     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
+///         write!(w, "Drawing MyUiElement...")?;
+///         Ok(())
+///     }
+/// }
+///
+/// let mut output = Vec::new(); // Example writer
+/// let mut ui_element = MyUiElement;
+/// ui_element.draw(&mut output).unwrap();
+/// println!("{}", String::from_utf8(output).unwrap());
+/// ```
 pub trait QwxUi<W: Write> {
     fn draw(&mut self, w: &mut W) -> Result<(), Error>;
 }
@@ -51,17 +131,10 @@ pub trait QwxUi<W: Write> {
 impl<W: Write> QwxUi<W> for Qwx {
     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
         execute!(w, Hide)?;
-        // ==========================================
-        // CALCUL DES MARGES POUR CENTRER LA GRILLE
-        // ==========================================
-        // On fixe une largeur maximale agréable à lire (ex: 180 caractères).
-        // Si le terminal est plus petit, on prend toute la place (self.width).
         let max_width = 180.min(self.width);
 
-        // On calcule l'espace vide restant pour trouver le point de départ en X
         let left_x = (self.width.saturating_sub(max_width)) / 2;
 
-        // Nouvelles coordonnées basées sur la marge
         let right_x = left_x + max_width.saturating_sub(1);
         let mid_x = left_x + (max_width / 2);
 
@@ -69,11 +142,6 @@ impl<W: Write> QwxUi<W> for Qwx {
         let bottom_y = self.height.saturating_sub(1);
         let mid_y = self.height / 2;
 
-        // ==========================================
-        // 1. DESSINER LE CADRE EXTÉRIEUR ET LA CROIX
-        // ==========================================
-
-        // Ligne horizontale dynamique adaptée à max_width
         let horiz_line = "─".repeat(max_width.saturating_sub(2) as usize);
 
         queue!(
@@ -85,7 +153,7 @@ impl<W: Write> QwxUi<W> for Qwx {
             Print(format!("└{}┘", horiz_line))
         )?;
 
-        // Lignes verticales extérieures (Gauche et Droite)
+        // Vertical extern right and left
         for y in (top_y + 1)..bottom_y {
             if y != mid_y {
                 queue!(
@@ -99,7 +167,7 @@ impl<W: Write> QwxUi<W> for Qwx {
             }
         }
 
-        // Ligne de séparation horizontale centrale
+        // Horizontal separator line
         for x in (left_x + 1)..right_x {
             if x != mid_x {
                 queue!(
@@ -111,7 +179,7 @@ impl<W: Write> QwxUi<W> for Qwx {
             }
         }
 
-        // Ligne de séparation verticale centrale
+        // Vertical separator line
         for y in (top_y + 1)..bottom_y {
             if y != mid_y {
                 queue!(
@@ -139,10 +207,6 @@ impl<W: Write> QwxUi<W> for Qwx {
             Print("┼")
         )?;
 
-        // ==========================================
-        // 2. DÉFINIR LES ZONES DES PANNEAUX
-        // ==========================================
-        // Les dimensions s'adaptent désormais parfaitement aux marges
         let panes_bounds = [
             (
                 PaneFocus::TopLeft,
@@ -174,7 +238,7 @@ impl<W: Write> QwxUi<W> for Qwx {
             ),
         ];
 
-        // 3. Dessiner le contenu de chaque panneau
+        // 3. Draw the content of each pane
         for (i, &(pane_focus, start_x, start_y, p_width, p_height)) in
             panes_bounds.iter().enumerate()
         {
@@ -221,7 +285,6 @@ impl<W: Write> QwxUi<W> for Qwx {
             let indicator_y = start_y + p_height.saturating_sub(1);
             queue!(w, MoveTo(indicator_x, indicator_y))?;
             if is_active {
-                // Le panneau actif utilise notre violet cosmique
                 queue!(
                     w,
                     SetForegroundColor(UI_BORDER_ACTIVE),
@@ -230,7 +293,6 @@ impl<W: Write> QwxUi<W> for Qwx {
                     Print(expo)
                 )?;
             } else {
-                // Les panneaux inactifs reculent visuellement avec le texte muté
                 queue!(
                     w,
                     SetForegroundColor(UI_TEXT_MUTED),
@@ -241,13 +303,9 @@ impl<W: Write> QwxUi<W> for Qwx {
             }
         }
 
-        // ==========================================
-        // DESSINER DMENU / FINDER
-        // ==========================================
         if self.is_finder_open() {
             self.draw_finder(w)?;
-        } else if self.mode == Mode::Dmenu {
-            // Modification ici pour s'aligner sur les nouvelles colonnes restreintes
+        } else if self.mode == Mode::Menu {
             let (start_x, start_y, pane_width) = match self.focus {
                 PaneFocus::TopLeft => (left_x, top_y, (mid_x - left_x)),
                 PaneFocus::TopRight => (mid_x + 1, top_y, (right_x - mid_x)),
@@ -255,7 +313,7 @@ impl<W: Write> QwxUi<W> for Qwx {
                 PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, (right_x - mid_x)),
             };
 
-            let prompt = format!(" {} ", self.dmenu_input);
+            let prompt = format!(" {} ", self.menu_input);
             let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
 
             queue!(
@@ -267,7 +325,6 @@ impl<W: Write> QwxUi<W> for Qwx {
                 ResetColor
             )?;
         } else if self.mode == Mode::Search {
-            // Affichage de la barre de recherche dans le panneau actif
             let (start_x, start_y, pane_width) = match self.focus {
                 PaneFocus::TopLeft => (left_x, top_y, (mid_x - left_x)),
                 PaneFocus::TopRight => (mid_x + 1, top_y, (right_x - mid_x)),
@@ -287,19 +344,12 @@ impl<W: Write> QwxUi<W> for Qwx {
             )?;
         }
 
-        // ==========================================
-        // POSITIONNEMENT ET STYLE DU CURSEUR
-        // ==========================================
-        // ✨ On active le curseur pour le mode Normal ET le mode Editor
         if self.mode == Mode::Editor || self.mode == Mode::Normal {
             queue!(w, Show)?;
 
-            // ✨ Changement de style selon le mode
             if self.mode == Mode::Editor {
-                // Bloc plein quand on écrit
                 queue!(w, SetCursorStyle::SteadyBlock)?;
             } else {
-                // Tiret du bas quand on se déplace en Normal
                 queue!(w, SetCursorStyle::SteadyUnderScore)?;
             }
 
@@ -312,21 +362,16 @@ impl<W: Write> QwxUi<W> for Qwx {
                 let scroll_y = active_pane.cursor as usize;
                 let line_idx = self.editor.cursor_line;
                 let col_idx = self.editor.cursor_col;
-
-                // Si le curseur est dans la partie visible de la fenêtre
                 if line_idx >= scroll_y && line_idx < scroll_y + (p_height as usize) {
                     let screen_y = start_y + (line_idx - scroll_y) as u16;
                     let screen_x = start_x + (col_idx as u16).min(p_width.saturating_sub(1));
 
                     queue!(w, MoveTo(screen_x, screen_y))?;
                 } else {
-                    // Si le curseur logique sort de l'écran, on le cache pour éviter les artefacts
                     queue!(w, Hide)?;
                 }
             }
         } else {
-            // Dans les autres modes (Finder, Dmenu, Search), on le cache par défaut
-            // (ou on pourra le gérer plus tard pour les barres de recherche !)
             queue!(w, Hide)?;
         }
 
@@ -335,8 +380,47 @@ impl<W: Write> QwxUi<W> for Qwx {
         Ok(())
     }
 }
+
+/// A trait for managing and navigating through a sequence of finder layouts.
+///
+/// The `QwxFinder` trait provides methods for transitioning between layouts in a sequence,
+/// allowing forward and backward traversal. This trait is particularly useful for implementations
+/// that involve dynamic layout switching, such as editors, UI/UX flows, or complex state systems.
 pub trait QwxFinder {
+    /// Updates the state by shifting the current layout to the previous one in a sequence of layouts.
+    ///
+    /// # Description
+    /// This method is used to transition to the previous finder layout in a predefined sequence
+    /// of layouts. It modifies the internal state of the object accordingly, ensuring that the
+    /// layout reflects the one prior to the currently active layout. This can be useful in scenarios
+    /// where navigating backward through a series of layouts is required (e.g., in UI/UX workflows
+    /// or state management systems).
+    ///
+    /// # Notes
+    /// - Make sure that the implementation handles edge cases, such as when the current layout is the
+    ///   first one in the sequence.
+    /// - Internal dependencies and state changes, if any, should be documented and handled appropriately.
     fn previous_finder_layout(&mut self);
+
+    /// Updates the current finder layout to the next available layout configuration.
+    ///
+    /// # Description
+    /// This method modifies the current finder layout to cycle through predefined layout configurations.
+    /// It allows switching or progressing to the next layout arrangement, facilitating dynamic adjustments
+    /// to the visual or functional setup of the finder component.
+    ///
+    /// # Behavior
+    /// - The method maintains an internal state to track the current layout.
+    /// - Upon invocation, it advances to the next layout option in the sequence.
+    /// - If the last layout configuration in the sequence is currently active, this method wraps around
+    ///   and returns to the first layout configuration.
+    ///
+    /// # Note
+    /// Ensure the internal layout configurations have been properly initialized before calling this method
+    /// to prevent any unexpected behavior.
+    ///
+    /// # Errors
+    /// This method does not return any errors.
     fn next_finder_layout(&mut self);
 }
 
@@ -350,8 +434,47 @@ impl QwxFinder for Qwx {
     }
 }
 
+/// The `QwxPanel` trait defines the behavior and functionality for managing
+/// and interacting with a panel that contains panes, specifically focusing
+/// on loading files for the active pane and providing mutable access to it.
 pub trait QwxPanel {
+    /// Loads the file associated with the currently active pane.
+    ///
+    /// This function retrieves and processes the file linked to the active pane
+    /// in the user interface. It typically refreshes or updates the displayed
+    /// content to reflect the changes or current state of the file associated
+    /// with that pane.
+    ///
+    /// # Parameters
+    ///
+    /// This is a method of a struct containing mutable state, so it operates on `&mut self`.
+    ///
+    /// # Behavior
+    ///
+    /// - If there is no active pane, the function may do nothing or handle the
+    ///   case accordingly (e.g., logging an error or providing a default behavior).
+    /// - If the active pane has a file associated with it, the function ensures
+    ///   that the file is properly loaded and its contents made available for
+    ///   further operations.
+    ///
+    /// # Errors
+    ///
+    /// This function may handle errors internally or propagate them, such as if
+    /// the file fails to load or is inaccessible. Refer to the implementation
+    /// details for specific error handling strategies.
     fn load_active_pane_file(&mut self);
+    /// Returns a mutable reference to the currently active pane's state.
+    ///
+    /// This function provides mutable access to the `PaneState` of the active pane,
+    /// allowing modifications to its properties. The active pane refers to the
+    /// currently selected or focused pane in the system.
+    ///
+    /// # Returns
+    /// * `&mut PaneState` - A mutable reference to the state of the active pane.
+    ///
+    /// # Notes
+    /// Ensure that no other mutable references to the active pane exist when this
+    /// function is called, as per Rust's borrowing rules.
     fn active_pane_mut(&mut self) -> &mut PaneState;
 }
 
@@ -378,6 +501,40 @@ impl QwxPanel for Qwx {
         &mut self.panes[self.focus as usize]
     }
 }
+/// Reads all lines from a file at the given path and returns them as a `Vec<String>`.
+///
+/// # Parameters
+/// - `path`: The file system path to the file. It can be anything that implements the `AsRef<Path>` trait,
+///           such as a `&str`, `String`, or `Path`.
+///
+/// # Returns
+/// - `Ok(Vec<String>)`: A vector of strings, where each string represents a single line from the file.
+/// - `Err(Error)`: An I/O error encountered during the file operation, except for invalid UTF-8 data errors,
+///                 which are silently ignored.
+///
+/// # Behavior
+/// - This function uses a buffered reader to read the file line by line.
+/// - Lines that cannot be read due to invalid UTF-8 data are skipped without stopping the process.
+/// - Any other types of errors, such as file permissions issues or file not found, cause the function to return an error.
+///
+/// # Example
+/// ```
+/// use std::path::Path;
+/// use qwx::editor::qwx_read_lines;
+/// let lines = qwx_read_lines(Path::new("example.txt"));
+/// match lines {
+///     Ok(lines) => {
+///         for line in lines {
+///             println!("{}", line);
+///         }
+///     }
+///     Err(e) => eprintln!("Error reading file: {e}"),
+/// }
+/// ```
+///
+/// # Errors
+/// The function propagates errors from the `File::open` method and the `BufReader` while reading the lines,
+/// except when an error is caused by invalid UTF-8 data (`ErrorKind::InvalidData`), which is ignored.
 pub fn qwx_read_lines(path: impl AsRef<Path>) -> Result<Vec<String>, Error> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
@@ -396,7 +553,58 @@ pub fn qwx_read_lines(path: impl AsRef<Path>) -> Result<Vec<String>, Error> {
     Ok(lines)
 }
 
-fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
+/// Loads a `Node` from the given file path and assigns it a specific ID.
+///
+/// # Parameters
+///
+/// - `id`: The unique numeric identifier for the `Node`.
+/// - `path`: A reference to the file path from which to load the `Node`.
+///
+/// # Returns
+///
+/// This function returns a `Result<Node, Error>`:
+/// - `Ok(Node)` on successful creation of a `Node`.
+/// - `Err(Error)` if there is an error reading the file or processing its contents.
+///
+/// # Functionality
+///
+/// - Reads the file at the specified `path` and extracts its lines into a vector of strings.
+/// - The file name is extracted from the `path` and used as the name of the `Node`.
+/// - Attempts to determine whether the `path` points to a valid file (`is_file` flag).
+/// - If the file is valid, it uses the `Ji` library to parse it and generate syntax-colored spans (if possible).
+///   - The spans are processed into a structure where each line is annotated with its corresponding syntax color.
+/// - If syntax-colored spans could not be generated (e.g., empty file or no compatible Tree-sitter support),
+///   assigns plain white-colored text as a fallback.
+/// - Constructs and returns a `Node` instance with the following information:
+///   - `id`: The provided ID.
+///   - `name`: The file name derived from the `path`.
+///   - `content`: The raw lines of text extracted from the file.
+///   - `colored_lines`: Syntax-colored text or fallback white-colored text.
+///   - `is_file`: Boolean indicating whether the path is a valid file.
+///
+/// # Errors
+///
+/// - Returns an error if the file cannot be read (e.g., due to missing permissions or invalid path).
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+/// use qwx::editor::qwx_load_node;
+/// let path = Path::new("example.txt");
+/// let node = qwx_load_node(1, path);
+/// match node {
+///     Ok(n) => println!("Node loaded with name: {}", n.name),
+///     Err(e) => eprintln!("Failed to load Node: {:?}", e),
+/// }
+/// ```
+///
+/// # Notes
+///
+/// - This function uses the `Ji` library to generate syntax-colored spans.
+/// - If the file is empty or incompatible with Tree-sitter parsing, it defaults to displaying plain text in white color.
+/// - Ensure that the `Color` type and `Ji` library functionalities (e.g., `open`, `get_colored_spans`) are properly implemented and accessible.
+pub fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
     let content = qwx_read_lines(path)?;
     let name = path
         .file_name()
@@ -409,7 +617,6 @@ fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
     let mut colored_lines = Vec::new();
 
     if is_file {
-        // On ouvre silencieusement le fichier avec Ji pour générer l'arbre syntaxique
         if let Ok(temp_ji) = Ji::open(path) {
             let spans = temp_ji.get_colored_spans();
 
@@ -451,12 +658,32 @@ fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
     })
 }
 
+/// The `Qwx` struct represents the core state and configuration of the application.
+/// It encapsulates the layout, navigation structure, user inputs, and various modes to define the behavior and appearance of the system.
+///
+/// # Fields
+///
+/// * `finder_layout` - Defines the layout configuration of the finder, which determines how components are arranged visually.
+/// * `finder` - Represents the main file navigation component used for browsing files and directories.
+/// * `finder_research` - Holds the current search query string for the finder functionality.
+/// * `nodes` - A collection of `Node` structures that represent the raw in-memory representation of the filesystem structure.
+/// * `views` - A collection of `View` objects representing the active scrollable windows or panes in the application.
+/// * `width` - The width of the application's available screen space, measured in character or pixel units.
+/// * `height` - The height of the application's available screen space, measured in character or pixel units.
+/// * `running` - A boolean flag indicating whether the application is currently running or should terminate.
+/// * `current_dir` - A `Box<Path>` pointing to the current working directory within the application.
+/// * `focus` - Specifies the current focus of the application, detailing which pane or area is currently active for user interactions.
+/// * `panes` - An array of four `PaneState` objects representing the state of up to four panes, used for organizing views or sections of the application.
+/// * `mode` - Represents the current operating mode of the application, which affects its behavior and user interface patterns.
+/// * `menu_input` - Holds the input string provided by the user for dynamic menu operations.
+/// * `editor` - Represents the `Ji` editor instance, which is used for any text editing functionalities within the application.
+/// * `search_input` - Stores the user's input string for search operations within the application.
 pub struct Qwx {
     finder_layout: FinderLayout,
     finder: Finder,
-    finder_recherch: String,
-    nodes: Vec<Node>, // La mémoire brute
-    views: Vec<View>, // Les fenêtres de défilement
+    finder_research: String,
+    nodes: Vec<Node>,
+    views: Vec<View>,
     width: u16,
     height: u16,
     running: bool,
@@ -464,17 +691,62 @@ pub struct Qwx {
     focus: PaneFocus,
     panes: [PaneState; 4],
     mode: Mode,
-    dmenu_input: String,
+    menu_input: String,
     editor: Ji,
     search_input: String,
 }
 
-pub struct QwxContext;
-pub struct QwxEventResult;
-// Niveau 8 : La Vue (La fenêtre de défilement)
+/// A `View` structure that represents the current state of a view in the application.
+///
+/// # Fields
+/// * `active_node_id` - An identifier of type `usize` that represents the currently active node within the view.
+///                      This field is publicly accessible and can be used to track or modify the active node as needed.
+///
+/// # Example
+/// ```
+/// use qwx::editor::View;
+/// let view = View {
+///     active_node_id: 42,
+/// };
+/// println!("Active node ID: {}", view.active_node_id);
+/// ```
 pub struct View {
     pub active_node_id: usize,
 }
+/// An enumeration representing possible directions for movement or orientation.
+///
+/// # Variants
+///
+/// - `Left`:
+///   Represents movement or orientation to the left.
+///
+/// - `Right`:
+///   Represents movement or orientation to the right.
+///
+/// - `Down`:
+///   Represents movement or orientation downward.
+///
+/// - `Up`:
+///   Represents movement or orientation upward.
+///
+/// - `Vertical`:
+///   Represents a general vertical orientation, encompassing both `Up` and `Down`.
+///
+/// - `Horizontal`:
+///   Represents a general horizontal orientation, encompassing both `Left` and `Right`.
+///
+/// # Examples
+///
+/// ```rust
+/// use qwx::editor::QwxDirection;
+///
+/// let direction = QwxDirection::Left;
+/// match direction {
+///     QwxDirection::Left => println!("Going left!"),
+///     QwxDirection::Up => println!("Going up!"),
+///     _ => println!("Other direction."),
+/// }
+/// ```
 pub enum QwxDirection {
     Left,
     Right,
@@ -484,6 +756,44 @@ pub enum QwxDirection {
     Horizontal,
 }
 
+/// Represents the possible directions for a scroll action along with an associated value.
+///
+/// The `QwxScrollDirection` enum is designed to specify the direction of scrolling
+/// and includes an associated `u16` value, which can represent details such as the
+/// magnitude or units of scrolling. Each variant corresponds to a particular scrolling
+/// direction.
+///
+/// # Variants
+///
+/// - `Left(u16)`
+///     Represents scrolling to the left with an associated magnitude.
+///
+/// - `Right(u16)`
+///     Represents scrolling to the right with an associated magnitude.
+///
+/// - `Down(u16)`
+///     Represents scrolling downwards with an associated magnitude.
+///
+/// - `Up(u16)`
+///     Represents scrolling upwards with an associated magnitude.
+///
+/// - `Vertical(u16)`
+///     Represents vertical scrolling (either up or down) with an associated magnitude.
+///
+/// - `Horizontal(u16)`
+///     Represents horizontal scrolling (either left or right) with an associated magnitude.
+///
+/// # Examples
+///
+/// ```rust
+/// use qwx::editor::QwxScrollDirection;
+///
+/// let scroll_left = QwxScrollDirection::Left(10);
+/// let scroll_down = QwxScrollDirection::Down(20);
+/// ```
+///
+/// This enum can be used to control or represent scrolling behavior in a UI or other
+/// directional context where quantified scrolling is required.
 pub enum QwxScrollDirection {
     Left(u16),
     Right(u16),
@@ -492,6 +802,43 @@ pub enum QwxScrollDirection {
     Vertical(u16),
     Horizontal(u16),
 }
+/// Represents the focus of a pane in a user interface or layout system.
+///
+/// The `PaneFocus` enum is used to signify the specific section of a pane
+/// that currently has focus. It supports copying, cloning, and comparison
+/// due to the derived traits.
+///
+/// # Variants
+///
+/// * `TopLeft` - Represents the top-left section of the pane.
+/// * `TopRight` - Represents the top-right section of the pane.
+/// * `BottomLeft` - Represents the bottom-left section of the pane.
+/// * `BottomRight` - Represents the bottom-right section of the pane.
+///
+/// # Trait Implementations
+///
+/// * `Copy` - Allows for bitwise copying of the `PaneFocus` value.
+/// * `Clone` - Enables the creation of a new instance of `PaneFocus`
+///   with the same value as the original.
+/// * `PartialEq` - Allows for comparison between two `PaneFocus`
+///   instances to check for equality.
+///
+/// # Usage
+///
+/// The `PaneFocus` enum can be used in layout management or UI interactions
+/// to track and modify the focus state of different sections of a pane.
+///
+/// ```rust
+/// use qwx::editor::PaneFocus;
+///
+/// let focus = PaneFocus::TopLeft;
+/// match focus {
+///     PaneFocus::TopLeft => println!("Top-left pane is focused."),
+///     PaneFocus::TopRight => println!("Top-right pane is focused."),
+///     PaneFocus::BottomLeft => println!("Bottom-left pane is focused."),
+///     PaneFocus::BottomRight => println!("Bottom-right pane is focused."),
+/// }
+/// ```
 #[derive(Copy, Clone, PartialEq)]
 pub enum PaneFocus {
     TopLeft = 0,
@@ -500,6 +847,33 @@ pub enum PaneFocus {
     BottomRight = 3,
 }
 
+/// Represents a node in a data structure that can either be a file or a directory.
+///
+/// # Fields
+///
+/// * `id` (`usize`) -
+///   A unique identifier for the node. This can be used to uniquely distinguish nodes within a structure.
+///
+/// * `name` (`String`) -
+///   The name of the node. Typically, represents the filename if `is_file` is true or the directory name otherwise.
+///
+/// * `content` (`Vec<String>`) -
+///   A vector of strings containing the content of the node. This is typically used for file nodes to store each line of the file's text.
+///
+/// * `colored_lines` (`Vec<Vec<(String, Color)>>`) -
+///   A vector of lines where each line contains colored text. Each line is represented as a vector of tuples,
+///   where each tuple consists of a `String` (the text) and a `Color` (the color applied to the text).
+///
+/// * `is_file` (`bool`) -
+///   A boolean flag indicating whether the node represents a file (`true`) or a directory (`false`).
+///
+/// # Derives
+///
+/// * `Default` -
+///   Provides a default implementation for the `Node` struct, initializing all fields with their default values.
+///
+/// * `Clone` -
+///   Enables the `Node` struct to be cloned, creating an exact copy of the instance.
 #[derive(Default, Clone)]
 pub struct Node {
     pub id: usize,
@@ -509,6 +883,15 @@ pub struct Node {
     pub is_file: bool,
 }
 
+/// Represents the state of a pane in an application.
+///
+/// The `PaneState` struct is marked with `Copy` and `Clone` traits,
+/// allowing instances to be easily duplicated without ownership concerns.
+///
+/// # Fields
+/// - `workspace` (`u8`): Indicates the current workspace index the pane belongs to.
+/// - `view` (`u8`): Represents the current view index within the pane.
+/// - `cursor` (`u16`): Stores the position of the cursor in the pane.
 #[derive(Copy, Clone)]
 pub struct PaneState {
     workspace: u8,
@@ -516,23 +899,159 @@ pub struct PaneState {
     cursor: u16,
 }
 
+/// An enumeration representing the different operational modes of an application.
+///
+/// The `Mode` enum is defined with the `#[derive(PartialEq)]` attribute, allowing for
+/// comparison between its variants. This can be useful in scenarios where the current
+/// mode needs to be compared or checked within the application logic.
+///
+/// # Variants
+///
+/// - `Normal`:
+///     The default operational mode, typically representing the standard state of the application.
+///
+/// - `Menu`:
+///     Represents a state where the application is in a menu interaction mode.
+///
+/// - `Finder`:
+///     Represents a state where the application is in a finder or search browsing mode.
+///
+/// - `Editor`:
+///     Represents a state where the application is in editing mode, allowing users to modify content or files.
+///
+/// - `Search`:
+///     Represents a state where the application is focused on searching functionality.
+///
+/// # Examples
+///
+/// ```rust
+/// use qwx::editor::Mode;
+///
+/// let current_mode = Mode::Normal;
+///
+/// if current_mode == Mode::Menu {
+///     println!("The application is in menu mode.");
+/// } else {
+///     println!("The application is not in menu mode.");
+/// }
+/// ```
 #[derive(PartialEq)]
 pub enum Mode {
     Normal,
-    Dmenu,
+    Menu,
     Finder,
     Editor,
     Search,
 }
-
+///
+/// A trait that provides functionality for managing a cursor in the context of a writable output.
+/// This includes operations to scroll, show, and hide the cursor.
+///
+/// # Type Parameters
+/// - `W`: A type that implements the `Write` trait, representing the writable output,
+///         such as a terminal or other output stream.
+///
+/// # Required Methods
+///
+/// ## `scroll`
+/// Scrolls the cursor in the specified direction.
+///
+/// ### Parameters
+/// - `w`: A mutable reference to an instance of type `W` that represents the writable output.
+/// - `direction`: A `QwxScrollDirection` value specifying the direction in which to scroll the cursor.
+///
+/// ### Returns
+/// - `Result<(), Error>`: Returns `Ok(())` if the operation is successful, or an `Err` variant
+/// containing an `Error` if the operation fails.
+///
+/// ## `show`
+/// Makes the cursor visible.
+///
+/// ### Parameters
+/// - `w`: A mutable reference to an instance of type `W` that represents the writable output.
+///
+/// ### Returns
+/// - `Result<(), Error>`: Returns `Ok(())` if the operation is successful, or an `Err` variant
+/// containing an `Error` if the operation fails.
+///
+/// ## `hide`
+/// Hides the cursor from being visible.
+///
+/// ### Parameters
+/// - `w`: A mutable reference to an instance of type `W` that represents the writable output.
+///
+/// ### Returns
+/// - `Result<(), Error>`: Returns `Ok(())` if the operation is successful, or an `Err` variant
+/// containing an `Error` if the operation fails.
+///
 pub trait QwxCursor<W: Write> {
+    /// Scrolls the content in the specified direction and updates the given writable output.
+    ///
+    /// # Parameters
+    /// - `w`: A mutable reference to a writable object of type `W`.
+    ///         This is used to output or update any relevant changes caused by the scroll action.
+    /// - `direction`: The direction of the scroll, specified using the `QwxScrollDirection` enum.
+    ///                This determines the scrolling behavior (e.g., up, down, left, right).
+    ///
+    /// # Returns
+    /// - `Ok(())`: If the scroll operation was performed successfully.
+    /// - `Err(Error)`: If an error occurred during the scroll operation.
+    ///
+    /// # Errors
+    /// This function may return an error in cases such as:
+    /// - An invalid operation on the writable object.
+    /// - An unsupported scroll direction or other internal state failures depending on implementation.
+    ///
+    /// This example demonstrates how to invoke the `scroll` method to scroll downward with proper handling.
+    ///
+    /// # Notes
+    /// This method mutably borrows the writable object `w` and the struct on which it is called.
     fn scroll(&mut self, w: &mut W, direction: QwxScrollDirection) -> Result<(), Error>;
+    /// Displays content using the provided writer.
+    ///
+    /// This function renders or outputs content to the given writable instance `w`.
+    /// The specific content and behavior depend on the implementation of this function
+    /// in the corresponding type.
+    ///
+    /// # Parameters
+    /// - `w`: A mutable reference to the writer where the content will be displayed.
+    ///        The writer must implement the `Write` trait.
+    ///
+    /// # Returns
+    /// - `Ok(())`: If the content was successfully displayed.
+    /// - `Err(Error)`: If an error occurred during the operation.
+    ///
+    /// # Errors
+    /// This function may return an error if there are issues written to the provided writer.
     fn show(&mut self, w: &mut W) -> Result<(), Error>;
+    /// Hides the current object, performing operations related to the provided writer.
+    ///
+    /// # Parameters
+    /// - `w`: A mutable reference to a writer of type `W` that the object interacts with during the hide operation.
+    ///
+    /// # Returns
+    /// - `Result<(), Error>`: Returns `Ok(())` if the operation is successful, or an `Error` if something goes wrong during the process.
+    ///
+    /// # Errors
+    /// This function returns an `Error` if it encounters any issues while attempting to hide the object.
     fn hide(&mut self, w: &mut W) -> Result<(), Error>;
 }
+/// A trait that defines the rendering behavior for a QwxRenderer.
+///
+/// This trait is implemented for structures that handle rendering operations, intended to write
+/// output using a generic `Write` trait implementation. It provides methods for clearing rendering targets,
+/// drawing text, and updating the rendered output.
+///
+/// # Type Parameters
+/// - `W`: A type that implements the `Write` trait, used for writing rendered output.
+///
 pub trait QwxRenderer<W: Write> {
+    /// Clears the rendering target with the specified mode.
     fn clear(&mut self, w: &mut W, mode: ClearType) -> Result<(), Error>;
+    /// Clears the entire rendering target.
     fn clear_screen(&mut self, w: &mut W) -> Result<(), Error>;
+
+    /// Draws text at the specified position with the given color.
     fn draw_text(
         &mut self,
         w: &mut W,
@@ -541,13 +1060,21 @@ pub trait QwxRenderer<W: Write> {
         text: &str,
         color: Color,
     ) -> Result<(), Error>;
+    /// Flushes the rendering buffer to the output.
     fn flush(&mut self, w: &mut W) -> Result<(), Error>;
 }
-
+/// The `QwxBuffer` trait provides an abstraction for a text buffer. It defines
+/// operations for manipulating and querying the contents of the buffer, such as
+/// inserting and deleting characters, retrieving specific lines of text, and
+/// getting the total number of lines in the buffer.
 pub trait QwxBuffer {
+    /// Insert a character at the specified position in the buffer.
     fn insert_char(&mut self, line: usize, col: usize, c: char);
+    /// Delete a character at the specified position in the buffer.
     fn delete_char(&mut self, line: usize, col: usize);
+    /// Get the line at the specified position in the buffer.
     fn get_line(&self, line: usize) -> Option<&str>;
+    /// Get the length of the buffer.
     fn len_lines(&self) -> usize;
 }
 
@@ -562,17 +1089,57 @@ impl<W: Write> QwxCursor<W> for Qwx {
             QwxScrollDirection::Up(x) => execute!(w, MoveUp(x)),
         }
     }
-
+    /// Displays the associated content or performs an action tied to the `Show` command.
+    ///
+    /// This method writes a `Show` command to the provided mutable writer `w`
+    /// and executes it. It integrates with the `execute!` macro to handle
+    /// the operation and returns a `Result` indicating success or failure.
+    ///
+    /// # Parameters
+    /// - `w`: A mutable reference to a writer that implements the `Write`
+    ///   trait. This is the output target where the `Show` command will be executed.
+    ///
+    /// # Returns
+    /// - `Ok(())`: If the `Show` command was successfully executed.
+    /// - `Err(Error)`: If an error occurred while attempting to execute the command.
+    ///
+    /// # Errors
+    /// This function returns an error in cases where the `execute!` macro fails
+    /// to perform the intended operation, such as problems with the writer or internal execution.
     fn show(&mut self, w: &mut W) -> Result<(), Error> {
         execute!(w, Show)
     }
-
+    /// Hides the cursor in the given writable stream.
+    ///
+    /// This function sends a `Hide` command to the specified writable stream `w`,
+    /// which hides the cursor in terminal-based applications. The modification is
+    /// applied to the `w` writable stream passed as a mutable reference.
+    ///
+    /// # Arguments
+    ///
+    /// * `w` - A mutable reference to a writable stream implementing the Write trait.
+    ///          This will receive the `Hide` command to hide the cursor.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` which is `Ok(())` if the command is executed successfully.
+    /// If an error occurs during the execution of the `Hide` command, it will return
+    /// an `Err` variant containing the associated `Error`.
+    ///
+    /// # Errors
+    ///
+    /// An error may occur if the `execute!` macro fails to send the `Hide` command to
+    /// the writable stream, for instance, due to IO or stream-related issues.
     fn hide(&mut self, w: &mut W) -> Result<(), Error> {
         execute!(w, Hide)
     }
 }
 
 impl<W: Write> QwxRenderer<W> for Qwx {
+    fn clear(&mut self, w: &mut W, mode: ClearType) -> Result<(), Error> {
+        queue!(w, Clear(mode))
+    }
+
     fn clear_screen(&mut self, w: &mut W) -> Result<(), Error> {
         queue!(w, Clear(ClearType::All))
     }
@@ -599,10 +1166,6 @@ impl<W: Write> QwxRenderer<W> for Qwx {
     fn flush(&mut self, w: &mut W) -> Result<(), Error> {
         w.flush()
     }
-
-    fn clear(&mut self, w: &mut W, mode: ClearType) -> Result<(), Error> {
-        queue!(w, Clear(mode))
-    }
 }
 
 impl Qwx {
@@ -615,11 +1178,7 @@ impl Qwx {
             if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
                 let mut new_content = Vec::new();
 
-                // On parcourt toutes les lignes générées par ropey
                 for line in self.editor.rope.lines() {
-                    // On enlève les retours à la ligne de la fin, car ta fonction preview
-                    // les rajoute manuellement avant de les passer à syntect
-
                     let clean_line = line
                         .to_string()
                         .trim_end_matches(&['\n', '\r'][..])
@@ -676,19 +1235,15 @@ impl Qwx {
 
         let margin = 3.min(p_height / 3);
 
-        // Si le curseur s'approche trop du bord HAUT de l'écran
         if cursor_line < scroll_y + margin {
             pane.cursor = cursor_line.saturating_sub(margin) as u16;
-        }
-        // Si le curseur s'approche trop du bord BAS de l'écran
-        else if cursor_line + margin >= scroll_y + p_height {
+        } else if cursor_line + margin >= scroll_y + p_height {
             pane.cursor = (cursor_line + margin + 1).saturating_sub(p_height) as u16;
         }
     }
     fn handle_normal(&mut self) {
         match read().expect("failed to get terminal input") {
             Event::Key(key) => match (key.modifiers, key.code) {
-                // --- CURSEUR ---
                 (KeyModifiers::NONE, KeyCode::Char('j')) => {
                     // On vérifie qu'on ne dépasse pas la fin du fichier avec le curseur logique
                     if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
@@ -751,7 +1306,6 @@ impl Qwx {
                     }
                     self.follow();
                 }
-                // --- SCROLL RAPIDE ---
                 (KeyModifiers::NONE, KeyCode::PageDown) => {
                     let active_idx = self.focus as usize;
                     let node_len = if let Some(view) = self.views.get(active_idx) {
@@ -853,8 +1407,8 @@ impl Qwx {
                     self.mode = Mode::Finder;
                 }
                 (KeyModifiers::ALT, KeyCode::Char('d')) => {
-                    self.mode = Mode::Dmenu;
-                    self.dmenu_input.clear();
+                    self.mode = Mode::Menu;
+                    self.menu_input.clear();
                 }
                 (KeyModifiers::ALT, KeyCode::Char('/')) => {
                     self.mode = Mode::Search;
@@ -887,8 +1441,6 @@ impl Qwx {
 
                     self.load_active_pane_file();
                 }
-
-                // --- Rotation Anti-Horaire (Alt + r) ---
                 (KeyModifiers::ALT, KeyCode::Char('r')) => {
                     let old_panes = self.panes;
                     self.panes[2] = old_panes[0];
@@ -927,10 +1479,10 @@ impl Qwx {
             Event::Key(key) => match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, KeyCode::Esc) => {
                     self.mode = Mode::Normal;
-                    self.dmenu_input.clear();
+                    self.menu_input.clear();
                 }
                 (KeyModifiers::NONE, KeyCode::Enter) => {
-                    if let Some(cmd) = self.dmenu_input.strip_prefix('!') {
+                    if let Some(cmd) = self.menu_input.strip_prefix('!') {
                         let cmd_clean = cmd.trim();
                         if let Some(dir_name) = cmd_clean.strip_prefix("mkdir ") {
                             let target_path = self.current_dir.join(dir_name.trim());
@@ -958,18 +1510,18 @@ impl Qwx {
                         }
                     }
                     self.mode = Mode::Normal;
-                    self.dmenu_input.clear();
+                    self.menu_input.clear();
                 }
                 (KeyModifiers::NONE, KeyCode::Backspace) => {
-                    self.dmenu_input.pop();
+                    self.menu_input.pop();
                 }
                 (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                    self.dmenu_input.push(c);
+                    self.menu_input.push(c);
                 }
                 _ => {}
             },
             Event::Paste(x) => {
-                self.dmenu_input.push_str(x.as_str());
+                self.menu_input.push_str(x.as_str());
             }
             Event::Resize(cols, rows) => {
                 self.width = cols;
@@ -1060,15 +1612,15 @@ impl Qwx {
             Event::Key(key) => match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, KeyCode::Esc) => {
                     self.mode = Mode::Normal;
-                    self.finder_recherch.clear();
+                    self.finder_research.clear();
                 }
                 (KeyModifiers::NONE, KeyCode::Backspace) => {
-                    self.finder_recherch.pop();
-                    self.finder.filter(self.finder_recherch.clone());
+                    self.finder_research.pop();
+                    self.finder.filter(self.finder_research.clone());
                 }
                 (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                    self.finder_recherch.push(c);
-                    self.finder.filter(self.finder_recherch.clone());
+                    self.finder_research.push(c);
+                    self.finder.filter(self.finder_research.clone());
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
                     self.finder.next_file();
@@ -1086,7 +1638,7 @@ impl Qwx {
                     if let Some(parent) = self.current_dir.parent() {
                         self.current_dir = parent.into();
                         self.finder = Finder::new(&self.current_dir, self.finder_layout.clone());
-                        self.finder_recherch.clear();
+                        self.finder_research.clear();
                     }
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
@@ -1096,7 +1648,7 @@ impl Qwx {
                         let new_path = self.current_dir.join(dirname);
                         self.current_dir = new_path.clone().into();
                         self.finder = Finder::new(&new_path, self.finder_layout.clone());
-                        self.finder_recherch.clear();
+                        self.finder_research.clear();
                     }
                 }
                 (m, KeyCode::Char('j'))
@@ -1118,7 +1670,7 @@ impl Qwx {
                         let new_path = self.current_dir.join(dirname);
                         self.current_dir = new_path.clone().into();
                         self.finder = Finder::new(&new_path, self.finder_layout.clone());
-                        self.finder_recherch.clear();
+                        self.finder_research.clear();
                     }
                 }
                 (KeyModifiers::META, KeyCode::Char('h')) => {
@@ -1146,7 +1698,7 @@ impl Qwx {
                                 self.nodes.push(node);
                                 new_id
                             } else {
-                                self.finder_recherch.clear();
+                                self.finder_research.clear();
                                 return;
                             }
                         };
@@ -1169,7 +1721,7 @@ impl Qwx {
                         }
                     }
                     self.mode = Mode::Normal;
-                    self.finder_recherch.clear();
+                    self.finder_research.clear();
                 }
                 _ => {}
             },
@@ -1228,30 +1780,31 @@ impl Qwx {
         match self.mode {
             Mode::Normal => self.handle_normal(),
             Mode::Finder => self.handle_finder(),
-            Mode::Dmenu => self.handle_menu(),
+            Mode::Menu => self.handle_menu(),
             Mode::Editor => self.handle_editor(),
             Mode::Search => self.handle_search(),
         }
     }
-    pub fn is_finder_open(&mut self) -> bool {
+    /// Creates a new instance of the editor with the specified path and open mode.
+    pub fn is_finder_open(&self) -> bool {
         self.mode == Mode::Finder
     }
     pub fn run(&mut self) -> Result<(), Error> {
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
         execute!(stdout, EnterAlternateScreen)?;
-        queue!(stdout, Clear(ClearType::All))?;
+        self.clear_screen(&mut stdout)?;
         while self.running {
             self.draw(&mut stdout)?;
             self.handle_events();
         }
-        // Nettoyage en quittant
         execute!(stdout, LeaveAlternateScreen, Show)?;
         terminal::disable_raw_mode()?;
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Displays a preview of a given node within a specified area.
     pub fn preview(
         &self,
         node: &Node,
@@ -1260,7 +1813,7 @@ impl Qwx {
         p_width: u16,
         p_height: u16,
         scroll_y: usize,
-        selection: Option<(usize, usize)>, // N'oublie pas le nouveau paramètre !
+        selection: Option<(usize, usize)>,
     ) -> Result<(), Error> {
         let mut w = stdout();
         let mut drawn_lines = 0;
@@ -1332,7 +1885,6 @@ impl Qwx {
             drawn_lines += 1;
         }
 
-        // Nettoyer les lignes restantes en bas du panneau (si fin de fichier)
         for empty_y in drawn_lines..(p_height as usize) {
             let padding = " ".repeat(p_width as usize);
             queue!(
@@ -1344,7 +1896,7 @@ impl Qwx {
         }
         Ok(())
     }
-    
+    /// Creates a new instance of the editor with the specified path and open mode.
     pub fn new(path: &Path, open_mode: Mode) -> Result<Self, Error> {
         let (width, height) = size()?;
         let mut nodes: Vec<Node> = Vec::new();
@@ -1367,17 +1919,18 @@ impl Qwx {
                 INIT_PANE_STATE,
             ],
             mode: open_mode,
-            dmenu_input: String::new(),
+            menu_input: String::new(),
             nodes: nodes.clone(),
             views,
             finder_layout: FinderLayout::Grid,
-            finder_recherch: String::new(),
+            finder_research: String::new(),
             finder: Finder::new(path, FinderLayout::Grid),
             current_dir: path.into(),
             editor: Ji::default(),
             search_input: String::new(),
         })
     }
+    /// Creates a new instance of the editor with the specified path and open mode.
     pub fn draw_finder<W: Write>(&mut self, w: &mut W) -> io::Result<()> {
         // On recalcule la zone centrale
         let max_width = 180.min(self.width);
@@ -1386,7 +1939,7 @@ impl Qwx {
         // On envoie left_x, 0 (pour top_y), max_width et la hauteur totale au Finder
         self.finder.draw(
             w,
-            self.finder_recherch.clone(),
+            self.finder_research.clone(),
             left_x,
             0,
             max_width,
@@ -1394,6 +1947,21 @@ impl Qwx {
         )
     }
 }
+/// Creates a configuration object for syntax highlighting based on the provided parameters.
+///
+/// # Parameters
+/// - `scope`: A string slice representing the scope of the language for syntax highlighting.
+/// - `lang`: The `Language` enum or object that represents the programming language.
+/// - `query`: A static string reference containing the query definitions for text parsing.
+/// - `theme_keys`: A slice of static string references representing the highlight theme keys to enable.
+///
+/// # Returns
+/// - `Option<LangConfig>`:
+///   - Returns `Some(LangConfig)` containing the configured `LangConfig` if the operation succeeds.
+///   - Returns `None` if the function fails to create a `HighlightConfiguration`.
+///
+/// # Errors
+/// This function may return `None` if the `HighlightConfiguration::new` fails to initialize with the provided arguments.
 pub fn create_config(
     scope: &str,
     lang: Language,
@@ -1730,15 +2298,48 @@ fn detect_langage(extension: &str, theme_keys: &[&'static str]) -> Option<LangCo
             tree_sitter_zig::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
-        _ => None, // Extension inconnue
+        _ => None, // Unknown extension
     }
 }
-
-/// Représente la configuration de coloration pour un langage spécifique
+/// Represents the configuration of highlighting for a specific language.
 pub struct LangConfig {
     pub ts_config: HighlightConfiguration,
     pub query_string: &'static str,
 }
+/// Represents the core state and metadata for a text editing structure.
+///
+/// The `Ji` struct holds various components necessary for managing text,
+/// syntax parsing, and other related features in a text editor.
+///
+/// # Fields
+///
+/// - `rope`: A `Rope` instance representing the text content of the editor.
+///           This efficient data structure handles large text content and edits efficiently.
+///
+/// - `file_path`: An optional `PathBuf` indicating the file path associated with
+///                the content. If `None`, the content is not currently tied to a file.
+///
+/// - `query`: An optional `Query` used for performing and managing search functionalities
+///            in the editor, such as text search or navigation commands.
+///
+/// - `cursor_line`: A `usize` representing the current line of the cursor, allowing
+///                  tracking and positioning within the text.
+///
+/// - `cursor_col`: A `usize` representing the current column position of the cursor
+///                 in the text editor.
+///
+/// - `parser`: A `Parser` instance responsible for analyzing and generating
+///             a syntax tree from the text content.
+///
+/// - `syntax_tree`: An optional `Tree` representing the parsed syntax tree of the text.
+///                  If `None`, no syntax tree has been generated or is available.
+///
+/// - `lang_config`: An optional `LangConfig` that provides language-specific settings
+///                  or metadata, such as syntax highlighting rules or parsing behaviors.
+///                  If `None`, there is no active language configuration.
+///
+/// - `selection`: An optional tuple `(usize, usize)` representing the start and end
+///                positions of text selection in the editor. If `None`, no selection is active.
 #[derive(Default)]
 pub struct Ji {
     pub rope: Rope,
@@ -1753,6 +2354,7 @@ pub struct Ji {
 }
 
 impl Ji {
+    /// Selects the entire line where the cursor is currently positioned.
     pub fn select_line(&mut self) {
         if let Some((start, end)) = self.selection {
             if end + 1 < self.rope.len_lines() {
@@ -1764,7 +2366,7 @@ impl Ji {
         }
     }
 
-    /// Mimétisme de Helix 'd' : Supprime toutes les lignes sélectionnées
+    /// Deletes the currently selected text in the editor.
     pub fn delete_selection(&mut self) {
         if let Some((start, end)) = self.selection {
             let start_char = self.rope.line_to_char(start);
@@ -1797,22 +2399,22 @@ impl Ji {
             self.update_syntax_tree();
         }
     }
-    /// Supprime le caractère situé sous le curseur (Touche Suppr)
+    /// Deletes the character immediately under the cursor (Delete key).
     pub fn delete(&mut self) {
-        // 1. Calculer l'index absolu du curseur
+        // 1. Calculate the absolute index of the cursor
         let cursor_char_idx = self.rope.line_to_char(self.cursor_line) + self.cursor_col;
 
-        // Si on est à la toute fin du fichier, il n'y a rien à supprimer
+        // If we're at the very end of the file, there's nothing to delete
         if cursor_char_idx >= self.rope.len_chars() {
             return;
         }
 
-        // 2. Identifier le caractère ciblé (exactement sous le curseur)
+        // 2. Identify the target character (exactly under the cursor)
         let target_char = self.rope.char(cursor_char_idx);
         let char_len_bytes = target_char.len_utf8();
         let byte_idx = self.rope.char_to_byte(cursor_char_idx);
 
-        // 3. Déterminer les positions graphiques pour Tree-sitter
+        // 3. Determine the graphical positions for Tree-sitter
         let start_point = Point::new(self.cursor_line, self.cursor_col);
 
         let mut old_end_point = start_point;
@@ -1823,7 +2425,7 @@ impl Ji {
             old_end_point.column += char_len_bytes;
         }
 
-        // 4. Notifier l'arbre syntaxique de la suppression
+        // 4. Notify the syntax tree of the deletion
         if let Some(ref mut tree) = self.syntax_tree {
             let edit = InputEdit {
                 start_byte: byte_idx,
@@ -1831,38 +2433,105 @@ impl Ji {
                 new_end_byte: byte_idx,
                 start_position: start_point,
                 old_end_position: old_end_point,
-                new_end_position: start_point, // Le curseur ne bouge pas
+                new_end_position: start_point, // The cursor doesn't move
             };
             tree.edit(&edit);
         }
 
-        // 5. Supprimer le caractère dans la structure Rope
+        // 5. Delete the character in the Rope structure
         self.rope.remove(cursor_char_idx..(cursor_char_idx + 1));
 
-        // 6. Mettre à jour l'arbre syntaxique
         self.update_syntax_tree();
     }
-    /// Sauvegarde le contenu de l'éditeur dans le fichier d'origine
+    /// Saves the current state of the data to a file at the specified file path.
+    ///
+    /// This function attempts to write the contents of `self.rope` to the file
+    /// pointed to by `self.file_path`. If the file already exists, it will be
+    /// overwritten. The function uses a buffered writer (`BufWriter`) to optimize
+    /// disk writing performance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Result` error if:
+    /// - The file cannot be created or opened at the specified path.
+    /// - An I/O error occurs during the writing process.
+    ///
+    /// # Implementation Details
+    ///
+    /// - The `File::create` method is used to open or create the file.
+    /// - `BufWriter` is employed to minimize the number of system calls by buffering
+    ///   the write operations.
+    /// - The `rope.write_to` method ensures efficient writing of the in-memory
+    ///   text structure to the file.
+    ///
+    /// # Preconditions
+    ///
+    /// - The `self.file_path` field must be `Some` and contain
     pub fn save(&mut self) -> io::Result<()> {
         if let Some(ref path) = self.file_path {
-            // Création ou écrasement du fichier
             let file = File::create(path)?;
 
-            // Utilisation d'un BufWriter pour une écriture disque performante
             let writer = std::io::BufWriter::new(file);
 
-            // Ropey possède une méthode hyper optimisée pour s'écrire dans un flux
             self.rope.write_to(writer)?;
         }
         Ok(())
     }
-
+    /// Opens a file at the specified path and initializes a custom editor instance.
+    ///
+    /// This function attempts to read the file at the given path, process its contents into a `rope`
+    /// (a data structure suitable for efficient text editing), and conditionally applies syntax highlighting
+    /// and Tree-sitter parsing support if the file's language is recognized.
+    ///
+    /// # Type Parameters
+    /// - `P`: A type that can be referenced as a `Path`. Commonly `&str` or `PathBuf`.
+    ///
+    /// # Arguments
+    /// - `path`: The file path to be opened. It can be provided as any type that implements `AsRef<Path>`.
+    ///
+    /// # Returns
+    /// - `io::Result<Self>`: On success, returns an instance of the editor containing the loaded text,
+    ///   syntax tree (if applicable), and other configuration. Returns an `io::Error` if the operation
+    ///   fails.
+    ///
+    /// # Details
+    /// 1. **File Processing**:
+    ///    - The file at the specified path is opened.
+    ///    - The contents of the file are read into a `rope` using a buffered reader for efficient text handling.
+    ///
+    /// 2. **Editor Initialization**:
+    ///    - Creates and initializes the editor instance with the loaded `rope`, file path, and default settings.
+    ///    - Includes the cursor position, the syntax parser, and optional syntax tree and language configuration.
+    ///
+    /// 3. **Tree-sitter Syntax Highlighting** *(optional)*:
+    ///    - The function attempts to detect the file's language from its extension.
+    ///    - If successful, applies a language-specific query for highlighting using the Tree-sitter library.
+    ///    - Generates an initial syntax tree for the text.
+    ///
+    /// 4. **Output**:
+    ///    - Returns the fully initialized editor instance whether or not syntax highlighting is applied.
+    ///
+    /// # Panics
+    /// - Panics if the file name or extension cannot be extracted from the provided path. Ensure the provided file path is valid.
+    ///
+    /// # Errors
+    /// - Returns an error if:
+    ///   - The file at the specified path cannot be opened.
+    ///   - Reading the file fails or is interrupted.
+    ///   - The `rope` cannot be created due to an I/O issue.
+    ///
+    /// # See Also
+    /// - [`std::fs::File::open`] for file handling.
+    /// - [`Tree-sitter`](https://tree-sitter.github.io/) for syntax highlighting and parsing.
+    ///
+    /// # Notes
+    /// - Language detection is based on file extensions. If the language is unknown, syntax highlighting will be skipped.
+    /// - The `theme_keys` vector includes a predefined set of syntax elements applicable for highlighting.
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let path_ref = path.as_ref();
         let file = File::open(path_ref)?;
         let rope = Rope::from_reader(BufReader::new(file))?;
 
-        // 1. Votre catalogue de tokens utilisé par votre gestionnaire de thème
         let theme_keys = vec![
             "keyword",
             "keyword.function",
@@ -1905,7 +2574,6 @@ impl Ji {
         let filename = path_ref.file_name().expect("");
         let ext = path_ref.extension().unwrap_or(filename);
 
-        // ✨ 2. On initialise l'éditeur avec le texte et le chemin dans TOUS LES CAS
         let mut ji = Self {
             rope,
             file_path: Some(path_ref.to_path_buf()),
@@ -1918,29 +2586,25 @@ impl Ji {
             selection: None,
         };
 
-        // ✨ 3. On tente d'appliquer la surcouche Tree-sitter si le langage est connu
         if let Some(config) = detect_langage(ext.to_str().expect(""), &theme_keys) {
             ji.query = Query::new(&config.ts_config.language, config.query_string).ok();
             let _ = ji.parser.set_language(&config.ts_config.language);
             ji.lang_config = Some(config);
 
-            // On génère l'arbre syntaxique
             ji.update_syntax_tree();
         }
-
-        // 4. On retourne l'éditeur (avec ou sans coloration, mais toujours avec le bon texte !)
         Ok(ji)
     }
-    /// Insère un caractère à la position actuelle du curseur (ligne, col)
+    /// Insert a character at the current cursor position (line, col)
     pub fn insert_char(&mut self, ch: char) {
-        // 1. Calculer l'index absolu en caractères et en octets (bytes)
+        // 1. Calculate the absolute index in characters and bytes
         let char_idx = self.rope.line_to_char(self.cursor_line) + self.cursor_col;
         let byte_idx = self.rope.char_to_byte(char_idx);
 
-        // 2. Définir les coordonnées graphiques de départ
+        // 2. Define the starting graphical coordinates
         let start_point = Point::new(self.cursor_line, self.cursor_col);
 
-        // 3. Calculer les nouvelles coordonnées graphiques après l'insertion
+        // 3. Calculate the new graphical coordinates after insertion
         let mut new_end_point = start_point;
         if ch == '\n' {
             new_end_point.row += 1;
@@ -1949,7 +2613,7 @@ impl Ji {
             new_end_point.column += ch.len_utf8();
         }
 
-        // 4. Notifier l'arbre syntaxique du changement (si un arbre existe)
+        // 4. Notify the syntax tree of the change (if a tree exists)
         if let Some(ref mut tree) = self.syntax_tree {
             let edit = InputEdit {
                 start_byte: byte_idx,
@@ -1959,13 +2623,10 @@ impl Ji {
                 old_end_position: start_point,
                 new_end_position: new_end_point,
             };
-            tree.edit(&edit); // Ajuste les index de l'arbre de manière chirurgicale
+            tree.edit(&edit);
         }
 
-        // 5. Insérer réellement le caractère dans la Rope
         self.rope.insert_char(char_idx, ch);
-
-        // 6. Mettre à jour la position du curseur
         if ch == '\n' {
             self.cursor_line += 1;
             self.cursor_col = 0;
@@ -1973,18 +2634,55 @@ impl Ji {
             self.cursor_col += 1;
         }
 
-        // 7. Relancer le parsing incrémental ultra-rapide
         self.update_syntax_tree();
     }
 
-    /// Supprime le caractère situé juste avant le curseur (Retour arrière)
+    /// Deletes the character positioned just before the current cursor position in the text editor.
+    ///
+    /// This function handles various cases such as dealing with line breaks and single characters, as well
+    /// as updating both the internal text structure and the syntax tree. Once the deletion is performed,
+    /// the cursor is updated to reflect its new position.
+    ///
+    /// # Behavior
+    ///
+    /// - If the cursor is at the beginning of the document (line 0, column 0), the function returns without
+    ///   deleting anything.
+    /// - If a newline character (`\n`) is deleted, the cursor moves up to the end of the previous line
+    ///   (before the lines are merged).
+    /// - For other characters, the cursor simply moves one column to the left.
+    ///
+    /// # Steps
+    ///
+    /// 1. **Determine Position of Deletion**:
+    ///     - Compute the index of the character to be deleted, which is located just before the cursor.
+    ///     - Retrieve the character and its length in bytes.
+    ///
+    /// 2. **Calculate Cursor Update**:
+    ///     - If deleting a newline, adjust the cursor to move up to the previous line's end position.
+    ///     - For other cases, reduce the column position by one.
+    ///
+    /// 3. **Notify Syntax Tree**:
+    ///     - If the syntax tree exists, inform it of the deletion via an `InputEdit` object containing
+    ///       the updated byte range, cursor positions, and other details.
+    ///
+    /// 4. **Remove Character**:
+    ///     - Delete the specified character from the internal text representation (`self.rope`).
+    ///
+    /// 5. **Update Cursor**:
+    ///     - Reposition the cursor to its new logical position in the text editor.
+    ///
+    /// 6. **Refresh Syntax Tree**:
+    ///     - Update the syntax tree to reflect changes in the document.
+    ///
+    /// # Panics
+    ///
+    /// This function does not explicitly panic, but operations on the internal structures such as
+    /// `self.rope` or syntax tree manipulation assume valid internal state.
     pub fn backspace(&mut self) {
-        // Si on est tout au début du fichier, on ne peut rien supprimer
         if self.cursor_line == 0 && self.cursor_col == 0 {
             return;
         }
 
-        // 1. Déterminer la position du caractère à supprimer (juste avant le curseur)
         let cursor_char_idx = self.rope.line_to_char(self.cursor_line) + self.cursor_col;
         let target_char_idx = cursor_char_idx - 1;
 
@@ -1992,20 +2690,15 @@ impl Ji {
         let char_len_bytes = target_char.len_utf8();
         let byte_idx = self.rope.char_to_byte(target_char_idx);
 
-        // 2. Déterminer les anciennes et nouvelles positions du curseur graphique
         let old_end_point = Point::new(self.cursor_line, self.cursor_col);
         let mut start_point = old_end_point;
 
         if target_char == '\n' {
-            // Si on supprime un retour à la ligne, le curseur remonte à la ligne précédente
             start_point.row -= 1;
-            // On se place à la fin de cette ligne précédente (avant la fusion des lignes)
             start_point.column = self.rope.line(start_point.row).len_chars() - 1;
         } else {
             start_point.column -= 1;
         }
-
-        // 3. Notifier l'arbre syntaxique de la suppression
         if let Some(ref mut tree) = self.syntax_tree {
             let edit = InputEdit {
                 start_byte: byte_idx,
@@ -2018,57 +2711,122 @@ impl Ji {
             tree.edit(&edit);
         }
 
-        // 4. Supprimer le caractère dans la Rope
         self.rope.remove(target_char_idx..cursor_char_idx);
 
-        // 5. Déplacer le curseur physique vers sa nouvelle position
         self.cursor_line = start_point.row;
         self.cursor_col = start_point.column;
 
-        // 6. Mettre à jour l'arbre syntaxique
         self.update_syntax_tree();
     }
-
+    /// Updates the current syntax tree for the editor or document using the internal Ji
+    /// parser (based on tree-sitter). This method regenerates the syntax tree
+    /// by parsing the underlying text content while supporting incremental parsing.
+    ///
+    /// # Behavior
+    /// - If no language configuration is set (`lang_config` is `None`),
+    ///   the method exits early without making any changes.
+    /// - The parsing process is performed incrementally by reusing the existing
+    ///   syntax tree if one exists (`self.syntax_tree`). This mechanism optimizes
+    ///   performance by recalculating only changes in the text content.
+    ///
+    /// # Implementation Details
+    /// - Uses `Ropey` to efficiently provide chunks of text as byte slices to the parser
+    ///   when required. The parser requests these slices dynamically during parsing.
+    ///
+    /// # Parsing Process
+    /// - The parser requests byte offsets from the rope and computes offsets using chunks.
+    /// - If the requested byte offset exceeds the text length, an empty slice is returned
+    ///   to indicate the end of the text.
+    ///
+    /// # Post-Parsing
+    /// - After parsing, the updated syntax tree is saved in `self.syntax_tree`.
+    ///
+    /// # Errors
+    /// - This method handles parsing gracefully and exits early if any preconditions are
+    ///   not met (e.g., missing language configuration).
     pub fn update_syntax_tree(&mut self) {
-        // Si aucun langage n'est configuré, impossible de générer un arbre.
         if self.lang_config.is_none() {
             return;
         }
-
-        // On crée une référence locale à la Rope pour la closure
         let rope = &self.rope;
 
-        // Appel de parse_with_options (ou parse) en utilisant le parseur interne de Ji
-        // tree-sitter demande des morceaux d'octets au fur et à mesure de ses besoins.
         let tree = self.parser.parse_with_options(
             &mut |byte_offset, _position| {
                 if byte_offset < rope.len_bytes() {
-                    // Ropey trouve instantanément le bloc de texte ("chunk") contenant cet octet
                     let (chunk, chunk_byte_idx, _, _) = rope.chunk_at_byte(byte_offset);
-                    // On renvoie la tranche exacte d'octets demandée par le parseur
                     &chunk.as_bytes()[byte_offset - chunk_byte_idx..]
                 } else {
-                    // Fin du texte atteinte, on renvoie une tranche vide
                     &[] as &[u8]
                 }
             },
-            self.syntax_tree.as_ref(), // Fournit l'ancien arbre pour permettre le calcul incrémental
-            None,                      // Pas d'options de parsing spécifiques nécessaires
+            self.syntax_tree.as_ref(),
+            None,
         );
-
-        // On sauvegarde le nouvel arbre mis à jour
         self.syntax_tree = tree;
     }
-    /// Retourne une liste de segments textuels (String) associés à leur couleur Crossterm,
-    /// couvrant l'intégralité du document de manière continue.
-    pub fn get_colored_spans(&self) -> Vec<(String, crossterm::style::Color)> {
+    /// Generates a vector of colorized spans based on syntax highlighting and text content.
+    ///
+    /// This function processes the raw syntax tree and associated query, if available,
+    /// to extract syntax-highlighting information. It then linearizes the highlights,
+    /// ensuring no overlapping or invalid regions, and associates text spans with their
+    /// corresponding colors.
+    ///
+    /// ### Returns
+    /// A `Vec` of tuples where each tuple contains:
+    /// - `String`: A segment of text from the source.
+    /// - `crossterm::style::Color`: The color associated with the text segment.
+    ///
+    /// ### Process Overview
+    /// 1. **Extract Raw Highlights**:
+    ///    - Iterates over matches in the syntax tree using the query to collect
+    ///      capture regions (start byte, end byte, and capture name).
+    ///
+    /// 2. **Sort Highlights**:
+    ///    - Sorts captures first by ascending start byte and then by descending
+    ///      end byte to prioritize broader captures.
+    ///
+    /// 3. **Linearize Highlights**:
+    ///    - Iterates over sorted captures and creates non-overlapping spans that
+    ///      map text to their corresponding colors. Default styling is applied to
+    ///      regions not covered by any capture.
+    ///
+    /// 4. **Handle Remaining Text**:
+    ///    - Appends the remaining text, if any, with default styling after processing
+    ///      all highlighted regions.
+    ///
+    /// ### Edge Cases
+    /// - If no syntax tree or query is available, or the text content is empty,
+    ///   the function returns an empty vector.
+    /// - Gaps between highlighted regions are filled with default color styling.
+    /// - Any overlapping or embedded regions are handled by linearization logic.
+    ///
+    /// ### Dependencies
+    /// - `rope` (Text storage and manipulation library)
+    /// - `tree-sitter` (For syntax highlighting and querying)
+    /// - `crossterm::style::Color` (For terminal-based color representation)
+    ///
+    /// ### Notes
+    /// - This function assumes that `self.rope` contains the text content,
+    ///   `self.syntax_tree` is a parsed syntax tree (if available), and
+    ///   `self.query` contains the highlighting rules query.
+    /// - Custom color logic is implemented in `get_color_for_capture(&name)`.
+    ///
+    /// ### Theming
+    /// - The function uses `theme::FG_DEFAULT` for default, non-highlighted regions.
+    /// - Colors for highlights are determined dynamically based on `get_color_for_capture`.
+    ///
+    /// ### Parameters
+    /// - `&self`: A reference to the instance containing the text and parser information.
+    ///
+    /// ### Returns
+    /// - `Vec<(String, crossterm::style::Color)>`: A colorized representation of text spans.
+    pub fn get_colored_spans(&self) -> Vec<(String, Color)> {
         let mut spans = Vec::new();
         let total_bytes = self.rope.len_bytes();
         if total_bytes == 0 {
             return spans;
         }
 
-        // 1. Récupérer toutes les captures brutes
         let mut raw_highlights = Vec::new();
         if let (Some(tree), Some(query)) = (&self.syntax_tree, &self.query) {
             let mut cursor = QueryCursor::new();
@@ -2085,10 +2843,8 @@ impl Ji {
             }
         }
 
-        // 2. Trier les captures : par début croissant, puis par fin décroissante (les plus larges d'abord)
         raw_highlights.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
 
-        // 3. Linéariser les captures pour éviter les chevauchements
         let mut current_byte = 0;
         let text_string = self.rope.to_string();
         let text_bytes = text_string.as_bytes();
@@ -2099,8 +2855,6 @@ impl Ji {
                 continue;
             }
 
-            // S'il y a un trou entre la position actuelle et le début de la capture,
-            // on ajoute du texte avec la couleur par défaut.
             if start > current_byte {
                 if let Ok(text_slice) = std::str::from_utf8(&text_bytes[current_byte..start]) {
                     spans.push((text_slice.to_string(), theme::FG_DEFAULT));
@@ -2108,7 +2862,6 @@ impl Ji {
                 current_byte = start;
             }
 
-            // Ajouter la zone colorée
             if let Ok(text_slice) = std::str::from_utf8(&text_bytes[start..end]) {
                 let color = get_color_for_capture(&name);
                 spans.push((text_slice.to_string(), color));
@@ -2116,7 +2869,6 @@ impl Ji {
             }
         }
 
-        // Ajouter le reste du fichier s'il reste du texte non coloré à la fin
         if current_byte < total_bytes
             && let Ok(text_slice) = std::str::from_utf8(&text_bytes[current_byte..total_bytes])
         {

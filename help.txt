@@ -1,13 +1,13 @@
 NAME
 
-        qwx - Quaternary Walk eXtended
+        qwx - Quaternary Walk Extended
 
 DESCRIPTION
 
         qwx is an ultra-fast, modal terminal application designed for developers, system administrators,
         and teams looking to optimize their workflow without ever leaving the command line.
 
-        Developed to eliminate distractions, qwx renders heavy graphical IDEs unnecessary by merging
+        Developed to remove distractions, qwx renders heavy graphical IDEs unnecessary by merging
         code editing, server management, and collaboration into a single, cohesive, and lightning
         fast text-based interface.
 
@@ -20,7 +20,7 @@ DESCRIPTION
 
 PHILOSOPHY
 
-        To master qwx you must embrace its core philosophy:
+        To master qwx, you must embrace its core philosophy:
         
                 1. Keep your hands on the keyboard's home row. Every action should be natural.
                 2. No mouse, no pop-ups, no context switching, no friction.
@@ -46,7 +46,7 @@ WHY
         It was built because there was no environment capable of treating data not merely as a file
         trapped in a window but as a particle of pure information.
 
-        By utilizing a Tesseract-based architecture, qwx allows you to view a single source of truth
+        By using a Tesseract-based architecture, qwx allows you to view a single source of truth
         from infinite angles (Views) and within infinite contexts (Workspaces), all while ensuring
         absolute control over the interface via atomic keyboard commands.
 
@@ -70,7 +70,7 @@ NAVIGATION
 
         KEYBOARD
 
-                KEYS
+                KEY
                         CTRL
                                 Represents controls dedicated to Physical Space.
 
@@ -114,30 +114,30 @@ NAVIGATION
 
                 Your fingers never leave the baseline, ensuring maximum typing speed and efficiency.
 
-                The keyboard shortcuts to manipulate cursor:
+                The keyboard shortcuts to manipulate the cursor:
 
                      ^                     The k key is at the top and move top.
                      k              Tips:  The h key is at the left and moves left.
                < h       l >               The l key is at the right and moves right.
-                     j                     The j key is at the down and move down.
+                     j                     The j key is at the down and moves down.
                      v
 
         PANEL
 
-                It's the structural unit and fundamental visual container that makes up the qwx grid.
+                It's the structural unit and fundamental visual container that make up the qwx grid.
 
-                The keyboard shortcuts to manipulate panel:
+                The keyboard shortcuts to manipulate the panel:
                 
-                        Ctrl+h moves focus to the left panel.
-                        Ctrl+l moves focus to the right panel.
-                        Ctrl+j moves focus to the bottom panel.
-                        Ctrl+k moves focus to the top panel.
+                        Ctrl+h moves the focus to the left panel.
+                        Ctrl+l moves the focus to the right panel.
+                        Ctrl+j moves the focus to the bottom panel.
+                        Ctrl+k moves the focus to the top panel.
         ENVIRONMENT
 
                 It's a comprehensive, themed work ecosystem dedicated to a specific engineering
                 process.
 
-                The keyboard shortcuts to manipulate environment:
+                The keyboard shortcuts to manipulate the environment:
                 
                         Alt+[1-9] jumps directly to the corresponding environment index.
                         Alt+e opens an interactive menu to search and switch environments.
@@ -178,7 +178,7 @@ NAVIGATION
                 
                 Navigating them enables horizontal cycling through the 3D volume of your active projects.
 
-                The keyboard shortcuts to manipulate workspace:
+                The keyboard shortcuts to manipulate the workspace:
 
                         Alt+w prints a tree to display workspace info.
                         Alt+l moves focus to the next workspace.
@@ -189,7 +189,7 @@ NAVIGATION
 
                 The keyboard shortcuts to manipulate the face:
                 
-                        Alt+n moves focus to the next face.
+                        Alt+n moves the focus to the next face.
                         Alt+p moves focus to the previous face.
         FACET
 
@@ -197,7 +197,7 @@ NAVIGATION
 
                 The keyboard shortcuts to manipulate facet:
 
-                        Alt+x toggle between the primary facet and the secondary facet of the Face.
+                        Alt+x toggles between the primary facet and the secondary facet of the Face.
                         Alt+a force display of the front facet.
                         Alt+z force display of the back facet.
 
@@ -225,14 +225,13 @@ NAVIGATION
                                         l merges the current panel into the right panel.
                                         j merges the current panel into the bottom panel.
                                         k merges the current panel into the top panel.
-                                        q redraws the original grid and exit the mode.
+                                        q redraws the original grid and quits the mode.
 
                 ZEN
 
                         Zen mode represents the ultimate state of immersion.
 
-                        Unlike merging, this mode neither destroys nor alters the grid,
-                        instead, it masks it.
+                        Unlike merging, this mode neither destroys nor alters the grid instead, it masks it.
 
                         Activating it isolates the current panel and centers it on the screen,
                         eliminating visual distractions so you can focus entirely on your code.
@@ -251,7 +250,7 @@ NAVIGATION
                                         l shifts the Zen focus to the right panel.
                                         j shifts the Zen focus to the bottom panel.
                                         k shifts the Zen focus to the top panel.
-                                        q redraws the original grid and exit the mode.
+                                        q redraws the original grid and quits the mode.
                 RESCUE
 
                         This emergency mode instantly freezes higher dimensions, complex rendering,
@@ -262,7 +261,7 @@ NAVIGATION
 
                         The keyboard shortcuts to manipulate rescue:
 
-                                Ctrl+r enable the rescue mode.
+                                Ctrl+r enables the rescue mode.
                 BROADCAST
 
                         Broadcast Mode transforms your terminal into a native collaboration space.
@@ -277,7 +276,7 @@ NAVIGATION
 
                         The keyboard shortcuts to manipulate broadcast:
 
-                                Ctrl+b enable the broadcast mode.
+                                Ctrl+b enables the broadcast mode.
                 EPHEMERAL
 
                         Ephemeral Mode is your ultimate, secure scratchpad. It instantly summons
@@ -290,7 +289,7 @@ NAVIGATION
                
                         The keyboard shortcuts to manipulate ephemeral:
 
-                                Ctrl+e enable the ephemeral mode.
+                                Ctrl+e enables the ephemeral mode.
         VOCABULARY
 
                 BANK
@@ -303,7 +302,7 @@ NAVIGATION
                 
                 SESSION
 
-                        A logical, bidirectional projection of a system environment, acting as an
+                        A logical, bidirectional projection of a system environment, acting as a
                         unified view.
 
                         It locally represents the state, directory structure, and resources of a
@@ -316,7 +315,8 @@ NAVIGATION
                         resources required to execute that particular workflow.
 
                 FACE
-                        The overall macroscopic layout of the interface projected on the screen.
+
+                        The overall macroscopic layout of the interface is projected on the screen.
 
                         It represents the total spatial footprint of your work environment at a given moment.
 
@@ -349,14 +349,14 @@ NAVIGATION
 
                         The View defines the viewing angle of a given Workspace.
                         
-                        Switching Views applies a rotation along the 4th dimension to reveal a new
+                        Switching Views applies a rotation along the fourth dimension to reveal a new
                         perspective or role for the existing data, without ever duplicating it in
                         memory. 
                 NODE
 
                         The absolute atomic unit of qwx.
 
-                        The Node represents the in-memory quantum state of a file, log or system
+                        The Node represents the in-memory quantum state of a file, log, or system
                         resource.
                         
                         It exists independently of the interface. Multiple panels can point to and
@@ -405,7 +405,7 @@ NAVIGATION
 
                 The visual grid system ensures you always know your exact spatial location.
 
- 
+
                         +-------------------------------------------------------+
                         |                           f                           |
                         |    +-------------------+     +-------------------+    |
@@ -432,7 +432,7 @@ NAVIGATION
                         f The current visible face of an Environment.
                         % The current cursor position percentage for an opened file.
                         1 The panel current workspace.
-                        ¹ The panel current view.
+                        ¹ The panel's current view.
                         p A fusionable panel
                         
 SEE ALSO
