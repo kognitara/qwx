@@ -1,6 +1,6 @@
-<img src="https://github.com/kognitara/qwx/blob/master/Qwx.png" alt="Qwx" style="zoom: 20%;" />
-
-​
+<p align="center">
+<img src="https://raw.githubusercontent.com/kognitara/qwx/refs/heads/master/Qwx.png" alt="Qwx"  width="150px" />
+</p> 
 
 # Quaternary Walk Extended
 
