@@ -80,8 +80,6 @@ the speed of thought.
 | **Broadcast**  | Transforms terminal into a native collaborative pair-programming space with real-time cursor sync.      |
 | **Ephemeral**  | Secure, floating scratchpad layer. Data is never stored and gets instantly destroyed upon exit.         |
 
----
-
 ## SEARCH HUB & DEVSECOPS INTELLIGENCE
 
 The newly introduced **Search Hub** (`WebSearch` mode) directly bridges external developer intelligence, security audits, and Git workflows into your terminal session without any context switching.
@@ -106,8 +104,6 @@ From within the Search Hub, you can execute Git actions directly on search resul
 - **Export Markdown Report** (`Alt + e` / `Ctrl + e`): Generate and export a Markdown audit/search report (e.g. `cve-security-report.md` or `search-report.md`).
 - **Open in Browser** (`Alt + o` / `Ctrl + o`): Open the selected result URL in your default system web browser.
 
----
-
 ## SPOTIFY MUSIC PLAYER TUI
 
 `qwx` includes a fully embedded, real-time terminal music player for Spotify (`Player` mode via `Alt + p`, `Alt + m`, or `:player`).
@@ -119,8 +115,6 @@ From within the Search Hub, you can execute Git actions directly on search resul
 - **Device Management**: View and switch active Spotify Connect devices seamlessly.
 - **Playlists & Saved Songs**: Browse user playlists and liked songs directly in terminal.
 - **Authentication**: Zero-friction setup via environment variables (`SPOTIFY_TOKEN` / `SPOTIFY_ACCESS_TOKEN`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`), persistent config (`~/.config/qwx/spotify.json`), or interactive in-TUI configuration.
-
----
 
 ## KEYBOARD SHORTCUTS
 

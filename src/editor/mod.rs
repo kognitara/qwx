@@ -338,10 +338,10 @@ impl<W: Write> QwxUi<W> for Qwx {
             let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
 
             queue!(
-                w,
+                    w,
                 MoveTo(start_x, start_y),
                 SetBackgroundColor(UI_DMENU_BG),
-                SetForegroundColor(UI_DMENU_BG),
+                SetForegroundColor(UI_DMENU_FG),
                 Print(padded_prompt),
                 ResetColor
             )?;

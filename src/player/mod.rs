@@ -338,7 +338,6 @@ pub enum PlayerTab {
 impl PlayerTab {
     pub fn all() -> &'static [PlayerTab] {
         &[
-            PlayerTab::NowPlaying,
             PlayerTab::Search,
             PlayerTab::Queue,
             PlayerTab::Playlists,
@@ -346,22 +345,6 @@ impl PlayerTab {
             PlayerTab::Config,
         ]
     }
-    /// Returns the title corresponding to each variant of the `PlayerTab` enum.
-    ///
-    /// # Description
-    /// This method provides a human-readable title for each tab in the player interface.
-    /// The returned title is a static string slice that matches the purpose of the specific tab.
-    ///
-    /// # Returns
-    /// A `&static str` representing the title of the tab.
-    ///
-    /// # Variants and Corresponding Titles
-    /// - `PlayerTab::NowPlaying` => `"Now Playing"`
-    /// - `PlayerTab::Search` => `"Search & Explore"`
-    /// - `PlayerTab::Queue` => `"Play Queue"`
-    /// - `PlayerTab::Playlists` => `"Playlists & Albums"`
-    /// - `PlayerTab::Devices` => `"Connect Devices"`
-    /// - `PlayerTab::Config` => `"Spotify Auth & Settings"`
     pub fn title(&self) -> &'static str {
         match self {
             PlayerTab::NowPlaying => "Now Playing",
@@ -372,15 +355,14 @@ impl PlayerTab {
             PlayerTab::Config => "Spotify Auth & Settings",
         }
     }
-
     pub fn shortcut(&self) -> char {
         match self {
-            PlayerTab::NowPlaying => '1',
-            PlayerTab::Search => '2',
-            PlayerTab::Queue => '3',
-            PlayerTab::Playlists => '4',
-            PlayerTab::Devices => '5',
-            PlayerTab::Config => '6',
+            PlayerTab::NowPlaying => '0',
+            PlayerTab::Search => '1',
+            PlayerTab::Queue => '2',
+            PlayerTab::Playlists => '3',
+            PlayerTab::Devices => '4',
+            PlayerTab::Config => '5',
         }
     }
 }
@@ -823,7 +805,7 @@ impl SpotifyClient {
             return Ok(SearchResults::default());
         }
 
-        // Spotify API /v1/search enforces a limit between 1 and 10 (maximum 10 items per type)
+        // Spotify API /v1/search enforces a limit between 1 and 50 (maximum 50 items per type)
         let limit = limit.clamp(1, 10);
         let encoded_q = urlencoding_simple(query);
         let path = format!(
@@ -1164,7 +1146,7 @@ impl SpotifyClient {
 
     /// Fetches user's saved tracks (Liked Songs).
     pub fn get_saved_tracks(&self, limit: u32) -> Result<Vec<TrackItem>, String> {
-        let path = format!("/me/tracks?limit={}", limit);
+        let path = format!("/me/tracks?limit={limit}");
         let req = self.auth_get(&path)?;
         let res = req
             .send()
@@ -1432,7 +1414,7 @@ impl MusicPlayer {
         Self {
             client,
             playback: PlaybackState::default(),
-            active_tab: PlayerTab::NowPlaying,
+            active_tab: PlayerTab::Search,
             selected_index: 0,
             scroll_offset: 0,
             search_query: String::new(),
@@ -1590,15 +1572,17 @@ impl MusicPlayer {
         }
     }
 
-    /// Plays a playlist or album context URI.
     pub fn play_context(&mut self, uri: &str, name: &str) {
         self.set_status(format!("Playing '{}'...", name));
         match self.client.play_uri(uri, None) {
             Ok(_) => {
                 self.playback.is_playing = true;
-                self.set_status(format!("▶ Playing: {}", name));
+                self.playback.progress_ms = 0;
+                self.playback.last_synced_at = Some(Instant::now());
+                self.refresh_playback_state();
+                self.set_status(format!("▶ Playing: {name}"));
             }
-            Err(e) => self.set_status(format!("Play context error: {}", e)),
+            Err(e) => self.set_status(format!("Play context error: {e}")),
         }
     }
 
@@ -1902,19 +1886,16 @@ impl MusicPlayer {
             }
 
             // Tabs navigation
-            (KeyModifiers::NONE, KeyCode::Tab) => {
-                self.next_tab();
-            }
+            (KeyModifiers::NONE, KeyCode::Tab) => self.next_tab(),
             (KeyModifiers::SHIFT, KeyCode::BackTab) | (KeyModifiers::SHIFT, KeyCode::Tab) => {
-                self.prev_tab();
+                self.prev_tab()
             }
-            (KeyModifiers::NONE, KeyCode::Char('1')) => self.set_tab(PlayerTab::NowPlaying),
-            (KeyModifiers::NONE, KeyCode::Char('2')) => self.set_tab(PlayerTab::Search),
-            (KeyModifiers::NONE, KeyCode::Char('3')) => self.set_tab(PlayerTab::Queue),
-            (KeyModifiers::NONE, KeyCode::Char('4')) => self.set_tab(PlayerTab::Playlists),
-            (KeyModifiers::NONE, KeyCode::Char('5')) => self.set_tab(PlayerTab::Devices),
-            (KeyModifiers::NONE, KeyCode::Char('6')) => self.set_tab(PlayerTab::Config),
 
+            (KeyModifiers::NONE, KeyCode::Char('1')) => self.set_tab(PlayerTab::Search),
+            (KeyModifiers::NONE, KeyCode::Char('2')) => self.set_tab(PlayerTab::Queue),
+            (KeyModifiers::NONE, KeyCode::Char('3')) => self.set_tab(PlayerTab::Playlists),
+            (KeyModifiers::NONE, KeyCode::Char('4')) => self.set_tab(PlayerTab::Devices),
+            (KeyModifiers::NONE, KeyCode::Char('5')) => self.set_tab(PlayerTab::Config),
             // Playback controls
             (KeyModifiers::NONE, KeyCode::Char(' ')) => {
                 self.toggle_play_pause();
@@ -2109,198 +2090,91 @@ impl MusicPlayer {
             PlayerPrompt::None => {}
         }
     }
-
-    /// Renders the complete Music Player TUI to a crossterm writer.
     pub fn draw_player<W: Write>(&mut self, writer: &mut W, w: u16, h: u16) -> io::Result<()> {
-        let max_width: u16 = 100;
-        let effective_width = w.min(max_width) as usize;
-        let offset_x = w.saturating_sub(max_width) / 2;
         execute!(writer, Hide)?;
         let w_usize = w as usize;
         let h_usize = h as usize;
-        // Theme colors
-        let bg_header = Color::Black;
+
+        // --- PALETTE DE COULEURS "MUSHIN" (100% Noir) ---
+        let bg_main = Color::Black;
+        let fg_border = Color::White;
+        let fg_accent = Color::Green;
         let fg_normal = Color::White;
-        let fg_muted = Color::Rgb {
-            r: 110,
-            g: 120,
-            b: 145,
-        };
-        let fg_accent = Color::Rgb {
-            r: 30,
-            g: 215,
-            b: 96,
-        }; // Spotify Green
-        let fg_gold = Color::Rgb {
-            r: 255,
-            g: 205,
-            b: 85,
-        };
 
-        // 1. Header & Player Title
-        queue!(
-            writer,
-            MoveTo(offset_x, 0),
-            SetBackgroundColor(bg_header),
-            SetForegroundColor(fg_accent)
-        )?;
+        // --- CALCUL DES 3 COLONNES ---
+        let player_h = 5; // 4 pour le lecteur + 1 pour la barre de recherche
+        let content_h = h_usize.saturating_sub(player_h);
 
-        let title_left = " PLAYER ";
-        let dev_name = self
-            .playback
-            .device
-            .as_ref()
-            .map(|d| d.name.as_str())
-            .unwrap_or("No Device Connected");
-        let dev_badge = format!(" [Device: {dev_name}] ");
-        let space_top = effective_width.saturating_sub(title_left.width() + dev_badge.width());
+        let sidebar_w = (w_usize / 5).max(20);
+        let right_panel_w = (w_usize / 4).max(30);
+        let main_w = w_usize.saturating_sub(sidebar_w + right_panel_w + 2);
 
-        queue!(
-            writer,
-            Print(title_left),
-            SetForegroundColor(fg_muted),
-            Print(" ".repeat(space_top)),
-            SetForegroundColor(if self.playback.device.is_some() {
-                fg_accent
-            } else {
-                fg_muted
-            }),
-            Print(dev_badge),
-            ResetColor
-        )?;
-        // 2. Tabs Bar
-        queue!(
-            writer,
-            MoveTo(0, 1),
-            SetBackgroundColor(bg_header),
-            SetForegroundColor(fg_normal)
-        )?;
+        let main_start_x = sidebar_w + 1;
+        let right_start_x = w_usize.saturating_sub(right_panel_w);
 
-        let mut tab_line = String::new();
-        for tab in PlayerTab::all() {
-            let is_sel = *tab == self.active_tab;
-            let tab_badge = if is_sel {
-                format!("▶ [{}] {} ◀  ", tab.shortcut(), tab.title())
-            } else {
-                format!(" [{}] {}   ", tab.shortcut(), tab.title())
-            };
-            tab_line.push_str(&tab_badge);
+        // --- 1. SIDEBAR (Dessin parfait ligne par ligne, 0 scintillement) ---
+        for y in 0..content_h {
+            let mut left_str = format!("{:<width$}", "", width = sidebar_w);
+            let mut left_fg = fg_normal;
+            let mut left_bg = bg_main;
+
+            if y == 1 {
+                left_str = format!(" {:<width$}", "QWX PLAYER", width = sidebar_w - 1);
+                left_fg = fg_accent;
+            } else if y >= 4 && y < 4 + (PlayerTab::all().len() * 2) && (y - 4) % 2 == 0 {
+                let tab_idx = (y - 4) / 2;
+                let tab = PlayerTab::all()[tab_idx];
+                let is_sel = tab == self.active_tab;
+
+                let text = format!(" [{}] {} ", tab.shortcut(), tab.title());
+                left_str = format!("{:<width$}", text, width = sidebar_w);
+
+                if is_sel {
+                    left_fg = Color::Black;
+                    left_bg = fg_accent;
+                } else {
+                    left_fg = fg_normal;
+                }
+            }
+
+            queue!(
+                writer,
+                MoveTo(0, y as u16),
+                SetBackgroundColor(left_bg),
+                SetForegroundColor(left_fg),
+                Print(&left_str),
+                SetBackgroundColor(bg_main),
+                SetForegroundColor(fg_border),
+                Print("│")
+            )?;
         }
 
-        let tab_line = tab_line.trim_end().to_string();
-        let tab_width = tab_line.width();
-
-        let padded_tabs = if tab_width < w_usize {
-            let left_pad = (w_usize - tab_width) / 2;
-            let right_pad = w_usize - tab_width - left_pad;
-            format!(
-                "{}{}{}",
-                " ".repeat(left_pad),
-                tab_line,
-                " ".repeat(right_pad)
-            )
-        } else {
-            truncate_to_width(&tab_line, w_usize)
-        };
-        queue!(writer, Print(padded_tabs), ResetColor)?;
-        // 3. Separator Line
-        queue!(
-            writer,
-            MoveTo(0, 2),
-            SetForegroundColor(Color::Rgb {
-                r: 40,
-                g: 50,
-                b: 70
-            })
-        )?;
-        queue!(writer, Print("─".repeat(w_usize)), ResetColor)?;
-
-        // 4. Content Area
-        let content_y = 3;
-        let content_height = h_usize.saturating_sub(6);
-
+        // --- 2. PANNEAU CENTRAL (Focus) ---
         match self.active_tab {
-            PlayerTab::NowPlaying => {
-                self.draw_now_playing_tab(writer, content_y, content_height, w_usize)?;
-            }
             PlayerTab::Search => {
-                self.draw_search_tab(writer, content_y, content_height, w_usize)?;
+                self.draw_search_tab(writer, main_start_x, 0, content_h, main_w)?
             }
-            PlayerTab::Queue => {
-                self.draw_queue_tab(writer, content_y, content_height, w_usize)?;
-            }
+            PlayerTab::Queue => self.draw_queue_tab(writer, main_start_x, 0, content_h, main_w)?,
             PlayerTab::Playlists => {
-                self.draw_playlists_tab(writer, content_y, content_height, w_usize)?;
+                self.draw_playlists_tab(writer, main_start_x, 0, content_h, main_w)?
             }
             PlayerTab::Devices => {
-                self.draw_devices_tab(writer, content_y, content_height, w_usize)?;
+                self.draw_devices_tab(writer, main_start_x, 0, content_h, main_w)?
             }
             PlayerTab::Config => {
-                self.draw_config_tab(writer, content_y, content_height, w_usize)?;
+                self.draw_config_tab(writer, main_start_x, 0, content_h, main_w)?
             }
+            _ => {}
         }
 
-        // 5. Playback Control Mini Bar (above status line)
-        let mini_bar_y = h_usize.saturating_sub(3) as u16;
-        queue!(
-            writer,
-            MoveTo(0, mini_bar_y),
-            SetBackgroundColor(Color::Rgb {
-                r: 15,
-                g: 20,
-                b: 30
-            }),
-            SetForegroundColor(fg_normal)
-        )?;
+        // --- 3. PANNEAU DE DROITE (Contexte & File d'attente) ---
+        self.draw_right_panel(writer, right_start_x, 0, content_h, right_panel_w)?;
 
-        let play_icon = if self.playback.is_playing {
-            " PAUSE"
-        } else {
-            " PLAY"
-        };
-        let track_title = self
-            .playback
-            .item
-            .as_ref()
-            .map(|t| format!("{} - {}", t.name, t.artists_str()))
-            .unwrap_or_else(|| "No track active".to_string());
+        // --- 4. LECTEUR EN BAS (Footer) ---
+        self.draw_bottom_player(writer, content_h, sidebar_w, right_start_x, w_usize)?;
 
-        let progress_str = if let Some(ref t) = self.playback.item {
-            format!(
-                "{} / {}",
-                format_duration_ms(self.playback.progress_ms),
-                format_duration_ms(t.duration_ms)
-            )
-        } else {
-            "--:-- / --:--".to_string()
-        };
-
-        let shuffle_ind = if self.playback.shuffle_state {
-            "s ON"
-        } else {
-            "s OFF"
-        };
-        let repeat_ind = format!("r {:?}", self.playback.repeat_state);
-        let vol_ind = format!("v {}%", self.playback.volume_percent);
-
-        let bar_content = format!(
-            " [{}] {} │ ⏱ {} │ {} │ {} │ {} ",
-            play_icon, track_title, progress_str, shuffle_ind, repeat_ind, vol_ind
-        );
-
-        let padded_bar = if bar_content.width() < w_usize {
-            format!(
-                "{}{}",
-                bar_content,
-                " ".repeat(w_usize - bar_content.width())
-            )
-        } else {
-            truncate_to_width(&bar_content, w_usize)
-        };
-        queue!(writer, Print(padded_bar), ResetColor)?;
-
-        // 6. Interactive Prompts or Status Message
-        let prompt_y = h_usize.saturating_sub(2) as u16;
+        // --- 5. RECHERCHE INTERACTIVE (Prompt) ---
+        let prompt_y = (h_usize - 1) as u16;
         if self.active_prompt != PlayerPrompt::None {
             let prompt_label = match self.active_prompt {
                 PlayerPrompt::Search => " Search Spotify: ",
@@ -2312,6 +2186,7 @@ impl MusicPlayer {
                 PlayerPrompt::None => "",
             };
 
+            let input_str = format!("{}{}", prompt_label, self.prompt_input);
             queue!(
                 writer,
                 MoveTo(0, prompt_y),
@@ -2320,14 +2195,16 @@ impl MusicPlayer {
                     g: 45,
                     b: 70
                 }),
-                SetForegroundColor(fg_gold),
+                SetForegroundColor(Color::Rgb {
+                    r: 255,
+                    g: 205,
+                    b: 85
+                }),
                 Print(prompt_label),
                 SetForegroundColor(Color::White),
                 Print(&self.prompt_input),
                 Print("█"),
-                Print(" ".repeat(
-                    w_usize.saturating_sub(prompt_label.width() + self.prompt_input.width() + 1)
-                )),
+                Print(" ".repeat(w_usize.saturating_sub(input_str.chars().count() + 1))),
                 ResetColor
             )?;
         } else {
@@ -2336,261 +2213,105 @@ impl MusicPlayer {
             queue!(
                 writer,
                 MoveTo(0, prompt_y),
-                SetBackgroundColor(bg_header),
-                SetForegroundColor(fg_muted)
+                SetBackgroundColor(Color::Black),
+                SetForegroundColor(Color::White),
+                Print(format!(
+                    "{:<width$}",
+                    truncate_to_width(&status_line, w_usize),
+                    width = w_usize
+                )),
+                ResetColor
             )?;
-            let padded_status = if status_line.width() < w_usize {
-                format!(
-                    "{}{}",
-                    status_line,
-                    " ".repeat(w_usize - status_line.width())
-                )
-            } else {
-                truncate_to_width(&status_line, w_usize)
-            };
-            queue!(writer, Print(padded_status), ResetColor)?;
         }
-        // 7. Footer / Keybindings Quick Help
-        let footer_y = h_usize.saturating_sub(1) as u16;
-        queue!(
-            writer,
-            MoveTo(0, footer_y),
-            SetBackgroundColor(Color::Rgb {
-                r: 12,
-                g: 16,
-                b: 24
-            }),
-            SetForegroundColor(fg_muted)
-        )?;
-
-        let help_text = "[Space] Play/Pause │ [n] Next │ [p] Prev │ [/] Search │ [a] Queue │ [v] Vol │ [r] Repeat │ [z] Shuffle │ [Tab] Tab │ [q] Quit";
-        let help_width = help_text.width();
-
-        let padded_footer = if help_width < w_usize {
-            let left_pad = (w_usize - help_width) / 2;
-            let right_pad = w_usize - help_width - left_pad;
-            format!(
-                "{}{}{}",
-                " ".repeat(left_pad),
-                help_text,
-                " ".repeat(right_pad)
-            )
-        } else {
-            truncate_to_width(help_text, w_usize)
-        };
-        queue!(writer, Print(padded_footer), ResetColor)?;
         writer.flush()
     }
-    fn draw_now_playing_tab<W: Write>(
+
+    fn draw_right_panel<W: Write>(
         &self,
         writer: &mut W,
+        start_x: usize,
         start_y: usize,
         height: usize,
         w: usize,
     ) -> io::Result<()> {
         let bg_main = Color::Black;
-        let fg_muted = Color::White;
+        let fg_border = Color::White;
+        let fg_accent = Color::Rgb {
+            r: 30,
+            g: 215,
+            b: 96,
+        };
+        let fg_muted = Color::DarkGrey;
         let fg_white = Color::White;
 
-        let (bar_str, bar_width) = if let Some(ref t) = self.playback.item {
-            let total = t.duration_ms.max(1);
+        let mut lines = vec![format!("{:<width$}", "", width = w); height];
 
-            let mut actual_prog = self.playback.progress_ms;
-            if self.playback.is_playing {
-                if let Some(synced_at) = self.playback.last_synced_at {
-                    actual_prog =
-                        actual_prog.saturating_add(synced_at.elapsed().as_millis() as u64);
-                }
-            }
-            let prog = actual_prog.min(total);
-            let pct = (prog * 100) / total;
-
-            let bar_len = 100;
-            let filled = ((pct as usize) * bar_len) / 100;
-            let empty = bar_len.saturating_sub(filled);
-
-            let s = format!(
-                "{} [{}{}] {} ({}%)",
-                format_duration_ms(prog),
-                "█".repeat(filled),
-                " ".repeat(empty),
-                format_duration_ms(total),
-                pct
+        if height > 2 {
+            lines[1] = format!(" {:<width$}", "NOW PLAYING", width = w.saturating_sub(2));
+            lines[2] = format!(
+                " {:<width$}",
+                "─".repeat(w.saturating_sub(4)),
+                width = w.saturating_sub(2)
             );
-            (s.clone(), s.chars().count())
-        } else {
-            let s =
-                "[░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] --:-- / --:--".to_string();
-            (s.clone(), s.chars().count())
-        };
+        }
 
-        let offset_x = w.saturating_sub(bar_width) / 2;
-
-        for y in 0..height {
-            queue!(
-                writer,
-                MoveTo(0, (start_y + y) as u16),
-                SetBackgroundColor(bg_main),
-                Print(" ".repeat(w))
-            )?;
-
-            // Se placer au bon offset pour écrire le contenu
-            queue!(
-                writer,
-                MoveTo(offset_x as u16, (start_y + y) as u16),
-                SetForegroundColor(fg_white)
-            )?;
-
-            match y {
-                2 => {
-                    let track_name = self
-                        .playback
-                        .item
-                        .as_ref()
-                        .map(|t| t.name.as_str())
-                        .unwrap_or("No Active Track");
-                    let text = format!(
-                        "Track : {}",
-                        truncate_to_width(track_name, bar_width.saturating_sub(8))
-                    );
-                    queue!(writer, Print(text))?;
-                }
-                3 => {
-                    let artists = self
-                        .playback
-                        .item
-                        .as_ref()
-                        .map(|t| t.artists_str())
-                        .unwrap_or_else(|| "---".to_string());
-                    let text = format!(
-                        "Artist: {}",
-                        truncate_to_width(&artists, bar_width.saturating_sub(8))
-                    );
-                    queue!(writer, Print(text))?;
-                }
-                4 => {
-                    let album = self
-                        .playback
-                        .item
-                        .as_ref()
-                        .map(|t| t.album_name.as_str())
-                        .unwrap_or("---");
-                    let text = format!(
-                        "Album : {}",
-                        truncate_to_width(album, bar_width.saturating_sub(8))
-                    );
-                    queue!(writer, Print(text))?;
-                }
-                5 => {
-                    // 5. Playback Control Mini Bar (above status line)
-                    let mini_bar_y = height.saturating_sub(3) as u16;
-
-                    if self.active_tab != PlayerTab::NowPlaying {
-                        queue!(
-                            writer,
-                            MoveTo(0, mini_bar_y),
-                            SetBackgroundColor(Color::Rgb {
-                                r: 15,
-                                g: 20,
-                                b: 30
-                            }),
-                            SetForegroundColor(Color::Reset)
-                        )?;
-
-                        let play_icon = if self.playback.is_playing {
-                            " PAUSE"
-                        } else {
-                            " PLAY"
-                        };
-                        let track_title = self
-                            .playback
-                            .item
-                            .as_ref()
-                            .map(|t| format!("{} - {}", t.name, t.artists_str()))
-                            .unwrap_or_else(|| "No track active".to_string());
-
-                        let progress_str = if let Some(ref t) = self.playback.item {
-                            format!(
-                                "{} / {}",
-                                format_duration_ms(self.playback.progress_ms),
-                                format_duration_ms(t.duration_ms)
-                            )
-                        } else {
-                            "--:-- / --:--".to_string()
-                        };
-
-                        let shuffle_ind = if self.playback.shuffle_state {
-                            "s ON"
-                        } else {
-                            "s OFF"
-                        };
-                        let repeat_ind = format!("r {:?}", self.playback.repeat_state);
-                        let vol_ind = format!("v {}%", self.playback.volume_percent);
-
-                        let bar_content = format!(
-                            " [{}] {} │ ⏱ {} │ {} │ {} │ {} ",
-                            play_icon, track_title, progress_str, shuffle_ind, repeat_ind, vol_ind
-                        );
-
-                        let padded_bar = if bar_content.width() < w {
-                            format!("{}{}", bar_content, " ".repeat(w - bar_content.width()))
-                        } else {
-                            truncate_to_width(&bar_content, w)
-                        };
-                        queue!(writer, Print(padded_bar), ResetColor)?;
-                    } else {
-                        queue!(
-                            writer,
-                            MoveTo(0, mini_bar_y),
-                            SetBackgroundColor(Color::Black),
-                            Print(" ".repeat(w)),
-                            ResetColor
-                        )?;
-                    }
-                }
-                7 => {
-                    queue!(writer, Print(&bar_str))?;
-                }
-                9 => {
-                    let waves = [
-                        "♫  ▂ ▃ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ▃ ▂   ▂ ▃ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ▃ ▂   ♫",
-                        "♫ ▄ ▆ █ ▇ ▅ ▃ ▂   ▂ ▃ ▅ ▇ █ ▆ ▄ ▃ ▂   ▂ ▃ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ♫",
-                        "♫ █ ▇ ▆ ▅ ▄ ▃ ▂   ▂ ▃ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ▃ ▂   ▂ ▃ ▄ ▅ ▆ ▇ █ ♫",
-                    ];
-                    let wave_line = if self.playback.is_playing {
-                        waves[(self.visualizer_tick / 2) % waves.len()]
-                    } else {
-                        "─ ─ ─ ─ ─ ─ ─ ─ [ PAUSED / IDLE ] ─ ─ ─ ─ ─ ─ ─ ─ ─"
-                    };
-
-                    let wave_offset = bar_width.saturating_sub(wave_line.chars().count()) / 2;
-                    queue!(
-                        writer,
-                        MoveTo((offset_x + wave_offset) as u16, (start_y + y) as u16),
-                        Print(wave_line)
-                    )?;
-                }
-                11 => {
-                    let shuffle_ind = if self.playback.shuffle_state {
-                        "Shuffle: ON"
-                    } else {
-                        "Shuffle: OFF"
-                    };
-                    let repeat_ind = format!("Repeat: {:?}", self.playback.repeat_state);
-                    let vol_ind = format!("Vol: {}%", self.playback.volume_percent);
-                    let state_str = format!("{}  │  {}  │  {}", vol_ind, shuffle_ind, repeat_ind);
-
-                    let state_offset = bar_width.saturating_sub(state_str.chars().count()) / 2;
-                    queue!(
-                        writer,
-                        MoveTo((offset_x + state_offset) as u16, (start_y + y) as u16),
-                        SetForegroundColor(fg_muted),
-                        Print(state_str)
-                    )?;
-                }
-                _ => {}
+        if height > 5 {
+            if let Some(ref t) = self.playback.item {
+                lines[4] = format!(
+                    "  {:<width$}",
+                    truncate_to_width(&t.name, w.saturating_sub(4)),
+                    width = w.saturating_sub(2)
+                );
+                lines[5] = format!(
+                    "  {:<width$}",
+                    truncate_to_width(&t.artists_str(), w.saturating_sub(4)),
+                    width = w.saturating_sub(2)
+                );
+            } else {
+                lines[4] = format!(" {:<width$}", "Silence...", width = w.saturating_sub(2));
             }
-            queue!(writer, ResetColor)?;
+        }
+
+        if height > 9 {
+            lines[8] = format!(" {:<width$}", "UP NEXT", width = w.saturating_sub(2));
+            lines[9] = format!(
+                " {:<width$}",
+                "─".repeat(w.saturating_sub(4)),
+                width = w.saturating_sub(2)
+            );
+        }
+
+        let mut queue_y = 11;
+        for (i, track) in self.queue.iter().take(5).enumerate() {
+            if queue_y < height {
+                let track_str = format!("{}. {}", i + 1, track.name);
+                lines[queue_y] = format!(
+                    "  {:<width$}",
+                    truncate_to_width(&track_str, w.saturating_sub(4)),
+                    width = w.saturating_sub(2)
+                );
+                queue_y += 2;
+            }
+        }
+
+        // Impression en une passe : séparateur vertical + texte paddé
+        for (i, line) in lines.iter().enumerate() {
+            let mut fg = fg_white;
+            if i == 1 || i == 8 {
+                fg = fg_accent;
+            } else if i == 2 || i == 5 || i == 9 || (i == 4 && self.playback.item.is_none()) {
+                fg = fg_muted;
+            }
+
+            queue!(
+                writer,
+                MoveTo((start_x - 1) as u16, (start_y + i) as u16),
+                SetBackgroundColor(bg_main),
+                SetForegroundColor(fg_border),
+                Print("│"), // Séparateur
+                SetForegroundColor(fg),
+                Print(line) // Texte + Fond Noir
+            )?;
         }
         Ok(())
     }
@@ -2598,35 +2319,19 @@ impl MusicPlayer {
     fn draw_search_tab<W: Write>(
         &self,
         writer: &mut W,
+        start_x: usize,
         start_y: usize,
         height: usize,
         w: usize,
     ) -> io::Result<()> {
-        let bg_main = Color::Rgb {
-            r: 10,
-            g: 14,
-            b: 22,
-        };
-        let bg_sel = Color::Rgb {
-            r: 35,
-            g: 45,
-            b: 70,
-        };
-        let fg_muted = Color::Rgb {
-            r: 110,
-            g: 120,
-            b: 145,
-        };
-        let fg_normal = Color::Rgb {
-            r: 230,
-            g: 235,
-            b: 245,
-        };
+        let bg_main = Color::Black;
+        let bg_sel = Color::White;
+        let fg_muted = Color::DarkGrey;
+        let fg_normal = Color::White;
 
-        // Sub-header with category selection
         queue!(
             writer,
-            MoveTo(0, start_y as u16),
+            MoveTo(start_x as u16, start_y as u16),
             SetBackgroundColor(bg_main),
             SetForegroundColor(fg_muted)
         )?;
@@ -2648,15 +2353,10 @@ impl MusicPlayer {
         };
         queue!(writer, Print(padded_cat))?;
 
-        // Result table header
         queue!(
             writer,
-            MoveTo(0, (start_y + 1) as u16),
-            SetBackgroundColor(Color::Rgb {
-                r: 18,
-                g: 24,
-                b: 38
-            }),
+            MoveTo(start_x as u16, (start_y + 1) as u16),
+            SetBackgroundColor(Color::Black),
             SetForegroundColor(fg_muted)
         )?;
         let table_header = match self.search_category {
@@ -2680,21 +2380,27 @@ impl MusicPlayer {
         };
         queue!(writer, Print(padded_th))?;
 
-        // Rows
         let list_y = start_y + 2;
         let list_height = height.saturating_sub(2);
-
         for y in 0..list_height {
             let item_idx = self.scroll_offset + y;
             let screen_y = (list_y + y) as u16;
-            queue!(writer, MoveTo(0, screen_y))?;
+
+            let clear_str = format!("{:<width$}", "", width = w);
+            queue!(
+                writer,
+                MoveTo(start_x as u16, screen_y),
+                SetBackgroundColor(bg_main),
+                Print(&clear_str),
+                MoveTo(start_x as u16, screen_y)
+            )?;
 
             match self.search_category {
                 SearchCategory::Tracks => {
                     if let Some(track) = self.search_results.tracks.get(item_idx) {
                         let is_sel = item_idx == self.selected_index;
                         let bg = if is_sel { bg_sel } else { bg_main };
-                        let fg = if is_sel { Color::White } else { fg_normal };
+                        let fg = if is_sel { Color::Black } else { fg_normal };
                         let prefix = if is_sel { " ▶" } else { "  " };
 
                         let line = format!(
@@ -2718,14 +2424,13 @@ impl MusicPlayer {
                             Print(padded_line),
                             ResetColor
                         )?;
-                    } else {
-                        queue!(writer, SetBackgroundColor(bg_main), Print(" ".repeat(w)))?;
                     }
                 }
                 SearchCategory::Albums => {
                     if let Some(album) = self.search_results.albums.get(item_idx) {
                         let is_sel = item_idx == self.selected_index;
                         let bg = if is_sel { bg_sel } else { bg_main };
+                        let fg = if is_sel { Color::Black } else { fg_normal };
                         let prefix = if is_sel { " ▶" } else { "  " };
 
                         let line = format!(
@@ -2745,18 +2450,17 @@ impl MusicPlayer {
                         queue!(
                             writer,
                             SetBackgroundColor(bg),
-                            SetForegroundColor(if is_sel { Color::White } else { fg_normal }),
+                            SetForegroundColor(fg),
                             Print(padded),
                             ResetColor
                         )?;
-                    } else {
-                        queue!(writer, SetBackgroundColor(bg_main), Print(" ".repeat(w)))?;
                     }
                 }
                 SearchCategory::Playlists => {
                     if let Some(pl) = self.search_results.playlists.get(item_idx) {
                         let is_sel = item_idx == self.selected_index;
                         let bg = if is_sel { bg_sel } else { bg_main };
+                        let fg = if is_sel { Color::Black } else { fg_normal };
                         let prefix = if is_sel { " ▶" } else { "  " };
 
                         let line = format!(
@@ -2775,54 +2479,34 @@ impl MusicPlayer {
                         queue!(
                             writer,
                             SetBackgroundColor(bg),
-                            SetForegroundColor(if is_sel { Color::White } else { fg_normal }),
+                            SetForegroundColor(fg),
                             Print(padded),
                             ResetColor
                         )?;
-                    } else {
-                        queue!(writer, SetBackgroundColor(bg_main), Print(" ".repeat(w)))?;
                     }
                 }
-                SearchCategory::Artists => {
-                    queue!(writer, SetBackgroundColor(bg_main), Print(" ".repeat(w)))?;
-                }
+                SearchCategory::Artists => {}
             }
         }
-
         Ok(())
     }
 
     fn draw_queue_tab<W: Write>(
         &self,
         writer: &mut W,
+        start_x: usize,
         start_y: usize,
         height: usize,
         w: usize,
     ) -> io::Result<()> {
-        let bg_main = Color::Rgb {
-            r: 10,
-            g: 14,
-            b: 22,
-        };
-        let bg_sel = Color::Rgb {
-            r: 35,
-            g: 45,
-            b: 70,
-        };
-        let fg_muted = Color::Rgb {
-            r: 110,
-            g: 120,
-            b: 145,
-        };
-        let fg_normal = Color::Rgb {
-            r: 230,
-            g: 235,
-            b: 245,
-        };
+        let bg_main = Color::Black;
+        let bg_sel = Color::White;
+        let fg_muted = Color::DarkGrey;
+        let fg_normal = Color::White;
 
         queue!(
             writer,
-            MoveTo(0, start_y as u16),
+            MoveTo(start_x as u16, start_y as u16),
             SetBackgroundColor(Color::Rgb {
                 r: 18,
                 g: 24,
@@ -2831,18 +2515,26 @@ impl MusicPlayer {
             SetForegroundColor(fg_muted)
         )?;
         let header = format!(
-            "  📋 Play Queue ({} items) │ [Enter] Play Track │ [d] Remove",
+            "  Play Queue ({} items) │ [Enter] Play Track │ [d] Remove",
             self.queue.len()
         );
         queue!(writer, Print(format!("{:<width$}", header, width = w)))?;
 
         for y in 0..height.saturating_sub(1) {
             let item_idx = self.scroll_offset + y;
-            queue!(writer, MoveTo(0, (start_y + 1 + y) as u16))?;
+            let clear_str = format!("{:<width$}", "", width = w);
+            queue!(
+                writer,
+                MoveTo(start_x as u16, (start_y + 1 + y) as u16),
+                SetBackgroundColor(bg_main),
+                Print(&clear_str),
+                MoveTo(start_x as u16, (start_y + 1 + y) as u16)
+            )?;
 
             if let Some(track) = self.queue.get(item_idx) {
                 let is_sel = item_idx == self.selected_index;
                 let bg = if is_sel { bg_sel } else { bg_main };
+                let fg = if is_sel { Color::Black } else { fg_normal };
                 let prefix = if is_sel { " ▶" } else { "  " };
 
                 let line = format!(
@@ -2856,12 +2548,10 @@ impl MusicPlayer {
                 queue!(
                     writer,
                     SetBackgroundColor(bg),
-                    SetForegroundColor(if is_sel { Color::White } else { fg_normal }),
+                    SetForegroundColor(fg),
                     Print(format!("{:<width$}", line, width = w)),
                     ResetColor
                 )?;
-            } else {
-                queue!(writer, SetBackgroundColor(bg_main), Print(" ".repeat(w)))?;
             }
         }
         Ok(())
@@ -2870,34 +2560,19 @@ impl MusicPlayer {
     fn draw_playlists_tab<W: Write>(
         &self,
         writer: &mut W,
+        start_x: usize,
         start_y: usize,
         height: usize,
         w: usize,
     ) -> io::Result<()> {
-        let bg_main = Color::Rgb {
-            r: 10,
-            g: 14,
-            b: 22,
-        };
-        let bg_sel = Color::Rgb {
-            r: 35,
-            g: 45,
-            b: 70,
-        };
-        let fg_muted = Color::Rgb {
-            r: 110,
-            g: 120,
-            b: 145,
-        };
-        let fg_normal = Color::Rgb {
-            r: 230,
-            g: 235,
-            b: 245,
-        };
+        let bg_main = Color::Black;
+        let bg_sel = Color::White;
+        let fg_muted = Color::DarkGrey;
+        let fg_normal = Color::White;
 
         queue!(
             writer,
-            MoveTo(0, start_y as u16),
+            MoveTo(start_x as u16, start_y as u16),
             SetBackgroundColor(Color::Rgb {
                 r: 18,
                 g: 24,
@@ -2905,16 +2580,24 @@ impl MusicPlayer {
             }),
             SetForegroundColor(fg_muted)
         )?;
-        let header = "  📁 Playlists & Featured Collections │ [Enter] Play Context │ [r] Reload";
+        let header = " Playlists & Featured Collections │ [Enter] Play Context │ [r] Reload";
         queue!(writer, Print(format!("{:<width$}", header, width = w)))?;
 
         for y in 0..height.saturating_sub(1) {
             let item_idx = self.scroll_offset + y;
-            queue!(writer, MoveTo(0, (start_y + 1 + y) as u16))?;
+            let clear_str = format!("{:<width$}", "", width = w);
+            queue!(
+                writer,
+                MoveTo(start_x as u16, (start_y + 1 + y) as u16),
+                SetBackgroundColor(bg_main),
+                Print(&clear_str),
+                MoveTo(start_x as u16, (start_y + 1 + y) as u16)
+            )?;
 
             if let Some(pl) = self.playlists.get(item_idx) {
                 let is_sel = item_idx == self.selected_index;
                 let bg = if is_sel { bg_sel } else { bg_main };
+                let fg = if is_sel { Color::Black } else { fg_normal };
                 let prefix = if is_sel { " ▶" } else { "  " };
 
                 let line = format!(
@@ -2929,12 +2612,10 @@ impl MusicPlayer {
                 queue!(
                     writer,
                     SetBackgroundColor(bg),
-                    SetForegroundColor(if is_sel { Color::White } else { fg_normal }),
+                    SetForegroundColor(fg),
                     Print(format!("{:<width$}", line, width = w)),
                     ResetColor
                 )?;
-            } else {
-                queue!(writer, SetBackgroundColor(bg_main), Print(" ".repeat(w)))?;
             }
         }
         Ok(())
@@ -2943,37 +2624,20 @@ impl MusicPlayer {
     fn draw_devices_tab<W: Write>(
         &self,
         writer: &mut W,
+        start_x: usize,
         start_y: usize,
         height: usize,
         w: usize,
     ) -> io::Result<()> {
-        let bg_main = Color::Rgb {
-            r: 10,
-            g: 14,
-            b: 22,
-        };
-        let bg_sel = Color::Rgb {
-            r: 35,
-            g: 45,
-            b: 70,
-        };
-        let fg_accent = Color::Rgb {
-            r: 30,
-            g: 215,
-            b: 96,
-        };
-        let fg_normal = Color::Rgb {
-            r: 230,
-            g: 235,
-            b: 245,
-        };
-
+        let bg_main = Color::Black;
+        let bg_sel = Color::Green;
+        let fg_accent = Color::Black;
+        let fg_normal = Color::White;
         queue!(
             writer,
-            MoveTo(0, start_y as u16),
+            MoveTo(start_x as u16, start_y as u16),
             SetBackgroundColor(Color::Black),
-            SetForegroundColor(Color::White),
-            SetForegroundColor(Color::Reset),
+            SetForegroundColor(Color::White)
         )?;
         let header =
             "Available Spotify Connect Devices │ [Enter] Switch Active Device │ [r] Refresh";
@@ -2981,11 +2645,21 @@ impl MusicPlayer {
 
         for y in 0..height.saturating_sub(1) {
             let item_idx = self.scroll_offset + y;
-            queue!(writer, MoveTo(0, (start_y + 1 + y) as u16))?;
+            let screen_y = (start_y + 1 + y) as u16;
+
+            let clear_str = format!("{:<width$}", "", width = w);
+            queue!(
+                writer,
+                MoveTo(start_x as u16, screen_y),
+                SetBackgroundColor(bg_main),
+                Print(&clear_str),
+                MoveTo(start_x as u16, screen_y)
+            )?;
 
             if let Some(dev) = self.devices.get(item_idx) {
                 let is_sel = item_idx == self.selected_index;
                 let bg = if is_sel { bg_sel } else { bg_main };
+                let fg = if is_sel { Color::Black } else { fg_normal };
                 let prefix = if is_sel { " ▶" } else { "  " };
                 let status_badge = if dev.is_active {
                     " [ACTIVE] "
@@ -3006,21 +2680,15 @@ impl MusicPlayer {
                     vol_str,
                     status_badge
                 );
+
+                let line_fg = if dev.is_active { fg_accent } else { fg };
                 queue!(
                     writer,
                     SetBackgroundColor(bg),
-                    SetForegroundColor(if dev.is_active {
-                        fg_accent
-                    } else if is_sel {
-                        Color::White
-                    } else {
-                        fg_normal
-                    }),
+                    SetForegroundColor(line_fg),
                     Print(format!("{:<width$}", line, width = w)),
                     ResetColor
                 )?;
-            } else {
-                queue!(writer, SetBackgroundColor(bg_main), Print(" ".repeat(w)))?;
             }
         }
         Ok(())
@@ -3029,25 +2697,14 @@ impl MusicPlayer {
     fn draw_config_tab<W: Write>(
         &self,
         writer: &mut W,
+        start_x: usize,
         start_y: usize,
         height: usize,
         w: usize,
     ) -> io::Result<()> {
-        let bg_main = Color::Rgb {
-            r: 10,
-            g: 14,
-            b: 22,
-        };
-        let bg_sel = Color::Rgb {
-            r: 35,
-            g: 45,
-            b: 70,
-        };
-        let fg_muted = Color::Rgb {
-            r: 110,
-            g: 120,
-            b: 145,
-        };
+        let bg_main = Color::Black;
+        let bg_sel = Color::White;
+        let fg_muted = Color::DarkGrey;
         let fg_cyan = Color::Rgb {
             r: 90,
             g: 200,
@@ -3086,12 +2743,18 @@ impl MusicPlayer {
         ];
 
         for y in 0..height {
-            queue!(writer, MoveTo(0, (start_y + y) as u16))?;
+            let clear_str = format!("{:<width$}", "", width = w);
+            queue!(
+                writer,
+                MoveTo(start_x as u16, (start_y + y) as u16),
+                SetBackgroundColor(bg_main),
+                Print(&clear_str),
+                MoveTo(start_x as u16, (start_y + y) as u16)
+            )?;
 
             if y == 1 {
                 queue!(
                     writer,
-                    SetBackgroundColor(bg_main),
                     SetForegroundColor(fg_gold),
                     Print("   🔑 Spotify Authentication Configuration")
                 )?;
@@ -3099,11 +2762,12 @@ impl MusicPlayer {
                 let idx = y - 3;
                 let is_sel = self.selected_index == idx;
                 let bg = if is_sel { bg_sel } else { bg_main };
+                let fg = if is_sel { Color::Black } else { fg_cyan };
                 let prefix = if is_sel { " ▶ " } else { "   " };
                 queue!(
                     writer,
                     SetBackgroundColor(bg),
-                    SetForegroundColor(if is_sel { Color::White } else { fg_cyan }),
+                    SetForegroundColor(fg),
                     Print(format!(
                         "{:<width$}",
                         format!("{}{}", prefix, items[idx]),
@@ -3114,16 +2778,106 @@ impl MusicPlayer {
             } else if y == 9 {
                 queue!(
                     writer,
-                    SetBackgroundColor(bg_main),
                     SetForegroundColor(fg_muted),
                     Print(
                         " Tip: Set env SPOTIFY_TOKEN or ~/.config/qwx/spotify.json to persist credentials."
                     )
                 )?;
-            } else {
-                queue!(writer, SetBackgroundColor(bg_main), Print(" ".repeat(w)))?;
             }
         }
+        Ok(())
+    }
+
+    fn draw_bottom_player<W: Write>(
+        &self,
+        writer: &mut W,
+        start_y: usize,
+        sidebar_w: usize,
+        right_start_x: usize,
+        w: usize,
+    ) -> io::Result<()> {
+        let bg_main = Color::Black;
+        let fg_border = Color::White;
+        let fg_muted = Color::DarkGrey;
+
+        queue!(
+            writer,
+            MoveTo(0, start_y as u16),
+            SetBackgroundColor(bg_main),
+            SetForegroundColor(fg_border),
+            Print("─".repeat(w))
+        )?;
+        queue!(writer, MoveTo(sidebar_w as u16, start_y as u16), Print("┴"))?;
+        queue!(
+            writer,
+            MoveTo((right_start_x - 1) as u16, start_y as u16),
+            Print("┴")
+        )?;
+
+        for y in 1..4 {
+            queue!(
+                writer,
+                MoveTo(0, (start_y + y) as u16),
+                SetBackgroundColor(bg_main),
+                Print(" ".repeat(w))
+            )?;
+        }
+
+        let (_title, _artist, duration, progress, pct) = if let Some(ref t) = self.playback.item {
+            let total = t.duration_ms.max(1);
+            let mut actual_prog = self.playback.progress_ms;
+            if self.playback.is_playing {
+                if let Some(synced_at) = self.playback.last_synced_at {
+                    actual_prog =
+                        actual_prog.saturating_add(synced_at.elapsed().as_millis() as u64);
+                }
+            }
+            let prog = actual_prog.min(total);
+            (
+                t.name.clone(),
+                t.artists_str(),
+                total,
+                prog,
+                (prog * 100) / total,
+            )
+        } else {
+            ("No song".to_string(), "---".to_string(), 1, 0, 0)
+        };
+
+        let bar_len = w.saturating_sub(20);
+        let filled = ((pct as usize) * bar_len) / 100;
+        let empty = bar_len.saturating_sub(filled);
+        let start_bar = format!("{} [", format_duration_ms(progress));
+        let bar_str = format!("{}{}", "█".repeat(filled), " ".repeat(empty));
+        let end_bar = format!("] {}", format_duration_ms(duration));
+        queue!(
+            writer,
+            MoveTo(2, (start_y + 2) as u16),
+            SetForegroundColor(Color::White),
+            Print(start_bar),
+            SetForegroundColor(Color::Green),
+            Print(&bar_str),
+            SetForegroundColor(Color::White),
+            Print(end_bar),
+            SetForegroundColor(Color::Reset)
+        )?;
+
+        let shuffle = if self.playback.shuffle_state {
+            "ON"
+        } else {
+            "OFF"
+        };
+        let status = format!(
+            " Vol: {}% │ Shuffle: {} │ Rep: {:?} ",
+            self.playback.volume_percent, shuffle, self.playback.repeat_state
+        );
+        queue!(
+            writer,
+            MoveTo(1, (start_y + 4) as u16),
+            SetForegroundColor(fg_muted),
+            Print(&status),
+            ResetColor
+        )?;
         Ok(())
     }
 }
