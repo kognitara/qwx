@@ -719,7 +719,7 @@ impl SpotifyClient {
     /// Configures the client with the specified access token.
     ///
     /// This method allows you to set an access token for the client, which will be
-    /// used for authentication purposes in subsequent API requests. It consumes
+    /// used for authentication purposes in later API requests. It consumes
     /// the provided value and converts it into a `String` before assigning it to
     /// the client's credentials.
     ///
@@ -2300,7 +2300,7 @@ impl MusicPlayer {
         queue!(writer, Print(padded_bar), ResetColor)?;
 
         // 6. Interactive Prompts or Status Message
-        let prompt_y = (h_usize.saturating_sub(2)) as u16;
+        let prompt_y = h_usize.saturating_sub(2) as u16;
         if self.active_prompt != PlayerPrompt::None {
             let prompt_label = match self.active_prompt {
                 PlayerPrompt::Search => " Search Spotify: ",
