@@ -3601,7 +3601,6 @@ impl Ji {
         let text_bytes = text_string.as_bytes();
 
         for (start, end, name) in raw_highlights {
-            // Ignorer les captures obsolètes ou déjà dépassées (imbriquées)
             if start < current_byte {
                 continue;
             }

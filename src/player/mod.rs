@@ -2636,7 +2636,6 @@ impl MusicPlayer {
     ) -> io::Result<()> {
         let bg_main = Color::Black;
         let bg_sel = Color::Green;
-        let fg_accent = Color::Black;
         let fg_normal = Color::White;
         queue!(
             writer,
@@ -2667,9 +2666,9 @@ impl MusicPlayer {
                 let fg = if is_sel { Color::Black } else { fg_normal };
                 let prefix = if is_sel { " ▶" } else { "  " };
                 let status_badge = if dev.is_active {
-                    " [ACTIVE] "
+                    " ACTIVE "
                 } else {
-                    "          "
+                    " DISABLED "
                 };
                 let vol_str = dev
                     .volume_percent
@@ -2685,12 +2684,10 @@ impl MusicPlayer {
                     vol_str,
                     status_badge
                 );
-
-                let line_fg = if dev.is_active { fg_accent } else { fg };
                 queue!(
                     writer,
                     SetBackgroundColor(bg),
-                    SetForegroundColor(line_fg),
+                    SetForegroundColor(fg),
                     Print(format!("{:<width$}", line, width = w)),
                     ResetColor
                 )?;
