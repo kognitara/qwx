@@ -376,7 +376,6 @@ impl WebHistory {
             None
         }
     }
-
     pub fn current(&self) -> Option<&String> {
         self.entries.get(self.current_idx)
     }
@@ -440,6 +439,7 @@ impl UrlHelper {
     /// - `hn:query` -> HackerNews Algolia search
     /// - `gitlab:query` -> GitLab project search
     /// - Plain text / query without dots/scheme -> DuckDuckGo search
+    /// - `crate:query` -> crates.io search
     pub fn resolve(input: &str) -> String {
         let trimmed = input.trim();
         if trimmed.is_empty() {
@@ -2224,7 +2224,7 @@ impl WebBrowser {
             }),
             SetForegroundColor(fg_muted)
         )?;
-        let keybinds_text = " [o] Open | [b] Back | [f] Jump Link | [Tab] Next Link | [/] Search | [m] View Mode | [r] Reload | [q] Quit";
+        let keybinds_text = " [^o] Open | [^b] Back | [^f] Jump Link | [Tab] Next Link | [/] Search | [^m] Mode | [^r] Reload | [^q] Quit";
         let padded_footer = if keybinds_text.width() < w {
             format!("{}{}", keybinds_text, " ".repeat(w - keybinds_text.width()))
         } else {

@@ -1,4 +1,4 @@
-use crate::web::WebFetcher;
+use crates_io_api::SyncClient;
 use crossterm::cursor::MoveTo;
 use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Filter providers for the search engine.
@@ -26,43 +27,43 @@ pub enum SearchProvider {
 impl SearchProvider {
     pub fn all_variants() -> &'static [SearchProvider] {
         &[
-            SearchProvider::All,
-            SearchProvider::Crates,
-            SearchProvider::GitHub,
-            SearchProvider::GitLab,
-            SearchProvider::Wikipedia,
-            SearchProvider::Cve,
-            SearchProvider::HackerNews,
-            SearchProvider::LocalAudit,
-            SearchProvider::Web,
+            Self::All,
+            Self::Crates,
+            Self::GitHub,
+            Self::GitLab,
+            Self::Wikipedia,
+            Self::Cve,
+            Self::HackerNews,
+            Self::LocalAudit,
+            Self::Web,
         ]
     }
 
     pub fn name(&self) -> &'static str {
         match self {
-            SearchProvider::All => "All",
-            SearchProvider::Crates => "Crates.io",
-            SearchProvider::GitHub => "GitHub",
-            SearchProvider::GitLab => "GitLab",
-            SearchProvider::Wikipedia => "Wikipedia",
-            SearchProvider::Cve => "CVE / Security",
-            SearchProvider::HackerNews => "Hacker News",
-            SearchProvider::LocalAudit => "Local Audit",
-            SearchProvider::Web => "Web / DuckDuckGo",
+            Self::All => "All",
+            Self::Crates => "Crates.io",
+            Self::GitHub => "GitHub",
+            Self::GitLab => "GitLab",
+            Self::Wikipedia => "Wikipedia",
+            Self::Cve => "CVE / Security",
+            Self::HackerNews => "Hacker News",
+            Self::LocalAudit => "Local Audit",
+            Self::Web => "Web",
         }
     }
 
     pub fn shortcut_key(&self) -> char {
         match self {
-            SearchProvider::All => '1',
-            SearchProvider::Crates => '2',
-            SearchProvider::GitHub => '3',
-            SearchProvider::GitLab => '4',
-            SearchProvider::Wikipedia => '5',
-            SearchProvider::Cve => '6',
-            SearchProvider::HackerNews => '7',
-            SearchProvider::LocalAudit => '8',
-            SearchProvider::Web => '9',
+            Self::All => '1',
+            Self::Crates => '2',
+            Self::GitHub => '3',
+            Self::GitLab => '4',
+            Self::Wikipedia => '5',
+            Self::Cve => '6',
+            Self::HackerNews => '7',
+            Self::LocalAudit => '8',
+            Self::Web => '9',
         }
     }
 }
@@ -182,7 +183,7 @@ impl SearchHub {
         }
     }
 
-    /// Open selected result item in the embedded Web Reader
+    /// Open the selected result item in the embedded Web Reader
     pub fn open_selected_in_web_reader(&mut self, terminal_width: u16) {
         if let Some(item) = self.selected_item().cloned() {
             self.web_browser.open_search_result(&item, terminal_width);
@@ -220,7 +221,7 @@ impl SearchHub {
         }
     }
 
-    /// Close the embedded Web Reader and return to SearchHub results grid
+    /// Close the embedded Web Reader and return to the SearchHub results grid
     pub fn close_web_reader(&mut self) {
         self.show_web_reader = false;
         self.status_message = Some("Returned to Search Hub.".to_string());
@@ -574,7 +575,7 @@ impl SearchHub {
             )?;
         }
 
-        // 1. Header & Title Bar (Clean & Sobere)
+        // 1. Header & Title Bar (Clean & Sober)
         let title_text = " QWX RECHERCHE ";
         queue!(
             w,
@@ -1365,77 +1366,23 @@ struct NvdVulnerability {
 struct NvdResponse {
     vulnerabilities: Option<Vec<NvdVulnerability>>,
 }
-#[derive(Deserialize, Debug)]
-struct CratesApiResponse {
-    crates: Vec<CrateItem>,
-}
 
-#[derive(Deserialize, Debug)]
-struct CrateItem {
-    name: String,
-    description: Option<String>,
-    max_version: String,
-    homepage: Option<String>,
-    repository: Option<String>,
-}
 
 /// Recherche des paquets sur crates.io et convertit le résultat JSON
 /// en une liste d'éléments de recherche standard `SearchResultItem`.
-pub fn search_crates(query: &str) -> Vec<crate::search::SearchResultItem> {
-    // 1. Encodage correct et construction de l'URL de l'API officielle
+pub fn search_crates(query: &str) -> Vec<SearchResultItem> {
     let encoded_query = urlencoding::encode(query.trim());
-    let url = format!("https://crates.io{}&per_page=50", encoded_query);
-
-    // 2. Instanciation du client HTTP réutilisant les configurations (User-Agent, timeout)
-    // IMPORTANT : crates.io impose un User-Agent valide et identifiable sous peine de blocage HTTP 403.
-    let fetcher = WebFetcher::new();
-
-    let response = match fetcher
-        .client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-    {
-        Ok(res) => res,
-        Err(_) => return Vec::new(), // En cas d'erreur réseau, on retourne une liste vide
-    };
-
-    // 4. Désérialisation du JSON reçu
-    let api_result: CratesApiResponse = match response.json() {
-        Ok(data) => data,
-        Err(_) => return Vec::new(), // En cas de JSON malformé ou d'erreur API
-    };
-
-    // 5. Transformation vers le format générique `SearchResultItem` du projet QWX
-    api_result
-        .crates
-        .into_iter()
-        .map(|c| {
-            let target_url = c
-                .repository
-                .clone()
-                .or_else(|| c.homepage.clone())
-                .unwrap_or_else(|| format!("https://crates.io/crates/{}", c.name));
-
-            SearchResultItem {
-                provider: SearchProvider::Web,
-                title: c.name,
-                description: c
-                    .description
-                    .unwrap_or_else(|| "No description provided.".to_string()),
-                url: target_url,
-                extra_info: format!("v{}", c.max_version), // On utilise la version max comme métadonnée
-                clone_url: c.repository.map(|r| {
-                    if r.ends_with(".git") {
-                        r
-                    } else {
-                        format!("{}.git", r)
-                    }
-                }),
-                raw_content: None,
-            }
-        })
-        .collect()
+    let client = SyncClient::new("qwx/0.0.3", Duration::from_secs(1)).unwrap();
+    let data = client.full_crate(&encoded_query, false).unwrap();
+    vec![SearchResultItem {
+        provider: SearchProvider::Crates,
+        title: data.name,
+        description: data.description.unwrap_or_default(),
+        url: data.repository.unwrap_or_default(),
+        extra_info: data.total_downloads.to_string(),
+        clone_url: None,
+        raw_content: None,
+    }]
 }
 /// Search crates.io packages
 pub fn search_cve(query: &str) -> Vec<SearchResultItem> {
@@ -1887,7 +1834,7 @@ pub fn clone_repository(repo_url: &str, dest_path: &Path) -> Result<String, Stri
     clone_repository_with_progress(repo_url, dest_path, None::<fn(CloneProgress)>)
 }
 
-/// Clone repository with real-time progress reporting callback
+/// Clone a repository with a real-time progress reporting callback
 pub fn clone_repository_with_progress<F>(
     repo_url: &str,
     dest_path: &Path,
@@ -2050,7 +1997,7 @@ pub fn create_git_branch(repo_path: &Path, branch_name: &str) -> Result<String, 
     }
 }
 
-/// Checkout or switch to a branch in git repository
+/// Checkout or switch to a branch in a git repository
 pub fn checkout_git_branch(repo_path: &Path, branch_name: &str) -> Result<String, String> {
     if branch_name.trim().is_empty() {
         return Err("Branch name cannot be empty.".to_string());
@@ -2071,7 +2018,7 @@ pub fn checkout_git_branch(repo_path: &Path, branch_name: &str) -> Result<String
     }
 }
 
-/// Detect origin remote owner/repo from current git workspace
+/// Detect origin remote owner/repo from the current git workspace
 pub fn detect_current_git_repo(path: &Path) -> Option<String> {
     if let Ok(repo) = git2::Repository::discover(path) {
         if let Ok(remote) = repo.find_remote("origin") {

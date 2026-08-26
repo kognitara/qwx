@@ -716,7 +716,7 @@ pub struct Qwx {
     search_input: String,
     pub last_search_query: Option<String>,
     pub search_hub: crate::search::SearchHub,
-    pub player: crate::player::MusicPlayer,
+    pub player: MusicPlayer,
 }
 
 /// A `View` structure that represents the current state of a view in the application.
@@ -1976,17 +1976,16 @@ impl Qwx {
 
                     // 1.2 Web Reader Navigation Keys
                     match (key.modifiers, key.code) {
-                        (KeyModifiers::NONE, KeyCode::Esc)
-                        | (KeyModifiers::NONE, KeyCode::Char('q')) => {
+                        (KeyModifiers::NONE, KeyCode::Esc) => {
                             self.search_hub.close_web_reader();
                             let _ = execute!(stdout(), Clear(ClearType::All));
                         }
-                        (KeyModifiers::NONE, KeyCode::Char('o'))
-                        | (KeyModifiers::NONE, KeyCode::Char('g')) => {
+                        (KeyModifiers::CONTROL, KeyCode::Char('o'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('g')) => {
                             self.search_hub.web_browser.url_prompt_active = true;
                             self.search_hub.web_browser.url_input.clear();
                         }
-                        (KeyModifiers::NONE, KeyCode::Char('f')) => {
+                        (KeyModifiers::CONTROL, KeyCode::Char('f')) => {
                             self.search_hub.web_browser.link_prompt_active = true;
                             self.search_hub.web_browser.link_input.clear();
                         }
@@ -1994,30 +1993,33 @@ impl Qwx {
                             self.search_hub.web_browser.search_mode = true;
                             self.search_hub.web_browser.search_query.clear();
                         }
-                        (KeyModifiers::NONE, KeyCode::Char('n')) => {
+                        (KeyModifiers::ALT, KeyCode::Char('n')) => {
                             self.search_hub.web_browser.next_search_match();
                         }
                         (KeyModifiers::SHIFT, KeyCode::Char('N'))
-                        | (KeyModifiers::NONE, KeyCode::Char('N')) => {
+                        | (KeyModifiers::ALT, KeyCode::Char('N')) => {
                             self.search_hub.web_browser.prev_search_match();
                         }
-                        (KeyModifiers::NONE, KeyCode::Char('b')) => {
+                        (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
                             self.search_hub.web_browser.go_back(self.width);
                         }
-                        (KeyModifiers::SHIFT, KeyCode::Char('F')) => {
+                        (KeyModifiers::CONTROL, KeyCode::Char('F')) => {
                             self.search_hub.web_browser.go_forward(self.width);
                         }
-                        (KeyModifiers::NONE, KeyCode::Char('r')) => {
+                        (KeyModifiers::CONTROL, KeyCode::Char('r')) => {
                             self.search_hub.web_browser.reload(self.width);
                         }
-                        (KeyModifiers::NONE, KeyCode::Char('m')) => {
+                        (KeyModifiers::CONTROL, KeyCode::Char('m')) => {
                             self.search_hub.web_browser.toggle_view_mode();
                         }
-                        (KeyModifiers::SHIFT, KeyCode::Char('B')) => {
+                        (KeyModifiers::CONTROL, KeyCode::Char('B')) => {
                             self.search_hub.web_browser.bookmark_current_page();
                         }
-                        (KeyModifiers::NONE, KeyCode::Tab) => {
+                        (KeyModifiers::ALT, KeyCode::Char('T')) => {
                             self.search_hub.web_browser.next_link();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('t')) => {
+                            self.search_hub.web_browser.prev_link();
                         }
                         (KeyModifiers::SHIFT, KeyCode::BackTab)
                         | (KeyModifiers::SHIFT, KeyCode::Tab) => {
@@ -2315,14 +2317,12 @@ impl Qwx {
                         self.search_hub.scroll_preview_down();
                     }
                     (KeyModifiers::ALT, KeyCode::Char('w'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('w'))
-                    | (KeyModifiers::NONE, KeyCode::Char('w')) => {
+                    | (KeyModifiers::CONTROL, KeyCode::Char('w')) => {
                         self.search_hub.open_selected_in_web_reader(self.width);
                         let _ = execute!(stdout(), Clear(ClearType::All));
                     }
                     (KeyModifiers::ALT, KeyCode::Char('v'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('v'))
-                    | (KeyModifiers::NONE, KeyCode::Char('v')) => {
+                    | (KeyModifiers::CONTROL, KeyCode::Char('v')) => {
                         self.search_hub.view_results_as_web_page(self.width);
                         let _ = execute!(stdout(), Clear(ClearType::All));
                     }
@@ -2362,35 +2362,40 @@ impl Qwx {
                     (KeyModifiers::ALT, KeyCode::Char('2'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('2')) => {
                         self.search_hub
-                            .set_provider(crate::search::SearchProvider::GitHub);
+                            .set_provider(crate::search::SearchProvider::Crates);
                     }
                     (KeyModifiers::ALT, KeyCode::Char('3'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('3')) => {
                         self.search_hub
-                            .set_provider(crate::search::SearchProvider::GitLab);
+                            .set_provider(crate::search::SearchProvider::GitHub);
                     }
                     (KeyModifiers::ALT, KeyCode::Char('4'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('4')) => {
                         self.search_hub
-                            .set_provider(crate::search::SearchProvider::Wikipedia);
+                            .set_provider(crate::search::SearchProvider::GitLab);
                     }
                     (KeyModifiers::ALT, KeyCode::Char('5'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('5')) => {
                         self.search_hub
-                            .set_provider(crate::search::SearchProvider::Cve);
+                            .set_provider(crate::search::SearchProvider::Wikipedia);
                     }
                     (KeyModifiers::ALT, KeyCode::Char('6'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('6')) => {
                         self.search_hub
-                            .set_provider(crate::search::SearchProvider::HackerNews);
+                            .set_provider(crate::search::SearchProvider::Cve);
                     }
                     (KeyModifiers::ALT, KeyCode::Char('7'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('7')) => {
                         self.search_hub
-                            .set_provider(crate::search::SearchProvider::LocalAudit);
+                            .set_provider(crate::search::SearchProvider::HackerNews);
                     }
                     (KeyModifiers::ALT, KeyCode::Char('8'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('8')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::LocalAudit);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('9'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('9')) => {
                         self.search_hub
                             .set_provider(crate::search::SearchProvider::Web);
                     }
