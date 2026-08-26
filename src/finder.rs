@@ -1141,10 +1141,7 @@ fn draw_mosaic_finder<W: Write>(
 
     // 1. Draw top research bar
     let search_inner_w = width.saturating_sub(2) as usize;
-    let truncated_research = format_item_name(
-        &format!(" {} ", research),
-        search_inner_w,
-    );
+    let truncated_research = format_item_name(&format!(" {} ", research), search_inner_w);
     execute!(
         w,
         MoveTo(start_x, start_y),
@@ -1169,7 +1166,8 @@ fn draw_mosaic_finder<W: Write>(
     let has_footer = height >= 14;
     let footer_height = if has_footer { 3 } else { 0 };
     let panel_start_y = start_y + 3;
-    let available_panel_h = height.saturating_sub(3 + footer_height + if has_footer { 1 } else { 0 });
+    let available_panel_h =
+        height.saturating_sub(3 + footer_height + if has_footer { 1 } else { 0 });
     if available_panel_h < 3 {
         return Ok(());
     }
@@ -1208,9 +1206,30 @@ fn draw_mosaic_finder<W: Write>(
     )?;
 
     // Draw top row labels
-    execute_label(w, x0 + 2, top_y, " DIRECTORIES ", inner_w_left, FINDER_DIR_COLOR)?;
-    execute_label(w, x1 + 2, top_y, " SUB DIRECTORIES ", inner_w_mid, FINDER_DIR_COLOR)?;
-    execute_label(w, x2 + 2, top_y, " FILES ", inner_w_right, FINDER_FILE_COLOR)?;
+    execute_label(
+        w,
+        x0 + 2,
+        top_y,
+        " DIRECTORIES ",
+        inner_w_left,
+        FINDER_DIR_COLOR,
+    )?;
+    execute_label(
+        w,
+        x1 + 2,
+        top_y,
+        " SUB DIRECTORIES ",
+        inner_w_mid,
+        FINDER_DIR_COLOR,
+    )?;
+    execute_label(
+        w,
+        x2 + 2,
+        top_y,
+        " FILES ",
+        inner_w_right,
+        FINDER_FILE_COLOR,
+    )?;
 
     // 4. Draw vertical dividers for top half
     for y in (top_y + 1)..mid_y {
@@ -1243,7 +1262,14 @@ fn draw_mosaic_finder<W: Write>(
     )?;
 
     // Draw middle labels
-    execute_label(w, x1 + 2, mid_y, " SUB FILES ", inner_w_mid, FINDER_FILE_COLOR)?;
+    execute_label(
+        w,
+        x1 + 2,
+        mid_y,
+        " SUB FILES ",
+        inner_w_mid,
+        FINDER_FILE_COLOR,
+    )?;
     execute_label(w, x2 + 2, mid_y, " INFO ", inner_w_right, UI_TEXT_MUTED)?;
 
     // 6. Draw vertical dividers for bottom half
@@ -2116,7 +2142,9 @@ mod tests {
     fn test_mosaic_finder_drawing_standard() {
         let finder = Finder::new(Path::new("."), FinderLayout::Mosaic);
         let mut buffer = Vec::new();
-        let result = finder.layout.draw(&finder, &mut buffer, "query", 0, 0, 80, 24);
+        let result = finder
+            .layout
+            .draw(&finder, &mut buffer, "query", 0, 0, 80, 24);
         assert!(result.is_ok());
         let output = String::from_utf8_lossy(&buffer);
         assert!(output.contains("query"));
@@ -2140,7 +2168,9 @@ mod tests {
     fn test_mosaic_finder_drawing_compact() {
         let finder = Finder::new(Path::new("."), FinderLayout::Mosaic);
         let mut buffer = Vec::new();
-        let result = finder.layout.draw(&finder, &mut buffer, "compact", 0, 0, 60, 10);
+        let result = finder
+            .layout
+            .draw(&finder, &mut buffer, "compact", 0, 0, 60, 10);
         assert!(result.is_ok());
         let output = String::from_utf8_lossy(&buffer);
         assert!(output.contains("compact"));

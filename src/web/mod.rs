@@ -6,10 +6,10 @@
 //! - Content extraction and HTML cleaning (Reader Mode).
 //! - Clean rendering with terminal styling (headings, code blocks, blockquotes, lists).
 //! - Hyperlink numbering, extraction, cycling, and direct jump (`[1]`, `[2]`, ...).
-//! - Browsing history with Back/Forward navigation stack.
-//! - Search within page with match jumping.
+//! - Browsing history with the Back / Forward navigation stack.
+//! - Search within the page with match jumping.
 //! - Bookmarks management.
-//! - View modes: Reader Mode, Links List Mode, Raw Source Mode.
+//! - View modes: Reader Mode, Link List Mode, Raw Source Mode.
 //! - Direct URL bar and smart search query resolution (DuckDuckGo, Wikipedia, GitHub, Crates.io).
 
 use crossterm::cursor::MoveTo;
@@ -423,6 +423,8 @@ impl UrlHelper {
             Some((crate::search::SearchProvider::Web, rest.trim()))
         } else if let Some(rest) = trimmed.strip_prefix("ddg:") {
             Some((crate::search::SearchProvider::Web, rest.trim()))
+        } else if let Some(rest) = trimmed.strip_prefix("crates:") {
+            Some((crate::search::SearchProvider::Crates, rest.trim()))
         } else {
             None
         }
@@ -450,6 +452,12 @@ impl UrlHelper {
         {
             return format!(
                 "https://html.duckduckgo.com/html/?q={}",
+                urlencoding::encode(query.trim())
+            );
+        }
+        if let Some(query) = trimmed.strip_prefix("edb:") {
+            return format!(
+                "https://exploit-db.com{}",
                 urlencoding::encode(query.trim())
             );
         }
@@ -760,7 +768,7 @@ impl HtmlReaderEngine {
         result
     }
 
-    /// Extracts `<title>` from HTML document.
+    /// Extracts `<title>` from an HTML document.
     pub fn extract_title(html: &str) -> Option<String> {
         let bytes = html.as_bytes();
         let target_open = b"<title>";
@@ -1146,7 +1154,7 @@ impl HtmlReaderEngine {
 /// HTTP Client wrapper for web fetching.
 #[derive(Debug, Clone)]
 pub struct WebFetcher {
-    client: reqwest::blocking::Client,
+    pub(crate) client: reqwest::blocking::Client,
 }
 
 impl Default for WebFetcher {
@@ -1181,7 +1189,7 @@ impl WebFetcher {
             )
             .header("Accept-Language", "fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3")
             .send()
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+            .map_err(|e| format!("HTTP request failed: {e}"))?;
 
         let status = response.status().as_u16();
         let content_type = response
@@ -1194,7 +1202,7 @@ impl WebFetcher {
         let final_url = response.url().to_string();
         let body = response
             .text()
-            .map_err(|e| format!("Failed to read response body: {}", e))?;
+            .map_err(|e| format!("Failed to read response body: {e}"))?;
 
         let duration = start_time.elapsed().as_millis();
 
@@ -1237,6 +1245,7 @@ impl Default for WebBrowser {
 }
 
 impl WebBrowser {
+    #[must_use]
     pub fn new() -> Self {
         let mut bookmarks = Vec::new();
         bookmarks.push(WebBookmark {
@@ -1258,6 +1267,16 @@ impl WebBrowser {
             title: "Hacker News".to_string(),
             url: "https://news.ycombinator.com".to_string(),
             tags: vec!["news".to_string(), "tech".to_string()],
+        });
+        bookmarks.push(WebBookmark {
+            title: "Cve News".to_string(),
+            url: "https://www.cve.org".to_string(),
+            tags: vec!["cve".to_string(), "vulnerabilities".to_string()],
+        });
+        bookmarks.push(WebBookmark {
+            title: "Exploit Database".to_string(),
+            url: "https://exploit-db.com".to_string(),
+            tags: vec!["exploits".to_string(), "hacking".to_string()],
         });
 
         Self {
@@ -1345,7 +1364,7 @@ impl WebBrowser {
         }
     }
 
-    /// Scrolls down by a given amount of lines.
+    /// Scrolls down for a given number of lines.
     pub fn scroll_down(&mut self, lines: usize) {
         if let Some(ref page) = self.current_page {
             let total = page.total_lines();
@@ -1357,7 +1376,7 @@ impl WebBrowser {
         }
     }
 
-    /// Scrolls up by a given amount of lines.
+    /// Scrolls up by a given number of lines.
     pub fn scroll_up(&mut self, lines: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(lines);
     }
@@ -1563,7 +1582,7 @@ impl WebBrowser {
         ));
     }
 
-    /// Adds current page to bookmarks.
+    /// Adds the current page to bookmarks.
     pub fn bookmark_current_page(&mut self) {
         if let Some(ref page) = self.current_page {
             let url = page.url.clone();
@@ -1890,7 +1909,7 @@ impl WebBrowser {
                             SetBackgroundColor(bg_main)
                         )?;
                         if y == 2 {
-                            let msg = "  🌐 Bienvenue dans le mode Web Reader de QWX";
+                            let msg = "Mode Web Reader of QWX";
                             queue!(
                                 writer,
                                 SetForegroundColor(fg_accent),
@@ -1898,7 +1917,7 @@ impl WebBrowser {
                                 Print(" ".repeat(w.saturating_sub(msg.width())))
                             )?;
                         } else if y == 4 {
-                            let msg = "  Raccourcis clavier :";
+                            let msg = " Keyboard Shortcuts :";
                             queue!(
                                 writer,
                                 SetForegroundColor(Color::Rgb {

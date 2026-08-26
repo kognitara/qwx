@@ -3,12 +3,11 @@ use crate::editor::theme::{
     get_color_for_capture,
 };
 use crate::finder::{Finder, FinderLayout, list_files};
+use crate::player::MusicPlayer;
 use crossterm::cursor::{
     Hide, MoveDown, MoveLeft, MoveRight, MoveTo, MoveUp, SetCursorStyle, Show,
 };
-use crossterm::event::{
-    Event, KeyCode, KeyModifiers, poll, read,
-};
+use crossterm::event::{Event, KeyCode, KeyModifiers, poll, read};
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
 use crossterm::terminal::{
     self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, size,
@@ -24,7 +23,6 @@ use tree_sitter::{Parser, Tree};
 use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-use crate::player::MusicPlayer;
 
 pub mod theme;
 /// Represents the initial state of a `PaneState` in the application.
@@ -338,7 +336,7 @@ impl<W: Write> QwxUi<W> for Qwx {
             let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
 
             queue!(
-                    w,
+                w,
                 MoveTo(start_x, start_y),
                 SetBackgroundColor(UI_DMENU_BG),
                 SetForegroundColor(UI_DMENU_FG),
@@ -1931,7 +1929,9 @@ impl Qwx {
                                 self.search_hub.web_browser.link_prompt_active = false;
                                 self.search_hub.web_browser.link_input.clear();
                                 if let Ok(id) = input.trim().parse::<usize>() {
-                                    self.search_hub.web_browser.follow_link_by_id(id, self.width);
+                                    self.search_hub
+                                        .web_browser
+                                        .follow_link_by_id(id, self.width);
                                 }
                                 let _ = execute!(stdout(), Clear(ClearType::All));
                             }
@@ -1976,11 +1976,13 @@ impl Qwx {
 
                     // 1.2 Web Reader Navigation Keys
                     match (key.modifiers, key.code) {
-                        (KeyModifiers::NONE, KeyCode::Esc) | (KeyModifiers::NONE, KeyCode::Char('q')) => {
+                        (KeyModifiers::NONE, KeyCode::Esc)
+                        | (KeyModifiers::NONE, KeyCode::Char('q')) => {
                             self.search_hub.close_web_reader();
                             let _ = execute!(stdout(), Clear(ClearType::All));
                         }
-                        (KeyModifiers::NONE, KeyCode::Char('o')) | (KeyModifiers::NONE, KeyCode::Char('g')) => {
+                        (KeyModifiers::NONE, KeyCode::Char('o'))
+                        | (KeyModifiers::NONE, KeyCode::Char('g')) => {
                             self.search_hub.web_browser.url_prompt_active = true;
                             self.search_hub.web_browser.url_input.clear();
                         }
@@ -1995,7 +1997,8 @@ impl Qwx {
                         (KeyModifiers::NONE, KeyCode::Char('n')) => {
                             self.search_hub.web_browser.next_search_match();
                         }
-                        (KeyModifiers::SHIFT, KeyCode::Char('N')) | (KeyModifiers::NONE, KeyCode::Char('N')) => {
+                        (KeyModifiers::SHIFT, KeyCode::Char('N'))
+                        | (KeyModifiers::NONE, KeyCode::Char('N')) => {
                             self.search_hub.web_browser.prev_search_match();
                         }
                         (KeyModifiers::NONE, KeyCode::Char('b')) => {
@@ -2016,16 +2019,19 @@ impl Qwx {
                         (KeyModifiers::NONE, KeyCode::Tab) => {
                             self.search_hub.web_browser.next_link();
                         }
-                        (KeyModifiers::SHIFT, KeyCode::BackTab) | (KeyModifiers::SHIFT, KeyCode::Tab) => {
+                        (KeyModifiers::SHIFT, KeyCode::BackTab)
+                        | (KeyModifiers::SHIFT, KeyCode::Tab) => {
                             self.search_hub.web_browser.prev_link();
                         }
                         (KeyModifiers::NONE, KeyCode::Enter) => {
                             self.search_hub.web_browser.follow_selected_link(self.width);
                         }
-                        (KeyModifiers::NONE, KeyCode::Up) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                        (KeyModifiers::NONE, KeyCode::Up)
+                        | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
                             self.search_hub.web_browser.scroll_up(1);
                         }
-                        (KeyModifiers::NONE, KeyCode::Down) | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+                        (KeyModifiers::NONE, KeyCode::Down)
+                        | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
                             self.search_hub.web_browser.scroll_down(1);
                         }
                         (KeyModifiers::NONE, KeyCode::PageUp) => {
@@ -2047,24 +2053,126 @@ impl Qwx {
                             self.search_hub.status_message = Some("Action cancelled.".to_string());
                             let _ = execute!(stdout(), Clear(ClearType::All));
                         }
-                        (KeyModifiers::NONE, KeyCode::Enter) => {
-                            match prompt {
-                                crate::search::ActionPrompt::CloneRepo { repo_url, dest_input } => {
-                                    let dest_path = self.current_dir.join(dest_input.trim());
-                                    let url = repo_url.clone();
-                                    let target_str = dest_path.display().to_string();
+                        (KeyModifiers::NONE, KeyCode::Enter) => match prompt {
+                            crate::search::ActionPrompt::CloneRepo {
+                                repo_url,
+                                dest_input,
+                            } => {
+                                let dest_path = self.current_dir.join(dest_input.trim());
+                                let url = repo_url.clone();
+                                let target_str = dest_path.display().to_string();
 
-                                    self.search_hub.prompt = Some(crate::search::ActionPrompt::CloneInProgress {
+                                self.search_hub.prompt =
+                                    Some(crate::search::ActionPrompt::CloneInProgress {
                                         repo_url: url.clone(),
                                         dest_path: target_str.clone(),
                                         progress_pct: 10,
-                                        status_text: "Connecting and negotiating Git objects...".to_string(),
+                                        status_text: "Connecting and negotiating Git objects..."
+                                            .to_string(),
                                     });
 
-                                    let res = crate::search::clone_repository_with_progress(
-                                        &url,
-                                        &dest_path,
-                                        None::<fn(crate::search::CloneProgress)>,
+                                let res = crate::search::clone_repository_with_progress(
+                                    &url,
+                                    &dest_path,
+                                    None::<fn(crate::search::CloneProgress)>,
+                                );
+                                match res {
+                                    Ok(msg) => {
+                                        self.search_hub.status_message = Some(msg);
+                                        self.search_hub.prompt = None;
+                                    }
+                                    Err(err) => {
+                                        self.search_hub.status_message =
+                                            Some(format!("Error: {}", err));
+                                        self.search_hub.prompt = None;
+                                    }
+                                }
+                            }
+                            crate::search::ActionPrompt::CloneInProgress { .. } => {}
+                            crate::search::ActionPrompt::CreateBranch { branch_input } => {
+                                let branch_name = branch_input.trim().to_string();
+                                let res = crate::search::create_git_branch(
+                                    &self.current_dir,
+                                    &branch_name,
+                                );
+                                match res {
+                                    Ok(msg) => {
+                                        self.search_hub.status_message = Some(msg);
+                                        self.search_hub.prompt = None;
+                                    }
+                                    Err(err) => {
+                                        self.search_hub.status_message =
+                                            Some(format!("Error: {}", err));
+                                        self.search_hub.prompt = None;
+                                    }
+                                }
+                            }
+                            crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
+                                let branch_name = branch_input.trim().to_string();
+                                let res = crate::search::checkout_git_branch(
+                                    &self.current_dir,
+                                    &branch_name,
+                                );
+                                match res {
+                                    Ok(msg) => {
+                                        self.search_hub.status_message = Some(msg);
+                                        self.search_hub.prompt = None;
+                                    }
+                                    Err(err) => {
+                                        self.search_hub.status_message =
+                                            Some(format!("Error: {}", err));
+                                        self.search_hub.prompt = None;
+                                    }
+                                }
+                            }
+                            crate::search::ActionPrompt::ExportReport { path_input } => {
+                                let dest_path = self.current_dir.join(path_input.trim());
+                                let res = crate::search::export_report_to_file(
+                                    &dest_path,
+                                    &self.search_hub.results,
+                                );
+                                match res {
+                                    Ok(msg) => {
+                                        self.search_hub.status_message = Some(msg);
+                                        self.search_hub.prompt = None;
+                                    }
+                                    Err(err) => {
+                                        self.search_hub.status_message =
+                                            Some(format!("Error: {}", err));
+                                        self.search_hub.prompt = None;
+                                    }
+                                }
+                            }
+                            crate::search::ActionPrompt::CreatePullRequest {
+                                repo_input,
+                                title_input,
+                                body_input,
+                                head_input,
+                                base_input,
+                                token_input,
+                                step,
+                            } => {
+                                if *step < 5 {
+                                    *step += 1;
+                                    self.search_hub.status_message = Some(format!(
+                                        "Creating Pull Request - Step {}/6",
+                                        *step + 1
+                                    ));
+                                } else {
+                                    let repo = repo_input.clone();
+                                    let title = title_input.clone();
+                                    let body = body_input.clone();
+                                    let head = head_input.clone();
+                                    let base = base_input.clone();
+                                    let token = if token_input.trim().is_empty() {
+                                        None
+                                    } else {
+                                        Some(token_input.as_str())
+                                    };
+                                    self.search_hub.status_message =
+                                        Some("Submitting Pull Request...".to_string());
+                                    let res = crate::search::create_github_pull_request(
+                                        &repo, &title, &body, &head, &base, token,
                                     );
                                     match res {
                                         Ok(msg) => {
@@ -2072,134 +2180,58 @@ impl Qwx {
                                             self.search_hub.prompt = None;
                                         }
                                         Err(err) => {
-                                            self.search_hub.status_message = Some(format!("Error: {}", err));
+                                            self.search_hub.status_message =
+                                                Some(format!("PR Error: {}", err));
                                             self.search_hub.prompt = None;
-                                        }
-                                    }
-                                }
-                                crate::search::ActionPrompt::CloneInProgress { .. } => {}
-                                crate::search::ActionPrompt::CreateBranch { branch_input } => {
-                                    let branch_name = branch_input.trim().to_string();
-                                    let res = crate::search::create_git_branch(&self.current_dir, &branch_name);
-                                    match res {
-                                        Ok(msg) => {
-                                            self.search_hub.status_message = Some(msg);
-                                            self.search_hub.prompt = None;
-                                        }
-                                        Err(err) => {
-                                            self.search_hub.status_message = Some(format!("Error: {}", err));
-                                            self.search_hub.prompt = None;
-                                        }
-                                    }
-                                }
-                                crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
-                                    let branch_name = branch_input.trim().to_string();
-                                    let res = crate::search::checkout_git_branch(&self.current_dir, &branch_name);
-                                    match res {
-                                        Ok(msg) => {
-                                            self.search_hub.status_message = Some(msg);
-                                            self.search_hub.prompt = None;
-                                        }
-                                        Err(err) => {
-                                            self.search_hub.status_message = Some(format!("Error: {}", err));
-                                            self.search_hub.prompt = None;
-                                        }
-                                    }
-                                }
-                                crate::search::ActionPrompt::ExportReport { path_input } => {
-                                    let dest_path = self.current_dir.join(path_input.trim());
-                                    let res = crate::search::export_report_to_file(&dest_path, &self.search_hub.results);
-                                    match res {
-                                        Ok(msg) => {
-                                            self.search_hub.status_message = Some(msg);
-                                            self.search_hub.prompt = None;
-                                        }
-                                        Err(err) => {
-                                            self.search_hub.status_message = Some(format!("Error: {}", err));
-                                            self.search_hub.prompt = None;
-                                        }
-                                    }
-                                }
-                                crate::search::ActionPrompt::CreatePullRequest {
-                                    repo_input,
-                                    title_input,
-                                    body_input,
-                                    head_input,
-                                    base_input,
-                                    token_input,
-                                    step,
-                                } => {
-                                    if *step < 5 {
-                                        *step += 1;
-                                        self.search_hub.status_message = Some(format!(
-                                            "Creating Pull Request - Step {}/6",
-                                            *step + 1
-                                        ));
-                                    } else {
-                                        let repo = repo_input.clone();
-                                        let title = title_input.clone();
-                                        let body = body_input.clone();
-                                        let head = head_input.clone();
-                                        let base = base_input.clone();
-                                        let token = if token_input.trim().is_empty() {
-                                            None
-                                        } else {
-                                            Some(token_input.as_str())
-                                        };
-                                        self.search_hub.status_message = Some("Submitting Pull Request...".to_string());
-                                        let res = crate::search::create_github_pull_request(
-                                            &repo, &title, &body, &head, &base, token,
-                                        );
-                                        match res {
-                                            Ok(msg) => {
-                                                self.search_hub.status_message = Some(msg);
-                                                self.search_hub.prompt = None;
-                                            }
-                                            Err(err) => {
-                                                self.search_hub.status_message = Some(format!("PR Error: {}", err));
-                                                self.search_hub.prompt = None;
-                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        (KeyModifiers::NONE, KeyCode::Backspace) => {
-                            match prompt {
-                                crate::search::ActionPrompt::CloneRepo { dest_input, .. } => {
-                                    dest_input.pop();
-                                }
-                                crate::search::ActionPrompt::CreateBranch { branch_input } => {
-                                    branch_input.pop();
-                                }
-                                crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
-                                    branch_input.pop();
-                                }
-                                crate::search::ActionPrompt::ExportReport { path_input } => {
-                                    path_input.pop();
-                                }
-                                crate::search::ActionPrompt::CreatePullRequest {
-                                    repo_input,
-                                    title_input,
-                                    body_input,
-                                    head_input,
-                                    base_input,
-                                    token_input,
-                                    step,
-                                } => {
-                                    match step {
-                                        0 => { repo_input.pop(); }
-                                        1 => { title_input.pop(); }
-                                        2 => { body_input.pop(); }
-                                        3 => { head_input.pop(); }
-                                        4 => { base_input.pop(); }
-                                        5 => { token_input.pop(); }
-                                        _ => {}
-                                    }
-                                }
-                                crate::search::ActionPrompt::CloneInProgress { .. } => {}
+                        },
+                        (KeyModifiers::NONE, KeyCode::Backspace) => match prompt {
+                            crate::search::ActionPrompt::CloneRepo { dest_input, .. } => {
+                                dest_input.pop();
                             }
-                        }
+                            crate::search::ActionPrompt::CreateBranch { branch_input } => {
+                                branch_input.pop();
+                            }
+                            crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
+                                branch_input.pop();
+                            }
+                            crate::search::ActionPrompt::ExportReport { path_input } => {
+                                path_input.pop();
+                            }
+                            crate::search::ActionPrompt::CreatePullRequest {
+                                repo_input,
+                                title_input,
+                                body_input,
+                                head_input,
+                                base_input,
+                                token_input,
+                                step,
+                            } => match step {
+                                0 => {
+                                    repo_input.pop();
+                                }
+                                1 => {
+                                    title_input.pop();
+                                }
+                                2 => {
+                                    body_input.pop();
+                                }
+                                3 => {
+                                    head_input.pop();
+                                }
+                                4 => {
+                                    base_input.pop();
+                                }
+                                5 => {
+                                    token_input.pop();
+                                }
+                                _ => {}
+                            },
+                            crate::search::ActionPrompt::CloneInProgress { .. } => {}
+                        },
                         (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
                             match prompt {
                                 crate::search::ActionPrompt::CloneRepo { dest_input, .. } => {
@@ -2222,17 +2254,27 @@ impl Qwx {
                                     base_input,
                                     token_input,
                                     step,
-                                } => {
-                                    match step {
-                                        0 => { repo_input.push(c); }
-                                        1 => { title_input.push(c); }
-                                        2 => { body_input.push(c); }
-                                        3 => { head_input.push(c); }
-                                        4 => { base_input.push(c); }
-                                        5 => { token_input.push(c); }
-                                        _ => {}
+                                } => match step {
+                                    0 => {
+                                        repo_input.push(c);
                                     }
-                                }
+                                    1 => {
+                                        title_input.push(c);
+                                    }
+                                    2 => {
+                                        body_input.push(c);
+                                    }
+                                    3 => {
+                                        head_input.push(c);
+                                    }
+                                    4 => {
+                                        base_input.push(c);
+                                    }
+                                    5 => {
+                                        token_input.push(c);
+                                    }
+                                    _ => {}
+                                },
                                 crate::search::ActionPrompt::CloneInProgress { .. } => {}
                             }
                         }
@@ -2250,7 +2292,8 @@ impl Qwx {
                     (KeyModifiers::NONE, KeyCode::Tab) => {
                         self.search_hub.next_provider();
                     }
-                    (KeyModifiers::SHIFT, KeyCode::BackTab) | (KeyModifiers::SHIFT, KeyCode::Tab) => {
+                    (KeyModifiers::SHIFT, KeyCode::BackTab)
+                    | (KeyModifiers::SHIFT, KeyCode::Tab) => {
                         self.search_hub.prev_provider();
                     }
                     (KeyModifiers::NONE, KeyCode::Up) => {
@@ -2283,51 +2326,73 @@ impl Qwx {
                         self.search_hub.view_results_as_web_page(self.width);
                         let _ = execute!(stdout(), Clear(ClearType::All));
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('o')) | (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('o'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
                         self.search_hub.open_selected_in_browser();
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('e')) | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('e'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
                         self.search_hub.start_export_report();
                     }
                     (KeyModifiers::ALT, KeyCode::Char('s')) => {
                         self.search_hub.start_checkout_branch();
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('c')) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('c'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                         self.search_hub.start_clone_selected();
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('b')) | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('b'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
                         self.search_hub.start_create_branch();
                     }
                     (KeyModifiers::ALT, KeyCode::Char('p')) => {
                         self.search_hub.start_create_pull_request();
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('a')) | (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
-                        self.search_hub.set_provider(crate::search::SearchProvider::LocalAudit);
+                    (KeyModifiers::ALT, KeyCode::Char('a'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::LocalAudit);
                         self.search_hub.perform_search(&self.current_dir);
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('1')) | (KeyModifiers::CONTROL, KeyCode::Char('1')) => {
-                        self.search_hub.set_provider(crate::search::SearchProvider::All);
+                    (KeyModifiers::ALT, KeyCode::Char('1'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('1')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::All);
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('2')) | (KeyModifiers::CONTROL, KeyCode::Char('2')) => {
-                        self.search_hub.set_provider(crate::search::SearchProvider::GitHub);
+                    (KeyModifiers::ALT, KeyCode::Char('2'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('2')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::GitHub);
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('3')) | (KeyModifiers::CONTROL, KeyCode::Char('3')) => {
-                        self.search_hub.set_provider(crate::search::SearchProvider::GitLab);
+                    (KeyModifiers::ALT, KeyCode::Char('3'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('3')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::GitLab);
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('4')) | (KeyModifiers::CONTROL, KeyCode::Char('4')) => {
-                        self.search_hub.set_provider(crate::search::SearchProvider::Wikipedia);
+                    (KeyModifiers::ALT, KeyCode::Char('4'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('4')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::Wikipedia);
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('5')) | (KeyModifiers::CONTROL, KeyCode::Char('5')) => {
-                        self.search_hub.set_provider(crate::search::SearchProvider::Cve);
+                    (KeyModifiers::ALT, KeyCode::Char('5'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('5')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::Cve);
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('6')) | (KeyModifiers::CONTROL, KeyCode::Char('6')) => {
-                        self.search_hub.set_provider(crate::search::SearchProvider::HackerNews);
+                    (KeyModifiers::ALT, KeyCode::Char('6'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('6')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::HackerNews);
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('7')) | (KeyModifiers::CONTROL, KeyCode::Char('7')) => {
-                        self.search_hub.set_provider(crate::search::SearchProvider::LocalAudit);
+                    (KeyModifiers::ALT, KeyCode::Char('7'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('7')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::LocalAudit);
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('8')) | (KeyModifiers::CONTROL, KeyCode::Char('8')) => {
-                        self.search_hub.set_provider(crate::search::SearchProvider::Web);
+                    (KeyModifiers::ALT, KeyCode::Char('8'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('8')) => {
+                        self.search_hub
+                            .set_provider(crate::search::SearchProvider::Web);
                     }
                     (KeyModifiers::NONE, KeyCode::Enter) => {
                         self.search_hub.perform_search(&self.current_dir);

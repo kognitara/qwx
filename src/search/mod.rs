@@ -1,3 +1,4 @@
+use crate::web::WebFetcher;
 use crossterm::cursor::MoveTo;
 use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
@@ -12,6 +13,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchProvider {
     All,
+    Crates,
     GitHub,
     GitLab,
     Wikipedia,
@@ -25,6 +27,7 @@ impl SearchProvider {
     pub fn all_variants() -> &'static [SearchProvider] {
         &[
             SearchProvider::All,
+            SearchProvider::Crates,
             SearchProvider::GitHub,
             SearchProvider::GitLab,
             SearchProvider::Wikipedia,
@@ -38,6 +41,7 @@ impl SearchProvider {
     pub fn name(&self) -> &'static str {
         match self {
             SearchProvider::All => "All",
+            SearchProvider::Crates => "Crates.io",
             SearchProvider::GitHub => "GitHub",
             SearchProvider::GitLab => "GitLab",
             SearchProvider::Wikipedia => "Wikipedia",
@@ -51,13 +55,14 @@ impl SearchProvider {
     pub fn shortcut_key(&self) -> char {
         match self {
             SearchProvider::All => '1',
-            SearchProvider::GitHub => '2',
-            SearchProvider::GitLab => '3',
-            SearchProvider::Wikipedia => '4',
-            SearchProvider::Cve => '5',
-            SearchProvider::HackerNews => '6',
-            SearchProvider::LocalAudit => '7',
-            SearchProvider::Web => '8',
+            SearchProvider::Crates => '2',
+            SearchProvider::GitHub => '3',
+            SearchProvider::GitLab => '4',
+            SearchProvider::Wikipedia => '5',
+            SearchProvider::Cve => '6',
+            SearchProvider::HackerNews => '7',
+            SearchProvider::LocalAudit => '8',
+            SearchProvider::Web => '9',
         }
     }
 }
@@ -304,6 +309,8 @@ impl SearchHub {
             (SearchProvider::Web, rest.trim())
         } else if let Some(rest) = query_clean.strip_prefix("ddg:") {
             (SearchProvider::Web, rest.trim())
+        } else if let Some(rest) = query_clean.strip_prefix("crates:") {
+            (SearchProvider::Crates, rest.trim())
         } else {
             (self.active_provider, query_clean)
         };
@@ -319,6 +326,7 @@ impl SearchHub {
                 if !effective_query.is_empty() {
                     let mut all_res = Vec::new();
                     all_res.extend(search_github(effective_query));
+                    all_res.extend(search_cve(effective_query));
                     all_res.extend(search_gitlab(effective_query));
                     all_res.extend(search_cve(effective_query));
                     all_res.extend(search_hacker_news(effective_query));
@@ -328,6 +336,9 @@ impl SearchHub {
                 } else {
                     self.results = audit_local_workspace(current_dir);
                 }
+            }
+            SearchProvider::Crates => {
+                self.results = search_crates(effective_query);
             }
             SearchProvider::GitHub => {
                 self.results = search_github(effective_query);
@@ -398,9 +409,14 @@ impl SearchHub {
                     repo_url: clone_url,
                     dest_input: repo_name,
                 });
-                self.status_message = Some("Enter target directory for cloning and press Enter (or Esc to cancel):".to_string());
+                self.status_message = Some(
+                    "Enter target directory for cloning and press Enter (or Esc to cancel):"
+                        .to_string(),
+                );
             } else {
-                self.status_message = Some("Selected item does not have a valid git repository URL to clone.".to_string());
+                self.status_message = Some(
+                    "Selected item does not have a valid git repository URL to clone.".to_string(),
+                );
             }
         } else {
             self.status_message = Some("Please select a repository to clone first.".to_string());
@@ -436,7 +452,8 @@ impl SearchHub {
             token_input: String::new(),
             step: 0,
         });
-        self.status_message = Some("Create Pull Request - Step 1/6 : Repository (owner/repo):".to_string());
+        self.status_message =
+            Some("Create Pull Request - Step 1/6 : Repository (owner/repo):".to_string());
     }
 
     /// Prompt to checkout / switch a git branch
@@ -444,7 +461,8 @@ impl SearchHub {
         self.prompt = Some(ActionPrompt::CheckoutBranch {
             branch_input: String::new(),
         });
-        self.status_message = Some("Enter branch name to checkout / switch (or Esc to cancel):".to_string());
+        self.status_message =
+            Some("Enter branch name to checkout / switch (or Esc to cancel):".to_string());
     }
 
     /// Prompt to export results or audit to a Markdown file
@@ -456,7 +474,8 @@ impl SearchHub {
         self.prompt = Some(ActionPrompt::ExportReport {
             path_input: default_name.to_string(),
         });
-        self.status_message = Some("Enter filename for Markdown export (or Esc to cancel):".to_string());
+        self.status_message =
+            Some("Enter filename for Markdown export (or Esc to cancel):".to_string());
     }
 
     /// Open the selected item URL in the default system web browser
@@ -658,13 +677,27 @@ impl SearchHub {
         // 4. Layout des Résultats en Colonnes (par Catégorie)
         let results_start_y = search_box_top + search_box_h;
         let available_height = height.saturating_sub(results_start_y).saturating_sub(3); // leave room for preview & status
-        let preview_height = if available_height > 10 { 4u16 } else if available_height > 6 { 3u16 } else { 0u16 };
+        let preview_height = if available_height > 10 {
+            4u16
+        } else if available_height > 6 {
+            3u16
+        } else {
+            0u16
+        };
         let table_height = available_height.saturating_sub(preview_height);
 
         // Column widths calculation: [CATEGORIE] [TITRE] [DETAILS / INFOS]
         let cat_col_w = 14usize;
-        let details_col_w = if width > 90 { 32usize } else if width > 60 { 20usize } else { 12usize };
-        let title_col_w = (width as usize).saturating_sub(cat_col_w + details_col_w + 8).max(15);
+        let details_col_w = if width > 90 {
+            32usize
+        } else if width > 60 {
+            20usize
+        } else {
+            12usize
+        };
+        let title_col_w = (width as usize)
+            .saturating_sub(cat_col_w + details_col_w + 8)
+            .max(15);
 
         // Draw Table Header
         let table_header_y = results_start_y;
@@ -691,7 +724,8 @@ impl SearchHub {
             cat_w = cat_col_w,
             title_w = title_col_w,
             det_w = details_col_w
-        ).width() as u16;
+        )
+        .width() as u16;
         if width.saturating_sub(2) > header_rendered_w {
             let pad = " ".repeat((width.saturating_sub(2) - header_rendered_w) as usize);
             queue!(w, Print(pad))?;
@@ -714,24 +748,29 @@ impl SearchHub {
         if self.results.is_empty() {
             let empty_msg = if self.is_loading {
                 match self.active_provider {
-                    SearchProvider::GitHub => "Recherche en cours sur GitHub...",
-                    SearchProvider::GitLab => "Recherche en cours sur GitLab...",
-                    SearchProvider::Wikipedia => "Recherche en cours sur Wikipedia...",
-                    SearchProvider::Cve => "Scan et recherche CVE...",
-                    SearchProvider::HackerNews => "Recherche sur Hacker News...",
-                    SearchProvider::LocalAudit => "Audit des dependances locales...",
-                    SearchProvider::Web => "Recherche sur le web...",
-                    SearchProvider::All => "Recherche multi-sources en cours...",
+                    SearchProvider::GitHub => "Searching on GitHub...",
+                    SearchProvider::GitLab => "Searching on GitLab...",
+                    SearchProvider::Wikipedia => "Searching on Wikipedia...",
+                    SearchProvider::Cve => "Searching CVE...",
+                    SearchProvider::HackerNews => "Searching on Hacker News...",
+                    SearchProvider::LocalAudit => "Local dependencies audit...",
+                    SearchProvider::Web => "Searching on the web...",
+                    SearchProvider::All => "Multi-sources search in progress...",
+                    SearchProvider::Crates => "Searching on crates.io...",
                 }
             } else {
-                "Aucun resultat. Entrez une recherche et appuyez sur [Entree]."
+                "Sorry! No results."
             };
 
             queue!(
                 w,
                 MoveTo(start_x + 2, rows_start_y + 1),
                 SetBackgroundColor(bg_color),
-                SetForegroundColor(if self.is_loading { accent_gold } else { text_dim }),
+                SetForegroundColor(if self.is_loading {
+                    accent_gold
+                } else {
+                    text_dim
+                }),
                 Print(empty_msg)
             )?;
         } else {
@@ -775,7 +814,8 @@ impl SearchHub {
                     pointer, cat_padded, title_padded, extra_padded
                 );
                 let truncated_row = truncate_to_width(&row_str, (width.saturating_sub(2)) as usize);
-                let row_pad = (width.saturating_sub(2) as usize).saturating_sub(truncated_row.width());
+                let row_pad =
+                    (width.saturating_sub(2) as usize).saturating_sub(truncated_row.width());
 
                 if is_selected {
                     queue!(
@@ -812,7 +852,10 @@ impl SearchHub {
 
             if let Some(selected) = self.selected_item() {
                 let desc_line = if !selected.description.is_empty() {
-                    format!("Info: {}", selected.description.lines().next().unwrap_or(""))
+                    format!(
+                        "Info: {}",
+                        selected.description.lines().next().unwrap_or("")
+                    )
                 } else if !selected.url.is_empty() {
                     format!("URL: {}", selected.url)
                 } else {
@@ -888,7 +931,10 @@ impl SearchHub {
                         Print("CLONE GIT REPOSITORY"),
                         MoveTo(modal_x + 2, modal_y + 2),
                         SetForegroundColor(Color::White),
-                        Print(format!("URL   : {}", truncate_to_width(repo_url, modal_w as usize - 12))),
+                        Print(format!(
+                            "URL   : {}",
+                            truncate_to_width(repo_url, modal_w as usize - 12)
+                        )),
                         MoveTo(modal_x + 2, modal_y + 3),
                         SetForegroundColor(accent_green),
                         Print(format!("Target: {}█", dest_input)),
@@ -906,7 +952,12 @@ impl SearchHub {
                     let bar_w = (modal_w as usize).saturating_sub(14).max(10);
                     let filled = (bar_w * (*progress_pct as usize)) / 100;
                     let empty = bar_w.saturating_sub(filled);
-                    let progress_bar = format!("[{}{}] {:>3}%", "█".repeat(filled), "░".repeat(empty), progress_pct);
+                    let progress_bar = format!(
+                        "[{}{}] {:>3}%",
+                        "█".repeat(filled),
+                        "░".repeat(empty),
+                        progress_pct
+                    );
 
                     queue!(
                         w,
@@ -915,10 +966,16 @@ impl SearchHub {
                         Print("CLONING IN PROGRESS..."),
                         MoveTo(modal_x + 2, modal_y + 2),
                         SetForegroundColor(Color::White),
-                        Print(format!("Repository: {}", truncate_to_width(repo_url, modal_w as usize - 14))),
+                        Print(format!(
+                            "Repository: {}",
+                            truncate_to_width(repo_url, modal_w as usize - 14)
+                        )),
                         MoveTo(modal_x + 2, modal_y + 3),
                         SetForegroundColor(accent_gold),
-                        Print(format!("Target    : {}", truncate_to_width(dest_path, modal_w as usize - 14))),
+                        Print(format!(
+                            "Target    : {}",
+                            truncate_to_width(dest_path, modal_w as usize - 14)
+                        )),
                         MoveTo(modal_x + 2, modal_y + 4),
                         SetForegroundColor(accent_green),
                         Print(&progress_bar),
@@ -1019,7 +1076,8 @@ impl SearchHub {
         }
 
         let shortcuts_text = " [Tab] Source │ [1..7] Providers │ [c] Clone │ [b] Branch │ [s] Switch │ [p] PR │ [o] Open │ [e] Export │ [a] Audit │ [Esc] Exit ";
-        let rendered_shortcuts = truncate_to_width(shortcuts_text, width.saturating_sub(1) as usize);
+        let rendered_shortcuts =
+            truncate_to_width(shortcuts_text, width.saturating_sub(1) as usize);
         queue!(
             w,
             MoveTo(start_x + 1, shortcuts_y),
@@ -1106,9 +1164,14 @@ pub fn search_github(query: &str) -> Vec<SearchResultItem> {
             if let Some(items) = data.items {
                 for item in items {
                     let name = item.full_name.unwrap_or_else(|| "Unknown".to_string());
-                    let desc = item.description.unwrap_or_else(|| "No description".to_string());
+                    let desc = item
+                        .description
+                        .unwrap_or_else(|| "No description".to_string());
                     let html = item.html_url.unwrap_or_default();
-                    let clone = item.clone_url.clone().or_else(|| Some(format!("{}.git", html)));
+                    let clone = item
+                        .clone_url
+                        .clone()
+                        .or_else(|| Some(format!("{}.git", html)));
                     let stars = item.stargazers_count.unwrap_or(0);
                     let lang = item.language.unwrap_or_else(|| "N/A".to_string());
 
@@ -1189,8 +1252,12 @@ pub fn search_gitlab(query: &str) -> Vec<SearchResultItem> {
     if let Ok(resp) = client.get(&url).send() {
         if let Ok(items) = resp.json::<Vec<GitLabProjectItem>>() {
             for item in items {
-                let title = item.name_with_namespace.unwrap_or_else(|| "Unknown".to_string());
-                let desc = item.description.unwrap_or_else(|| "No description".to_string());
+                let title = item
+                    .name_with_namespace
+                    .unwrap_or_else(|| "Unknown".to_string());
+                let desc = item
+                    .description
+                    .unwrap_or_else(|| "No description".to_string());
                 let web = item.web_url.unwrap_or_default();
                 let clone = item.http_url_to_repo;
                 let stars = item.star_count.unwrap_or(0);
@@ -1254,8 +1321,11 @@ pub fn search_wikipedia(query: &str) -> Vec<SearchResultItem> {
                         let title = item.title.unwrap_or_default();
                         let raw_snippet = item.snippet.unwrap_or_default();
                         // Strip basic html tags like <span class="searchmatch">...</span>
-                        let clean_snippet = raw_snippet.replace("<span class=\"searchmatch\">", "").replace("</span>", "");
-                        let article_url = format!("https://en.wikipedia.org/wiki/{}", urlencoding(&title));
+                        let clean_snippet = raw_snippet
+                            .replace("<span class=\"searchmatch\">", "")
+                            .replace("</span>", "");
+                        let article_url =
+                            format!("https://en.wikipedia.org/wiki/{}", urlencoding(&title));
 
                         results.push(SearchResultItem {
                             provider: SearchProvider::Wikipedia,
@@ -1295,8 +1365,79 @@ struct NvdVulnerability {
 struct NvdResponse {
     vulnerabilities: Option<Vec<NvdVulnerability>>,
 }
+#[derive(Deserialize, Debug)]
+struct CratesApiResponse {
+    crates: Vec<CrateItem>,
+}
 
-/// Search CVE vulnerabilities (NVD / CIRCL API)
+#[derive(Deserialize, Debug)]
+struct CrateItem {
+    name: String,
+    description: Option<String>,
+    max_version: String,
+    homepage: Option<String>,
+    repository: Option<String>,
+}
+
+/// Recherche des paquets sur crates.io et convertit le résultat JSON
+/// en une liste d'éléments de recherche standard `SearchResultItem`.
+pub fn search_crates(query: &str) -> Vec<crate::search::SearchResultItem> {
+    // 1. Encodage correct et construction de l'URL de l'API officielle
+    let encoded_query = urlencoding::encode(query.trim());
+    let url = format!("https://crates.io{}&per_page=50", encoded_query);
+
+    // 2. Instanciation du client HTTP réutilisant les configurations (User-Agent, timeout)
+    // IMPORTANT : crates.io impose un User-Agent valide et identifiable sous peine de blocage HTTP 403.
+    let fetcher = WebFetcher::new();
+
+    let response = match fetcher
+        .client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+    {
+        Ok(res) => res,
+        Err(_) => return Vec::new(), // En cas d'erreur réseau, on retourne une liste vide
+    };
+
+    // 4. Désérialisation du JSON reçu
+    let api_result: CratesApiResponse = match response.json() {
+        Ok(data) => data,
+        Err(_) => return Vec::new(), // En cas de JSON malformé ou d'erreur API
+    };
+
+    // 5. Transformation vers le format générique `SearchResultItem` du projet QWX
+    api_result
+        .crates
+        .into_iter()
+        .map(|c| {
+            let target_url = c
+                .repository
+                .clone()
+                .or_else(|| c.homepage.clone())
+                .unwrap_or_else(|| format!("https://crates.io/crates/{}", c.name));
+
+            SearchResultItem {
+                provider: SearchProvider::Web,
+                title: c.name,
+                description: c
+                    .description
+                    .unwrap_or_else(|| "No description provided.".to_string()),
+                url: target_url,
+                extra_info: format!("v{}", c.max_version), // On utilise la version max comme métadonnée
+                clone_url: c.repository.map(|r| {
+                    if r.ends_with(".git") {
+                        r
+                    } else {
+                        format!("{}.git", r)
+                    }
+                }),
+                raw_content: None,
+            }
+        })
+        .collect()
+}
+/// Search crates.io packages
 pub fn search_cve(query: &str) -> Vec<SearchResultItem> {
     if query.trim().is_empty() {
         return Vec::new();
@@ -1417,9 +1558,9 @@ pub fn search_hacker_news(query: &str) -> Vec<SearchResultItem> {
                     let comments = hit.num_comments.unwrap_or(0);
                     let author = hit.author.unwrap_or_else(|| "anonymous".to_string());
                     let id = hit.object_id.unwrap_or_default();
-                    let link = hit.url.unwrap_or_else(|| {
-                        format!("https://news.ycombinator.com/item?id={}", id)
-                    });
+                    let link = hit
+                        .url
+                        .unwrap_or_else(|| format!("https://news.ycombinator.com/item?id={}", id));
                     let text = hit.story_text.unwrap_or_default();
 
                     results.push(SearchResultItem {
@@ -1427,7 +1568,10 @@ pub fn search_hacker_news(query: &str) -> Vec<SearchResultItem> {
                         title,
                         description: text.clone(),
                         url: link,
-                        extra_info: format!("▲ {} pts | {} comments | by {}", points, comments, author),
+                        extra_info: format!(
+                            "▲ {} pts | {} comments | by {}",
+                            points, comments, author
+                        ),
                         clone_url: None,
                         raw_content: if text.is_empty() { None } else { Some(text) },
                     });
@@ -1484,7 +1628,9 @@ pub fn audit_local_workspace(current_dir: &Path) -> Vec<SearchResultItem> {
             let mut in_deps = false;
             for line in content.lines() {
                 let line_trim = line.trim();
-                if line_trim.starts_with("[dependencies]") || line_trim.starts_with("[dev-dependencies]") {
+                if line_trim.starts_with("[dependencies]")
+                    || line_trim.starts_with("[dev-dependencies]")
+                {
                     in_deps = true;
                     continue;
                 } else if line_trim.starts_with('[') {
@@ -1566,7 +1712,9 @@ pub fn audit_local_workspace(current_dir: &Path) -> Vec<SearchResultItem> {
                 if let Some(vulns) = data.vulns {
                     for v in vulns {
                         let id = v.id.unwrap_or_else(|| "VULN".to_string());
-                        let summary = v.summary.unwrap_or_else(|| "Vulnerability detected".to_string());
+                        let summary = v
+                            .summary
+                            .unwrap_or_else(|| "Vulnerability detected".to_string());
                         let details = v.details.unwrap_or_default();
 
                         results.push(SearchResultItem {
@@ -1587,8 +1735,12 @@ pub fn audit_local_workspace(current_dir: &Path) -> Vec<SearchResultItem> {
     if results.is_empty() {
         results.push(SearchResultItem {
             provider: SearchProvider::LocalAudit,
-            title: format!("✓ No known vulnerability detected ({} packages analyzed)", audited_count),
-            description: "All analyzed dependencies on OSV.dev appear clean with no known CVEs.".to_string(),
+            title: format!(
+                "✓ No known vulnerability detected ({} packages analyzed)",
+                audited_count
+            ),
+            description: "All analyzed dependencies on OSV.dev appear clean with no known CVEs."
+                .to_string(),
             url: "https://osv.dev".to_string(),
             extra_info: "Security Audit".to_string(),
             clone_url: None,
@@ -1784,7 +1936,10 @@ where
                     indexed_objects: indexed,
                     total_objects: total,
                     received_bytes: bytes,
-                    current_step: format!("Receiving objects: {}/{} - {} bytes", received, total, bytes),
+                    current_step: format!(
+                        "Receiving objects: {}/{} - {} bytes",
+                        received, total, bytes
+                    ),
                 });
             }
         }
@@ -1938,13 +2093,21 @@ pub fn detect_current_git_repo(path: &Path) -> Option<String> {
 }
 
 /// Export search results or CVE audit to a Markdown file
-pub fn export_report_to_file(dest_path: &Path, results: &[SearchResultItem]) -> Result<String, String> {
+pub fn export_report_to_file(
+    dest_path: &Path,
+    results: &[SearchResultItem],
+) -> Result<String, String> {
     let mut md = String::new();
     md.push_str("# QWX Search & Security Audit Report\n\n");
     md.push_str(&format!("Total results: {}\n\n", results.len()));
 
     for (i, item) in results.iter().enumerate() {
-        md.push_str(&format!("## {}. [{}] {}\n\n", i + 1, item.provider.name(), item.title));
+        md.push_str(&format!(
+            "## {}. [{}] {}\n\n",
+            i + 1,
+            item.provider.name(),
+            item.title
+        ));
         if !item.extra_info.is_empty() {
             md.push_str(&format!("- **Info:** {}\n", item.extra_info));
         }
@@ -1966,7 +2129,10 @@ pub fn export_report_to_file(dest_path: &Path, results: &[SearchResultItem]) -> 
     }
 
     fs::write(dest_path, md).map_err(|e| format!("Failed to write report file: {}", e))?;
-    Ok(format!("Report successfully exported to '{}'", dest_path.display()))
+    Ok(format!(
+        "Report successfully exported to '{}'",
+        dest_path.display()
+    ))
 }
 
 /// Open given URL in system default web browser
@@ -2024,7 +2190,10 @@ pub fn create_github_pull_request(
         base,
     };
 
-    let api_url = format!("https://api.github.com/repos/{}/pulls", repo_full_name.trim());
+    let api_url = format!(
+        "https://api.github.com/repos/{}/pulls",
+        repo_full_name.trim()
+    );
     let mut req = client.post(&api_url).json(&payload);
 
     if let Some(tok) = token {
@@ -2035,7 +2204,9 @@ pub fn create_github_pull_request(
         req = req.header("Authorization", format!("Bearer {}", env_token.trim()));
     }
 
-    let resp = req.send().map_err(|e| format!("Network error while creating PR: {}", e))?;
+    let resp = req
+        .send()
+        .map_err(|e| format!("Network error while creating PR: {}", e))?;
 
     #[derive(Deserialize)]
     struct PrResponse {
@@ -2076,6 +2247,7 @@ fn urlencoding(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::web::UrlHelper;
 
     #[test]
     fn test_search_provider_names() {
@@ -2086,7 +2258,8 @@ mod tests {
         assert_eq!(SearchProvider::HackerNews.name(), "Hacker News");
         assert_eq!(SearchProvider::LocalAudit.name(), "Local Audit");
         assert_eq!(SearchProvider::Web.name(), "Web / DuckDuckGo");
-        assert_eq!(SearchProvider::Web.shortcut_key(), '8');
+        assert_eq!(SearchProvider::Crates.name(), "Crates.io");
+        assert_eq!(SearchProvider::Web.shortcut_key(), '9');
     }
 
     #[test]
@@ -2094,7 +2267,7 @@ mod tests {
         let mut hub = SearchHub::new();
         assert_eq!(hub.active_provider, SearchProvider::All);
         hub.next_provider();
-        assert_eq!(hub.active_provider, SearchProvider::GitHub);
+        assert_eq!(hub.active_provider, SearchProvider::Crates);
         hub.prev_provider();
         assert_eq!(hub.active_provider, SearchProvider::All);
     }
@@ -2150,10 +2323,16 @@ mod tests {
     fn test_search_hub_prompts() {
         let mut hub = SearchHub::new();
         hub.start_create_branch();
-        assert!(matches!(hub.prompt, Some(ActionPrompt::CreateBranch { .. })));
+        assert!(matches!(
+            hub.prompt,
+            Some(ActionPrompt::CreateBranch { .. })
+        ));
 
         hub.start_create_pull_request();
-        assert!(matches!(hub.prompt, Some(ActionPrompt::CreatePullRequest { .. })));
+        assert!(matches!(
+            hub.prompt,
+            Some(ActionPrompt::CreatePullRequest { .. })
+        ));
     }
 
     #[test]
@@ -2223,6 +2402,13 @@ mod tests {
         assert!(open_url_in_browser("").is_err());
         assert!(create_git_branch(Path::new("."), "").is_err());
         assert!(checkout_git_branch(Path::new("."), "").is_err());
+    }
+    #[test]
+    fn test_crates_provider_routing() {
+        assert_eq!(
+            UrlHelper::search_provider_for_query("crates:tokio"),
+            Some((SearchProvider::Crates, "tokio"))
+        );
     }
 
     #[test]

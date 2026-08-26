@@ -90,8 +90,8 @@ fn configure_spotify() -> io::Result<()> {
         .prompt()
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
-    let mut refresh_token_prompt = Text::new("Spotify Refresh Token:")
-        .with_help_message("OAuth refresh token (optional)");
+    let mut refresh_token_prompt =
+        Text::new("Spotify Refresh Token:").with_help_message("OAuth refresh token (optional)");
     if let Some(ref val) = existing.refresh_token {
         refresh_token_prompt = refresh_token_prompt.with_default(val);
     }
@@ -115,13 +115,20 @@ fn configure_spotify() -> io::Result<()> {
         "refresh_token": to_option(refresh_token),
     });
 
-    let credentials: SpotifyCredentials = serde_json::from_value(raw_json)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Deserialization error: {e}")))?;
+    let credentials: SpotifyCredentials = serde_json::from_value(raw_json).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Deserialization error: {e}"),
+        )
+    })?;
 
     credentials.save_to_config()?;
 
     if let Some(path) = SpotifyCredentials::config_file_path() {
-        println!("\n✓ Spotify configuration successfully saved to {}", path.display());
+        println!(
+            "\n✓ Spotify configuration successfully saved to {}",
+            path.display()
+        );
     } else {
         println!("\n✓ Spotify configuration successfully saved.");
     }
@@ -148,7 +155,9 @@ fn update_spotify_token() -> io::Result<()> {
         }
         Err(e) => {
             eprintln!("\n✗ Failed to update Spotify token: {}", e);
-            eprintln!("  Tip: Make sure Client ID & Client Secret are configured via `qwx spotify` or environment variables.");
+            eprintln!(
+                "  Tip: Make sure Client ID & Client Secret are configured via `qwx spotify` or environment variables."
+            );
             Err(io::Error::new(io::ErrorKind::Other, e))
         }
     }
