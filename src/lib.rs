@@ -4,7 +4,9 @@ pub mod editor;
 pub mod finder;
 #[doc = "`Qwx` module for draw ui"]
 pub mod painter;
-
+#[doc = "`Qwx` module for music player"]
 pub mod player;
-pub mod web;
+#[doc = "`Qwx` module for search hub"]
 pub mod search;
+#[doc = "`Qwx` module for web search"]
+pub mod web;

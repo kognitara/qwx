@@ -6,7 +6,9 @@ use crate::finder::{Finder, FinderLayout, list_files};
 use crossterm::cursor::{
     Hide, MoveDown, MoveLeft, MoveRight, MoveTo, MoveUp, SetCursorStyle, Show,
 };
-use crossterm::event::{Event, KeyCode, KeyModifiers, read};
+use crossterm::event::{
+    Event, KeyCode, KeyModifiers, poll, read,
+};
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
 use crossterm::terminal::{
     self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, size,
@@ -2361,19 +2363,21 @@ impl Qwx {
     }
 
     fn handle_player(&mut self) {
-        match read().expect("failed to get terminal input") {
-            Event::Key(key) => {
-                if !self.player.handle_key(key.code, key.modifiers) {
-                    self.mode = Mode::Normal;
+        if poll(std::time::Duration::from_millis(100)).unwrap_or(false) {
+            match read().expect("failed to get terminal input") {
+                Event::Key(key) => {
+                    if !self.player.handle_key(key.code, key.modifiers) {
+                        self.mode = Mode::Normal;
+                        let _ = execute!(stdout(), Clear(ClearType::All));
+                    }
+                }
+                Event::Resize(cols, rows) => {
+                    self.width = cols;
+                    self.height = rows;
                     let _ = execute!(stdout(), Clear(ClearType::All));
                 }
+                _ => {}
             }
-            Event::Resize(cols, rows) => {
-                self.width = cols;
-                self.height = rows;
-                let _ = execute!(stdout(), Clear(ClearType::All));
-            }
-            _ => {}
         }
     }
     /// Creates a new instance of the editor with the specified path and open mode.
