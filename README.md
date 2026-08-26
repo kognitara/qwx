@@ -1,22 +1,22 @@
-<img src="/home/saigo/Downloads/Qwx.png" alt="Qwx" style="zoom: 20%;" />
+<img src="https://github.com/kognitara/qwx/blob/master/Qwx.png" alt="Qwx" style="zoom: 20%;" />
 
-​										
+​
 
 # Quaternary Walk Extended
 
-`qwx` is an ultra-fast, modal terminal application designed for developers, system administrators,
-and teams looking to optimize their workflow without ever leaving the command line.
+`qwx` is an ultra-fast, modal terminal application designed for developers, system administrators, and teams looking to
+optimize their workflow without ever leaving the command line.
 
-Developed to remove distractions, `qwx` renders heavy graphical IDEs unnecessary by merging code
-editing, server management, web research, security auditing, and collaboration into a single, cohesive,
-and lightning fast text-based interface.
+Developed to remove distractions, `qwx` renders heavy graphical IDEs unnecessary by merging code editing, server
+management, web research, security auditing, and collaboration into a single, cohesive, and lightning fast text-based
+interface.
 
-More than just a text editor, `qwx` is a multidimensional environment engine.		
+More than just a text editor, `qwx` is a multidimensional environment engine.
 
 It strictly separates the physical display from the logical data.
 
-This decoupling allows you to display, manipulate, and link any type of data across multiple
-perspectives without ever duplicating information in memory.
+This decoupling allows you to display, manipulate, and link any type of data across multiple perspectives without ever
+duplicating information in memory.
 
 ## PHILOSOPHY
 
@@ -32,29 +32,28 @@ perspectives without ever duplicating information in memory.
 
 ## WHY
 
-Modern software development is fragmented. Constantly juggling between a text editor,
-a database client, a task manager, a web browser, and multiple terminal windows disrupts concentration.
+Modern software development is fragmented. Constantly juggling between a text editor, a database client, a task manager,
+a web browser, and multiple terminal windows disrupts concentration.
 
-Graphical interfaces impose their own logic, consume unnecessary resources, and force mouse usage,
-breaking the flow of thought.
+Graphical interfaces impose their own logic, consume unnecessary resources, and force mouse usage, breaking the flow of
+thought.
 
 Inspired by the mathematical rigor of tiling window managers and the efficiency of modal editors,
 `qwx` was created to offer a radical solution: a universal, generic system.
 
-It was built because there was no environment capable of treating data not merely as a file
-trapped in a window but as a particle of pure information.
+It was built because there was no environment capable of treating data not merely as a file trapped in a window but as a
+particle of pure information.
 
-By using a Tesseract-based architecture, `qwx` allows you to view a single source of truth
-from infinite angles (Views) and within infinite contexts (Workspaces), all while ensuring
-absolute control over the interface via atomic keyboard commands.
+By using a Tesseract-based architecture, `qwx` allows you to view a single source of truth from infinite angles (Views)
+and within infinite contexts (Workspaces), all while ensuring absolute control over the interface via atomic keyboard
+commands.
 
-`qwx` was not created for just text editing, it was created to manipulate information at
-the speed of thought.
+`qwx` was not created for just text editing, it was created to manipulate information at the speed of thought.
 
 ## VOCABULARY
 
 | NAME            | DEFINITION                                                |
-| --------------- | --------------------------------------------------------- |
+|-----------------|-----------------------------------------------------------|
 | **Bank**        | Supreme logical anchor of the qwx architecture.           |
 | **Session**     | Bidirectional projection of a system environment.         |
 | **Environment** | Dedicated configuration for a specific workflow.          |
@@ -70,55 +69,66 @@ the speed of thought.
 
 ## Modes
 
-| NAME           | DEFINITION                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------- |
-| **Normal**     | The default navigation and layout management state for rapid spatial operations.                        |
-| **Editor**     | Direct text insertion and modification mode.                                                            |
-| **Finder**     | Fast project directory and file navigation overlay.                                                     |
-| **Menu**       | Contextual command execution and file system quick actions (`!mkdir`, `!touch`, etc.).                  |
-| **Search**     | In-buffer text pattern search and match navigation.                                                     |
-| **WebSearch**  | Unified Search Hub, DevSecOps intelligence, package lookup, Git workflow, and CVE vulnerability audit.  |
-| **Player**     | Integrated Spotify music player & TUI controller (search, queue, playlists, playback, devices).         |
-| **Zen**        | Isolates and centers the active panel while hiding the grid. Other panels run in the background.        |
-| **Rescue**     | Emergency mode. Freezes complex rendering and background parsing to save connection under high latency. |
-| **Broadcast**  | Transforms terminal into a native collaborative pair-programming space with real-time cursor sync.      |
-| **Ephemeral**  | Secure, floating scratchpad layer. Data is never stored and gets instantly destroyed upon exit.         |
+| NAME          | DEFINITION                                                                                              |
+|---------------|---------------------------------------------------------------------------------------------------------|
+| **Normal**    | The default navigation and layout management state for rapid spatial operations.                        |
+| **Editor**    | Direct text insertion and modification mode.                                                            |
+| **Finder**    | Fast project directory and file navigation overlay.                                                     |
+| **Menu**      | Contextual command execution and file system quick actions (`!mkdir`, `!touch`, etc.).                  |
+| **Search**    | In-buffer text pattern search and match navigation.                                                     |
+| **WebSearch** | Unified Search Hub, DevSecOps intelligence, package lookup, Git workflow, and CVE vulnerability audit.  |
+| **Player**    | Integrated Spotify music player & TUI controller (search, queue, playlists, playback, devices).         |
+| **Zen**       | Isolates and centers the active panel while hiding the grid. Other panels run in the background.        |
+| **Rescue**    | Emergency mode. Freezes complex rendering and background parsing to save connection under high latency. |
+| **Broadcast** | Transforms terminal into a native collaborative pair-programming space with real-time cursor sync.      |
+| **Ephemeral** | Secure, floating scratchpad layer. Data is never stored and gets instantly destroyed upon exit.         |
 
 ## SEARCH HUB & DEVSECOPS INTELLIGENCE
 
-The newly introduced **Search Hub** (`WebSearch` mode) directly bridges external developer intelligence, security audits, and Git workflows into your terminal session without any context switching.
+The newly introduced **Search Hub** (`WebSearch` mode) directly bridges external developer intelligence, security
+audits, and Git workflows into your terminal session without any context switching.
 
 ### Supported Search Providers
 
 - **1. All** (`Alt + 1`): General web search and instant technical answers powered by DuckDuckGo.
-- **2. GitHub** (`Alt + 2`): Search public repositories, inspect star counts, forks, open issues, and repository descriptions.
+- **2. GitHub** (`Alt + 2`): Search public repositories, inspect star counts, forks, open issues, and repository
+  descriptions.
 - **3. GitLab** (`Alt + 3`): Search projects and repositories on GitLab.
 - **4. Wikipedia** (`Alt + 4`): Technical encyclopedic lookup with instant in-terminal article previews.
 - **5. CVE / Security** (`Alt + 5`): Live vulnerability queries against global databases (OSV.dev / NVD).
 - **6. Hacker News** (`Alt + 6`): Tech news, engineering discussions, and community discussions powered by Algolia.
-- **7. Local Audit** (`Alt + 7` or `Alt + a`): Automated zero-setup dependency audit scanning local project files (`Cargo.lock`, `Cargo.toml`) against the OSV.dev vulnerability database.
+- **7. Local Audit** (`Alt + 7` or `Alt + a`): Automated zero-setup dependency audit scanning local project files
+  (`Cargo.lock`, `Cargo.toml`) against the OSV.dev vulnerability database.
 
 ### Integrated Git & GitHub Workflow
 
 From within the Search Hub, you can execute Git actions directly on search results:
+
 - **Clone Repository** (`Alt + c` / `Ctrl + c`): Interactively clone a selected repository to your local workspace.
 - **Create Branch** (`Alt + b` / `Ctrl + b`): Prompt to create a new branch in the current project repository.
 - **Checkout Branch** (`Alt + s`): Switch to an existing Git branch.
-- **Create Pull Request** (`Alt + p`): Interactive step-by-step wizard to create and publish a GitHub Pull Request (repository, title, description, head branch, base branch, auth token).
-- **Export Markdown Report** (`Alt + e` / `Ctrl + e`): Generate and export a Markdown audit/search report (e.g. `cve-security-report.md` or `search-report.md`).
+- **Create Pull Request** (`Alt + p`): Interactive step-by-step wizard to create and publish a GitHub Pull Request
+  (repository, title, description, head branch, base branch, auth token).
+- **Export Markdown Report** (`Alt + e` / `Ctrl + e`): Generate and export a Markdown audit/search report (e.g.
+  `cve-security-report.md` or `search-report.md`).
 - **Open in Browser** (`Alt + o` / `Ctrl + o`): Open the selected result URL in your default system web browser.
 
 ## SPOTIFY MUSIC PLAYER TUI
 
-`qwx` includes a fully embedded, real-time terminal music player for Spotify (`Player` mode via `Alt + p`, `Alt + m`, or `:player`).
+`qwx` includes a fully embedded, real-time terminal music player for Spotify (`Player` mode via `Alt + p`, `Alt + m`, or
+`:player`).
 
 ### Key Capabilities
 
-- **Now Playing Display**: Real-time progress bar, track title, artists, album, device badge, volume, repeat and shuffle indicators.
-- **Search & Queue Integration**: Instant search across tracks, albums, and playlists with category cycling (`c`), direct playback (`Enter`), or queuing tracks (`a`).
+- **Now Playing Display**: Real-time progress bar, track title, artists, album, device badge, volume, repeat and shuffle
+  indicators.
+- **Search & Queue Integration**: Instant search across tracks, albums, and playlists with category cycling (`c`),
+  direct playback (`Enter`), or queuing tracks (`a`).
 - **Device Management**: View and switch active Spotify Connect devices seamlessly.
 - **Playlists & Saved Songs**: Browse user playlists and liked songs directly in terminal.
-- **Authentication**: Zero-friction setup via environment variables (`SPOTIFY_TOKEN` / `SPOTIFY_ACCESS_TOKEN`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`), persistent config (`~/.config/qwx/spotify.json`), or interactive in-TUI configuration.
+- **Authentication**: Zero-friction setup via environment variables (`SPOTIFY_TOKEN` / `SPOTIFY_ACCESS_TOKEN`,
+  `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`), persistent config (`~/.config/qwx/spotify.json`), or interactive in-TUI
+  configuration.
 
 ## KEYBOARD SHORTCUTS
 
@@ -143,7 +153,8 @@ The Editor Mode is dedicated to direct text insertion and modification.
 
 ### Normal Mode Shortcuts (Navigation & Layout)
 
-The Normal Mode is the default state of qwx, used for lightning-fast spatial navigation, panel management, and quick text manipulations without entering insert mode.
+The Normal Mode is the default state of qwx, used for lightning-fast spatial navigation, panel management, and quick
+text manipulations without entering insert mode.
 
 | Shortcut                        | Action                 | Description                                                                       |
 |:--------------------------------|:-----------------------|:----------------------------------------------------------------------------------|
