@@ -1,4 +1,8 @@
-# Quaternary Walk eXtended
+<img src="/home/saigo/Downloads/Qwx.png" alt="Qwx" style="zoom: 20%;" />
+
+​										
+
+# Quaternary Walk Extended
 
 `qwx` is an ultra-fast, modal terminal application designed for developers, system administrators,
 and teams looking to optimize their workflow without ever leaving the command line.
@@ -7,7 +11,7 @@ Developed to remove distractions, `qwx` renders heavy graphical IDEs unnecessary
 editing, server management, web research, security auditing, and collaboration into a single, cohesive,
 and lightning fast text-based interface.
 
-More than just a text editor, `qwx` is a multidimensional environment engine.
+More than just a text editor, `qwx` is a multidimensional environment engine.		
 
 It strictly separates the physical display from the logical data.
 
