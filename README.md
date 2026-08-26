@@ -1,5 +1,5 @@
 <p align="center">
-<img src="https://raw.githubusercontent.com/kognitara/qwx/refs/heads/master/Qwx.png" alt="Qwx"  width="150px" />
+<img src="https://raw.githubusercontent.com/kognitara/qwx/refs/heads/master/Qwx.png" alt="Qwx"  width="250px" />
 </p> 
 
 # Quaternary Walk Extended
