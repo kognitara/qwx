@@ -17,7 +17,13 @@ fn cli() -> Command {
         .about(env!("CARGO_PKG_DESCRIPTION"))
         .version(env!("CARGO_PKG_VERSION"))
         .long_about(HELP_CONTENT)
-        .subcommand(Command::new("open").about("Open a directory or file"))
+        .subcommand(Command::new("open").about("Open a directory or file").arg(
+            Arg::new("path")
+                .help("Path to open")
+                .required(true)
+                .action(ArgAction::Set)
+                .value_parser(value_parser!(String)),
+        ))
         .subcommand(
             Command::new("gen")
                 .about("Gen auto completion for shell")

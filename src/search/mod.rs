@@ -1367,7 +1367,6 @@ struct NvdResponse {
     vulnerabilities: Option<Vec<NvdVulnerability>>,
 }
 
-
 /// Recherche des paquets sur crates.io et convertit le résultat JSON
 /// en une liste d'éléments de recherche standard `SearchResultItem`.
 pub fn search_crates(query: &str) -> Vec<SearchResultItem> {
@@ -1535,7 +1534,7 @@ pub fn audit_local_workspace(current_dir: &Path) -> Vec<SearchResultItem> {
     let mut results = Vec::new();
     let client = match reqwest::blocking::Client::builder()
         .user_agent("qwx-search/0.0.3")
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(Duration::from_secs(10))
         .build()
     {
         Ok(c) => c,
@@ -2020,20 +2019,19 @@ pub fn checkout_git_branch(repo_path: &Path, branch_name: &str) -> Result<String
 
 /// Detect origin remote owner/repo from the current git workspace
 pub fn detect_current_git_repo(path: &Path) -> Option<String> {
-    if let Ok(repo) = git2::Repository::discover(path) {
-        if let Ok(remote) = repo.find_remote("origin") {
-            if let Ok(url) = remote.url() {
-                let clean = url.trim_end_matches(".git");
-                if let Some(pos) = clean.find("github.com/") {
-                    return Some(clean[pos + "github.com/".len()..].to_string());
-                } else if let Some(pos) = clean.find("github.com:") {
-                    return Some(clean[pos + "github.com:".len()..].to_string());
-                } else if let Some(pos) = clean.find("gitlab.com/") {
-                    return Some(clean[pos + "gitlab.com/".len()..].to_string());
-                } else if let Some(pos) = clean.find("gitlab.com:") {
-                    return Some(clean[pos + "gitlab.com:".len()..].to_string());
-                }
-            }
+    if let Ok(repo) = git2::Repository::discover(path)
+        && let Ok(remote) = repo.find_remote("origin")
+        && let Ok(url) = remote.url()
+    {
+        let clean = url.trim_end_matches(".git");
+        if let Some(pos) = clean.find("github.com/") {
+            return Some(clean[pos + "github.com/".len()..].to_string());
+        } else if let Some(pos) = clean.find("github.com:") {
+            return Some(clean[pos + "github.com:".len()..].to_string());
+        } else if let Some(pos) = clean.find("gitlab.com/") {
+            return Some(clean[pos + "gitlab.com/".len()..].to_string());
+        } else if let Some(pos) = clean.find("gitlab.com:") {
+            return Some(clean[pos + "gitlab.com:".len()..].to_string());
         }
     }
     None
@@ -2082,7 +2080,7 @@ pub fn export_report_to_file(
     ))
 }
 
-/// Open given URL in system default web browser
+/// Open given URL in the system default web browser
 pub fn open_url_in_browser(url: &str) -> Result<String, String> {
     if url.trim().is_empty() {
         return Err("No URL to open.".to_string());

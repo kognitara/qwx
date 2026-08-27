@@ -1180,7 +1180,7 @@ fn draw_mosaic_finder<W: Write>(
     let bot_y = mid_y + 1 + bot_cell_h;
     let left_inner_h = (top_cell_h + 1 + bot_cell_h) as usize;
 
-    let total_inner_w = (width.saturating_sub(4)) as usize;
+    let total_inner_w = width.saturating_sub(4) as usize;
     let inner_w_left = (total_inner_w * 35 / 100).max(1);
     let rem_w = total_inner_w.saturating_sub(inner_w_left);
     let inner_w_mid = (rem_w / 2).max(1);

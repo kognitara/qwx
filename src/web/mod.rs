@@ -50,7 +50,6 @@ impl WebLineSpan {
             style,
         }
     }
-
     pub fn normal(text: impl Into<String>) -> Self {
         Self::new(text, SpanStyle::Normal)
     }
@@ -2105,7 +2104,7 @@ impl WebBrowser {
             };
             if total > content_height {
                 let pct = ((self.scroll_offset + content_height).min(total) * 100) / total;
-                let pct_badge = format!(" {}% [{}/{}] ", pct, self.scroll_offset + 1, total);
+                let pct_badge = format!("   {}% [{}/{}]", pct, self.scroll_offset + 1, total);
                 let badge_x = w.saturating_sub(pct_badge.width() + 2);
                 queue!(
                     writer,
@@ -2113,8 +2112,8 @@ impl WebBrowser {
                         badge_x as u16,
                         (content_start_y + content_height - 1) as u16
                     ),
-                    SetBackgroundColor(bg_header),
-                    SetForegroundColor(fg_muted),
+                    SetBackgroundColor(Color::Black),
+                    SetForegroundColor(Color::White),
                     Print(pct_badge),
                     ResetColor
                 )?;
@@ -2122,7 +2121,7 @@ impl WebBrowser {
         }
 
         // 6. Interactive Prompts (URL bar, Link jump, Search)
-        let prompt_y = (h.saturating_sub(2)) as u16;
+        let prompt_y = h.saturating_sub(2) as u16;
         if self.url_prompt_active {
             queue!(
                 writer,
@@ -2132,19 +2131,10 @@ impl WebBrowser {
                     g: 45,
                     b: 65
                 }),
-                SetForegroundColor(Color::Rgb {
-                    r: 255,
-                    g: 215,
-                    b: 120
-                }),
-                Print(" 🌐 Enter URL / Search: "),
-                SetForegroundColor(Color::Rgb {
-                    r: 255,
-                    g: 255,
-                    b: 255
-                }),
+                SetForegroundColor(Color::White),
+                Print("Url: "),
                 Print(&self.url_input),
-                Print("█"),
+                Print("_"),
                 Print(" ".repeat(w.saturating_sub(25 + self.url_input.width()))),
                 ResetColor
             )?;
@@ -2152,20 +2142,11 @@ impl WebBrowser {
             queue!(
                 writer,
                 MoveTo(0, prompt_y),
-                SetBackgroundColor(Color::Rgb {
-                    r: 35,
-                    g: 45,
-                    b: 65
-                }),
-                SetForegroundColor(fg_link),
-                Print(" 🔗 Jump to Link ID [#]: "),
-                SetForegroundColor(Color::Rgb {
-                    r: 255,
-                    g: 255,
-                    b: 255
-                }),
+                SetBackgroundColor(Color::Black),
+                SetForegroundColor(Color::White),
+                Print("#: "),
                 Print(&self.link_input),
-                Print("█"),
+                Print("_"),
                 Print(" ".repeat(w.saturating_sub(27 + self.link_input.width()))),
                 ResetColor
             )?;
@@ -2173,24 +2154,11 @@ impl WebBrowser {
             queue!(
                 writer,
                 MoveTo(0, prompt_y),
-                SetBackgroundColor(Color::Rgb {
-                    r: 35,
-                    g: 45,
-                    b: 65
-                }),
-                SetForegroundColor(Color::Rgb {
-                    r: 160,
-                    g: 240,
-                    b: 180
-                }),
-                Print(" 🔍 Search: "),
-                SetForegroundColor(Color::Rgb {
-                    r: 255,
-                    g: 255,
-                    b: 255
-                }),
+                SetBackgroundColor(Color::Black),
+                SetForegroundColor(Color::White),
+                Print("Search: "),
                 Print(&self.search_query),
-                Print("█"),
+                Print("_"),
                 Print(" ".repeat(w.saturating_sub(14 + self.search_query.width()))),
                 ResetColor
             )?;
@@ -2199,8 +2167,8 @@ impl WebBrowser {
             queue!(
                 writer,
                 MoveTo(0, prompt_y),
-                SetBackgroundColor(bg_header),
-                SetForegroundColor(fg_muted)
+                SetBackgroundColor(Color::Black),
+                SetForegroundColor(Color::White)
             )?;
             let msg = self.status_message.as_deref().unwrap_or("Ready.");
             let status_line = format!(" ℹ {}", msg);
