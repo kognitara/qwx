@@ -1643,7 +1643,7 @@ impl Qwx {
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
                     if self.editor.save().is_err() {
-                        eprintln!("Erreur lors de la sauvegarde");
+                        eprintln!("Failed to save");
                     }
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('z')) => {

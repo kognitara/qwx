@@ -293,17 +293,17 @@ pub enum RepeatMode {
 impl RepeatMode {
     pub fn as_str(&self) -> &'static str {
         match self {
-            RepeatMode::Off => "off",
-            RepeatMode::Track => "track",
-            RepeatMode::Context => "context",
+            Self::Off => "off",
+            Self::Track => "track",
+            Self::Context => "context",
         }
     }
 
     pub fn next(&self) -> Self {
         match self {
-            RepeatMode::Off => RepeatMode::Context,
-            RepeatMode::Context => RepeatMode::Track,
-            RepeatMode::Track => RepeatMode::Off,
+            Self::Off => Self::Context,
+            Self::Context => Self::Track,
+            Self::Track => Self::Off,
         }
     }
 }
@@ -338,31 +338,31 @@ pub enum PlayerTab {
 impl PlayerTab {
     pub fn all() -> &'static [PlayerTab] {
         &[
-            PlayerTab::Search,
-            PlayerTab::Queue,
-            PlayerTab::Playlists,
-            PlayerTab::Devices,
-            PlayerTab::Config,
+            Self::Search,
+            Self::Queue,
+            Self::Playlists,
+            Self::Devices,
+            Self::Config,
         ]
     }
     pub fn title(&self) -> &'static str {
         match self {
-            PlayerTab::NowPlaying => "Now Playing",
-            PlayerTab::Search => "Search & Explore",
-            PlayerTab::Queue => "Play Queue",
-            PlayerTab::Playlists => "Playlists & Albums",
-            PlayerTab::Devices => "Connect Devices",
-            PlayerTab::Config => "Spotify Auth & Settings",
+            Self::NowPlaying => "Now Playing",
+            Self::Search => "Search & Explore",
+            Self::Queue => "Play Queue",
+            Self::Playlists => "Playlists & Albums",
+            Self::Devices => "Connect Devices",
+            Self::Config => "Spotify Auth & Settings",
         }
     }
     pub fn shortcut(&self) -> char {
         match self {
-            PlayerTab::NowPlaying => '0',
-            PlayerTab::Search => '1',
-            PlayerTab::Queue => '2',
-            PlayerTab::Playlists => '3',
-            PlayerTab::Devices => '4',
-            PlayerTab::Config => '5',
+            Self::NowPlaying => '0',
+            Self::Search => '1',
+            Self::Queue => '2',
+            Self::Playlists => '3',
+            Self::Devices => '4',
+            Self::Config => '5',
         }
     }
 }
@@ -396,29 +396,24 @@ pub enum SearchCategory {
 
 impl SearchCategory {
     pub fn all() -> &'static [SearchCategory] {
-        &[
-            SearchCategory::Tracks,
-            SearchCategory::Albums,
-            SearchCategory::Playlists,
-            SearchCategory::Artists,
-        ]
+        &[Self::Tracks, Self::Albums, Self::Playlists, Self::Artists]
     }
 
     pub fn name(&self) -> &'static str {
         match self {
-            SearchCategory::Tracks => "Tracks",
-            SearchCategory::Albums => "Albums",
-            SearchCategory::Playlists => "Playlists",
-            SearchCategory::Artists => "Artists",
+            Self::Tracks => "Tracks",
+            Self::Albums => "Albums",
+            Self::Playlists => "Playlists",
+            Self::Artists => "Artists",
         }
     }
 
     pub fn api_type(&self) -> &'static str {
         match self {
-            SearchCategory::Tracks => "track",
-            SearchCategory::Albums => "album",
-            SearchCategory::Playlists => "playlist",
-            SearchCategory::Artists => "artist",
+            Self::Tracks => "track",
+            Self::Albums => "album",
+            Self::Playlists => "playlist",
+            Self::Artists => "artist",
         }
     }
 }

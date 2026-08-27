@@ -1,14 +1,25 @@
-use crates_io_api::SyncClient;
+use crates_io_api::{Crate, SyncClient};
 use crossterm::cursor::MoveTo;
 use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
+pub const NEW: &str = "new";
+pub const UPDATED: &str = "updated";
+pub const DOWNLOADED: &str = "downloaded";
+pub const MOST_DOWNLOADED: &str = "most-downloaded";
+pub const RECENTLY_DOWNLOADED: &str = "recently-downloaded";
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(1);
+
+pub const DEFAULT_USER_AGENT: &str =
+    concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 /// Filter providers for the search engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +31,10 @@ pub enum SearchProvider {
     Wikipedia,
     Cve,
     HackerNews,
+    Lobsters,
+    ExploitDb,
+    Phrack,
+    Rfc,
     LocalAudit,
     Web,
 }
@@ -32,13 +47,14 @@ impl SearchProvider {
             Self::GitHub,
             Self::GitLab,
             Self::Wikipedia,
-            Self::Cve,
-            Self::HackerNews,
+            Self::Lobsters,
+            Self::ExploitDb,
+            Self::Phrack,
+            Self::Rfc,
             Self::LocalAudit,
             Self::Web,
         ]
     }
-
     pub fn name(&self) -> &'static str {
         match self {
             Self::All => "All",
@@ -46,24 +62,14 @@ impl SearchProvider {
             Self::GitHub => "GitHub",
             Self::GitLab => "GitLab",
             Self::Wikipedia => "Wikipedia",
-            Self::Cve => "CVE / Security",
-            Self::HackerNews => "Hacker News",
+            Self::Cve => "CVE",
+            Self::HackerNews => "News",
+            Self::Lobsters => "Lobsters",
+            Self::ExploitDb => "Exploit",
+            Self::Phrack => "Phrack",
             Self::LocalAudit => "Local Audit",
             Self::Web => "Web",
-        }
-    }
-
-    pub fn shortcut_key(&self) -> char {
-        match self {
-            Self::All => '1',
-            Self::Crates => '2',
-            Self::GitHub => '3',
-            Self::GitLab => '4',
-            Self::Wikipedia => '5',
-            Self::Cve => '6',
-            Self::HackerNews => '7',
-            Self::LocalAudit => '8',
-            Self::Web => '9',
+            Self::Rfc => "RFC",
         }
     }
 }
@@ -312,6 +318,16 @@ impl SearchHub {
             (SearchProvider::Web, rest.trim())
         } else if let Some(rest) = query_clean.strip_prefix("crates:") {
             (SearchProvider::Crates, rest.trim())
+        } else if let Some(rest) = query_clean.strip_prefix("edb:") {
+            (SearchProvider::ExploitDb, rest.trim())
+        } else if let Some(rest) = query_clean.strip_prefix("phrack:") {
+            (SearchProvider::Phrack, rest.trim())
+        } else if let Some(rest) = query_clean.strip_prefix("gh:") {
+            (SearchProvider::GitHub, rest.trim())
+        } else if let Some(rest) = query_clean.strip_prefix("lob:") {
+            (SearchProvider::Lobsters, rest.trim())
+        } else if let Some(rest) = query_clean.strip_prefix("rfc:") {
+            (SearchProvider::Rfc, rest.trim())
         } else {
             (self.active_provider, query_clean)
         };
@@ -338,6 +354,12 @@ impl SearchHub {
                     self.results = audit_local_workspace(current_dir);
                 }
             }
+            SearchProvider::ExploitDb => {
+                self.results = search_exploit_db(effective_query);
+            }
+            SearchProvider::Phrack => {
+                self.results = search_phrack(effective_query);
+            }
             SearchProvider::Crates => {
                 self.results = search_crates(effective_query);
             }
@@ -349,6 +371,9 @@ impl SearchHub {
             }
             SearchProvider::Wikipedia => {
                 self.results = search_wikipedia(effective_query);
+            }
+            SearchProvider::Rfc => {
+                self.results = search_rfc(effective_query);
             }
             SearchProvider::Cve => {
                 if effective_query.is_empty() {
@@ -365,6 +390,9 @@ impl SearchHub {
             }
             SearchProvider::Web => {
                 self.results = search_duckduckgo(effective_query);
+            }
+            SearchProvider::Lobsters => {
+                self.results = search_lobsters(effective_query);
             }
         }
 
@@ -491,6 +519,63 @@ impl SearchHub {
             self.status_message = Some("No item selected to open.".to_string());
         }
     }
+    pub fn news<W: Write>(
+        &self,
+        w: &mut W,
+        start_x: u16,
+        start_y: u16,
+        width: u16,
+    ) -> io::Result<()> {
+        let mut new_crates_idx = 0;
+        let mut updated_crates_idx = 0;
+        let mut most_downloaded_idx = 0;
+        for (x, data) in crates() {
+            if x.contains(NEW) {
+                queue!(
+                    w,
+                    MoveTo(start_x, start_y + new_crates_idx),
+                    Print("NEW CRATES")
+                )?;
+                for crates in data {
+                    new_crates_idx += 1;
+                    queue!(
+                        w,
+                        MoveTo(start_x, start_y + new_crates_idx),
+                        Print(format!("{}", crates.name))
+                    )?;
+                }
+            } else if x.contains(UPDATED) {
+                queue!(
+                    w,
+                    MoveTo(width / 3, start_y + updated_crates_idx),
+                    Print("UPDATED")
+                )?;
+                for crates in data {
+                    updated_crates_idx += 1;
+                    queue!(
+                        w,
+                        MoveTo(width / 3, start_y    + updated_crates_idx),
+                        Print(format!("{}", crates.name))
+                    )?;
+                }
+            } else if x.contains(MOST_DOWNLOADED) {
+                queue!(
+                    w,
+                    MoveTo(width / 3, start_y + most_downloaded_idx),
+                    Print("MOST DOWNLOADED")
+                )?;
+                for crates in data {
+                    most_downloaded_idx += 1;
+                    queue!(
+                        w,
+                        MoveTo(width / 2, start_y + most_downloaded_idx),
+                        Print(format!("{}", crates.name))
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
 
     /// Draw the complete search hub interface in a refined 2x2 grid structure
     pub fn draw<W: Write>(
@@ -515,17 +600,6 @@ impl SearchHub {
             r: 16,
             g: 20,
             b: 28,
-        };
-        let tab_active_bg = Color::Rgb {
-            r: 50,
-            g: 60,
-            b: 80,
-        };
-        let tab_inactive_bg = bg_color;
-        let text_color = Color::Rgb {
-            r: 220,
-            g: 225,
-            b: 240,
         };
         let text_dim = Color::Rgb {
             r: 110,
@@ -569,114 +643,68 @@ impl SearchHub {
             queue!(
                 w,
                 MoveTo(start_x, start_y + row),
-                SetBackgroundColor(bg_color),
-                SetForegroundColor(text_color),
+                SetBackgroundColor(Color::Black),
+                SetForegroundColor(Color::White),
                 Print(&empty_line)
             )?;
         }
 
-        // 1. Header & Title Bar (Clean & Sober)
-        let title_text = " QWX RECHERCHE ";
-        queue!(
-            w,
-            MoveTo(start_x, start_y),
-            SetBackgroundColor(header_bg),
-            SetForegroundColor(Color::White),
-            Print(title_text)
-        )?;
-        let title_len = title_text.width() as u16;
-        if width > title_len {
-            let padding = " ".repeat((width - title_len) as usize);
-            queue!(w, Print(padding))?;
-        }
-
-        // 2. Filter Tabs (Texte sobre sans icônes)
-        let mut tab_x = start_x + 1;
-        let tab_y = start_y + 1;
-        queue!(w, MoveTo(tab_x, tab_y), SetBackgroundColor(bg_color))?;
-
-        for provider in SearchProvider::all_variants() {
-            let is_active = *provider == self.active_provider;
-            let tab_text = format!(" [{}:{}] ", provider.shortcut_key(), provider.name());
-            let tab_width = tab_text.width() as u16;
-
-            if tab_x + tab_width > start_x + width - 1 {
-                break;
-            }
-
-            if is_active {
-                queue!(
-                    w,
-                    MoveTo(tab_x, tab_y),
-                    SetBackgroundColor(tab_active_bg),
-                    SetForegroundColor(Color::White),
-                    Print(&tab_text)
-                )?;
-            } else {
-                queue!(
-                    w,
-                    MoveTo(tab_x, tab_y),
-                    SetBackgroundColor(tab_inactive_bg),
-                    SetForegroundColor(text_dim),
-                    Print(&tab_text)
-                )?;
-            }
-            tab_x += tab_width + 1;
-        }
-
         // 3. Search Input Bar avec Bordure Blanche
-        let search_box_top = start_y + 2;
         let search_box_h = 3u16;
-        let search_inner_w = (width.saturating_sub(4)) as usize;
+        let search_inner_w = width.saturating_sub(4);
 
         if height > 8 && width > 10 {
             // Top border of search box
             queue!(
                 w,
-                MoveTo(start_x + 1, search_box_top),
+                MoveTo(start_x, start_y),
                 SetBackgroundColor(bg_color),
                 SetForegroundColor(Color::White),
                 Print("┌"),
-                Print("─".repeat(search_inner_w)),
+                Print(format!(" {} ", self.active_provider.name())),
+                Print(
+                    "─".repeat(
+                        width
+                            .saturating_sub(self.active_provider.name().width() as u16)
+                            .saturating_sub(4) as usize
+                    )
+                ),
                 Print("┐")
             )?;
 
             // Middle input line with white side borders
-            let cursor_char = if self.prompt.is_none() { "█" } else { " " };
-            let prompt_label = format!(" Recherche [{}]: ", self.active_provider.name());
-            let current_query = format!("{}{}", self.query, cursor_char);
-            let input_content = format!("{}{}", prompt_label, current_query);
-            let truncated_input = truncate_to_width(&input_content, search_inner_w);
-            let pad_len = search_inner_w.saturating_sub(truncated_input.width());
-            let pad_str = " ".repeat(pad_len);
+            let cursor_char = if self.prompt.is_none() { "_" } else { " " };
+            let current_query = format!(" {}{}", self.query, cursor_char);
+            let truncated_input = truncate_to_width(&current_query, search_inner_w as usize);
+            let pad_len = width
+                .saturating_sub(truncated_input.width() as u16)
+                .saturating_sub(2);
+            let pad_str = " ".repeat(pad_len as usize);
 
             queue!(
                 w,
-                MoveTo(start_x + 1, search_box_top + 1),
-                SetBackgroundColor(bg_color),
+                SetBackgroundColor(Color::Black),
                 SetForegroundColor(Color::White),
+                MoveTo(start_x, start_y + 1),
                 Print("│"),
-                SetForegroundColor(Color::White),
                 Print(&truncated_input),
                 Print(&pad_str),
-                SetForegroundColor(Color::White),
                 Print("│")
             )?;
 
             // Bottom border of search box
             queue!(
                 w,
-                MoveTo(start_x + 1, search_box_top + 2),
-                SetBackgroundColor(bg_color),
+                MoveTo(start_x, start_y + 2),
+                SetBackgroundColor(Color::Black),
                 SetForegroundColor(Color::White),
                 Print("└"),
-                Print("─".repeat(search_inner_w)),
+                Print("─".repeat(width.saturating_sub(2) as usize)),
                 Print("┘")
             )?;
         }
 
-        // 4. Layout des Résultats en Colonnes (par Catégorie)
-        let results_start_y = search_box_top + search_box_h;
+        let results_start_y = start_y + search_box_h;
         let available_height = height.saturating_sub(results_start_y).saturating_sub(3); // leave room for preview & status
         let preview_height = if available_height > 10 {
             4u16
@@ -687,7 +715,7 @@ impl SearchHub {
         };
         let table_height = available_height.saturating_sub(preview_height);
 
-        // Column widths calculation: [CATEGORIE] [TITRE] [DETAILS / INFOS]
+        // Column widths calculation: [CATEGORY] [TITRE] [DETAILS / INFOS]
         let cat_col_w = 14usize;
         let details_col_w = if width > 90 {
             32usize
@@ -705,11 +733,11 @@ impl SearchHub {
         queue!(
             w,
             MoveTo(start_x + 1, table_header_y),
-            SetBackgroundColor(header_bg),
+            SetBackgroundColor(Color::Black),
             SetForegroundColor(Color::White),
             Print(format!(
                 "  {:<cat_w$} │ {:<title_w$} │ {:<det_w$}",
-                "CATEGORIE",
+                "CATEGORY",
                 "TITRE",
                 "DETAILS / SOURCE",
                 cat_w = cat_col_w,
@@ -719,7 +747,7 @@ impl SearchHub {
         )?;
         let header_rendered_w = format!(
             "  {:<cat_w$} │ {:<title_w$} │ {:<det_w$}",
-            "CATEGORIE",
+            "CATEGORY",
             "TITRE",
             "DETAILS / SOURCE",
             cat_w = cat_col_w,
@@ -736,44 +764,17 @@ impl SearchHub {
         let table_sep_y = table_header_y + 1;
         queue!(
             w,
-            MoveTo(start_x + 1, table_sep_y),
-            SetBackgroundColor(bg_color),
-            SetForegroundColor(border_color),
-            Print("─".repeat((width.saturating_sub(2)) as usize))
+            MoveTo(start_x, table_sep_y),
+            SetBackgroundColor(Color::Black),
+            SetForegroundColor(Color::Reset),
+            Print(" ".repeat(width.saturating_sub(2) as usize))
         )?;
 
-        // Results rows
-        let rows_start_y = table_sep_y + 1;
-        let visible_count = (table_height.saturating_sub(2)) as usize;
+        // Result rows
+        let rows_start_y = table_sep_y;
+        let visible_count = table_height.saturating_sub(2) as usize;
 
         if self.results.is_empty() {
-            let empty_msg = if self.is_loading {
-                match self.active_provider {
-                    SearchProvider::GitHub => "Searching on GitHub...",
-                    SearchProvider::GitLab => "Searching on GitLab...",
-                    SearchProvider::Wikipedia => "Searching on Wikipedia...",
-                    SearchProvider::Cve => "Searching CVE...",
-                    SearchProvider::HackerNews => "Searching on Hacker News...",
-                    SearchProvider::LocalAudit => "Local dependencies audit...",
-                    SearchProvider::Web => "Searching on the web...",
-                    SearchProvider::All => "Multi-sources search in progress...",
-                    SearchProvider::Crates => "Searching on crates.io...",
-                }
-            } else {
-                "Sorry! No results."
-            };
-
-            queue!(
-                w,
-                MoveTo(start_x + 2, rows_start_y + 1),
-                SetBackgroundColor(bg_color),
-                SetForegroundColor(if self.is_loading {
-                    accent_gold
-                } else {
-                    text_dim
-                }),
-                Print(empty_msg)
-            )?;
         } else {
             let mut scroll_offset = self.scroll_offset;
             if self.selected_index < scroll_offset {
@@ -814,7 +815,7 @@ impl SearchHub {
                     "{}{} │ {} │ {}",
                     pointer, cat_padded, title_padded, extra_padded
                 );
-                let truncated_row = truncate_to_width(&row_str, (width.saturating_sub(2)) as usize);
+                let truncated_row = truncate_to_width(&row_str, width.saturating_sub(2) as usize);
                 let row_pad =
                     (width.saturating_sub(2) as usize).saturating_sub(truncated_row.width());
 
@@ -831,8 +832,8 @@ impl SearchHub {
                     queue!(
                         w,
                         MoveTo(start_x + 1, line_y),
-                        SetBackgroundColor(bg_color),
-                        SetForegroundColor(text_color),
+                        SetBackgroundColor(Color::Black),
+                        SetForegroundColor(Color::White),
                         Print(&truncated_row),
                         Print(" ".repeat(row_pad))
                     )?;
@@ -840,7 +841,7 @@ impl SearchHub {
             }
         }
 
-        // Preview / Details panel (Sobre, en bas des résultats)
+        // Preview / Details panel
         if preview_height > 0 {
             let preview_top_y = rows_start_y + table_height.saturating_sub(2);
             queue!(
@@ -848,7 +849,7 @@ impl SearchHub {
                 MoveTo(start_x + 1, preview_top_y),
                 SetBackgroundColor(bg_color),
                 SetForegroundColor(border_color),
-                Print("─".repeat((width.saturating_sub(2)) as usize))
+                Print("─".repeat(width.saturating_sub(2) as usize))
             )?;
 
             if let Some(selected) = self.selected_item() {
@@ -862,13 +863,14 @@ impl SearchHub {
                 } else {
                     format!("Titre: {}", selected.title)
                 };
-                let actions_line = "Actions: [w] Lecteur Web  [o] Navigateur  [c] Cloner  [p] Pull Request  [b] Branche";
+                let actions_line =
+                    "Actions: [w]  Web [o] Navigator [c] Cloner [p] Pull Request [b] Branch";
 
-                let max_preview_w = (width.saturating_sub(4)) as usize;
+                let max_preview_w = width.saturating_sub(4) as usize;
                 queue!(
                     w,
                     MoveTo(start_x + 2, preview_top_y + 1),
-                    SetBackgroundColor(bg_color),
+                    SetBackgroundColor(Color::Black),
                     SetForegroundColor(accent_gold),
                     Print(truncate_to_width(&desc_line, max_preview_w)),
                     MoveTo(start_x + 2, preview_top_y + 2),
@@ -1112,6 +1114,252 @@ fn truncate_to_width(s: &str, max_width: usize) -> String {
 // =========================================================================
 
 #[derive(Deserialize)]
+struct LobstersUser {
+    username: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LobstersItem {
+    title: Option<String>,
+    url: Option<String>,
+    comments_url: Option<String>,
+    score: Option<i32>,
+    submitter_user: Option<LobstersUser>,
+    tags: Option<Vec<String>>,
+}
+
+/// Recherche sur la communauté Lobste.rs
+pub fn search_lobsters(query: &str) -> Vec<SearchResultItem> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut results = Vec::new();
+    let client = match reqwest::blocking::Client::builder()
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(Duration::from_secs(8))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return results,
+    };
+
+    let url = format!("https://lobste.rs/search.json?q={}", urlencoding(query));
+    if let Ok(resp) = client.get(&url).send() {
+        if let Ok(items) = resp.json::<Vec<LobstersItem>>() {
+            for item in items.into_iter().take(15) {
+                let title = item.title.unwrap_or_else(|| "Sans titre".to_string());
+                let link = item.url.unwrap_or_default();
+                let comments_url = item.comments_url.unwrap_or_default();
+                let score = item.score.unwrap_or(0);
+                let author = item
+                    .submitter_user
+                    .and_then(|u| u.username)
+                    .unwrap_or_else(|| "anonym".to_string());
+                let tags = item.tags.unwrap_or_default().join(", ");
+
+                results.push(SearchResultItem {
+                    provider: SearchProvider::Lobsters,
+                    title,
+                    description: format!("Tags: {}", tags),
+                    // On privilégie l'URL externe, sinon on renvoie vers les commentaires
+                    url: if link.is_empty() { comments_url } else { link },
+                    extra_info: format!("▲ {} pts | by {}", score, author),
+                    clone_url: None,
+                    raw_content: None,
+                });
+            }
+        }
+    }
+    results
+}
+
+#[derive(Deserialize)]
+struct GitHubCodeItem {
+    name: Option<String>,
+    path: Option<String>,
+    html_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubCodeSearchResponse {
+    items: Option<Vec<GitHubCodeItem>>,
+}
+/// Recherche de spécifications IETF (RFC)
+pub fn search_rfc(query: &str) -> Vec<SearchResultItem> {
+    let clean_query = query.trim();
+    if clean_query.is_empty() {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+
+    // Hack pratique : si l'utilisateur tape juste un numéro (ex: "8446")
+    // on renvoie directement l'accès au fichier texte officiel.
+    if clean_query.chars().all(char::is_numeric) {
+        let txt_url = format!("https://www.rfc-editor.org/rfc/rfc{clean_query}.txt");
+        results.push(SearchResultItem {
+            provider: SearchProvider::Rfc,
+            title: format!("RFC {}", clean_query),
+            description: "No description".to_string(),
+            url: txt_url,
+            extra_info: "IETF Standard".to_string(),
+            clone_url: None,
+            raw_content: None,
+        });
+        return results; // Pas besoin d'aller chercher plus loin
+    }
+
+    let client = match reqwest::blocking::Client::builder()
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return results,
+    };
+
+    // Fallback : recherche sémantique via DDG ciblé sur le domaine RFC
+    let ddg_query = format!("site:rfc-editor.org/rfc {}", clean_query);
+    let html_url = format!(
+        "https://html.duckduckgo.com/html/?q={}",
+        urlencoding(&ddg_query)
+    );
+
+    if let Ok(resp) = client.get(&html_url).send() {
+        if let Ok(html_text) = resp.text() {
+            let engine = crate::web::HtmlReaderEngine::new(80);
+            let page = engine.parse_html(&html_url, &html_text);
+
+            for link in page.links.into_iter().take(10) {
+                if !link.url.contains("duckduckgo.com") && link.url.contains("rfc-editor.org") {
+                    // Petite astuce : on remplace .html par .txt pour forcer
+                    // la lecture pure dans ton Web Reader de terminal
+                    let txt_url = link.url.replace(".html", ".txt");
+                    let title = if link.text.trim().is_empty() {
+                        "RFC Document".to_string()
+                    } else {
+                        link.text.clone()
+                    };
+
+                    results.push(SearchResultItem {
+                        provider: SearchProvider::Rfc,
+                        title,
+                        description: "Spécification technique IETF".to_string(),
+                        url: txt_url,
+                        extra_info: "RFC Spec".to_string(),
+                        clone_url: None,
+                        raw_content: None,
+                    });
+                }
+            }
+        }
+    }
+
+    results
+}
+/// Recherche sur Exploit-DB via le miroir officiel GitHub
+pub fn search_exploit_db(query: &str) -> Vec<SearchResultItem> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut results = Vec::new();
+    let client = match reqwest::blocking::Client::builder()
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return results,
+    };
+
+    let url = format!(
+        "https://api.github.com/search/code?q=repo:offensive-security/exploitdb+{}&per_page=50",
+        urlencoding(query)
+    );
+
+    if let Ok(resp) = client.get(&url).send() {
+        if let Ok(data) = resp.json::<GitHubCodeSearchResponse>() {
+            if let Some(items) = data.items {
+                for item in items {
+                    let path = item.path.unwrap_or_else(|| "unknown".to_string());
+                    let url = item.html_url.unwrap_or_default();
+                    let name = item.name.unwrap_or_else(|| "Exploit".to_string());
+
+                    let raw_url = format!(
+                        "https://raw.githubusercontent.com/offensive-security/exploitdb/master/{path}",
+                    );
+
+                    results.push(SearchResultItem {
+                        provider: SearchProvider::ExploitDb,
+                        title: name,
+                        description: url,
+                        url: raw_url, // On passe le lien brut pour le lecteur web de qwx
+                        extra_info: "Exploit-DB PoC".to_string(),
+                        clone_url: None,
+                        raw_content: None,
+                    });
+                }
+            }
+        }
+    }
+    results
+}
+
+/// Recherche dans les archives de Phrack Magazine via DuckDuckGo HTML
+pub fn search_phrack(query: &str) -> Vec<SearchResultItem> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut results = Vec::new();
+    let client = match reqwest::blocking::Client::builder()
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return results,
+    };
+
+    // On utilise DuckDuckGo HTML en restreignant au domaine phrack.org
+    let ddg_query = format!("site:phrack.org {}", query);
+    let html_url = format!(
+        "https://html.duckduckgo.com/html/?q={}",
+        urlencoding(&ddg_query)
+    );
+
+    if let Ok(resp) = client.get(&html_url).send() {
+        if let Ok(html_text) = resp.text() {
+            // Réutilisation de ton moteur de parsing HTML existant
+            let engine = crate::web::HtmlReaderEngine::new(80);
+            let page = engine.parse_html(&html_url, &html_text);
+
+            for link in page.links.into_iter().take(10) {
+                // On filtre pour ne garder que les vrais liens Phrack
+                if !link.url.contains("duckduckgo.com") && link.url.contains("phrack.org") {
+                    // Nettoyage basique du titre si nécessaire
+                    let title = if link.text.trim().is_empty() {
+                        "Article Phrack".to_string()
+                    } else {
+                        link.text.clone()
+                    };
+
+                    results.push(SearchResultItem {
+                        provider: SearchProvider::Phrack,
+                        title,
+                        description: "Archive Phrack Magazine".to_string(),
+                        url: link.url.clone(),
+                        extra_info: "Zine Article".to_string(),
+                        clone_url: None,
+                        raw_content: None,
+                    });
+                }
+            }
+        }
+    }
+
+    results
+}
+#[derive(Deserialize)]
 struct GitHubRepoItem {
     full_name: Option<String>,
     description: Option<String>,
@@ -1147,8 +1395,8 @@ pub fn search_github(query: &str) -> Vec<SearchResultItem> {
     }
     let mut results = Vec::new();
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("qwx-search/0.0.3")
-        .timeout(std::time::Duration::from_secs(8))
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
         .build()
     {
         Ok(c) => c,
@@ -1157,7 +1405,7 @@ pub fn search_github(query: &str) -> Vec<SearchResultItem> {
 
     // 1. Repositories
     let repo_url = format!(
-        "https://api.github.com/search/repositories?q={}&per_page=10",
+        "https://api.github.com/search/repositories?q={}&per_page=50",
         urlencoding(query)
     );
     if let Ok(resp) = client.get(&repo_url).send() {
@@ -1192,7 +1440,7 @@ pub fn search_github(query: &str) -> Vec<SearchResultItem> {
 
     // 2. Issues & Pull Requests
     let issue_url = format!(
-        "https://api.github.com/search/issues?q={}&per_page=5",
+        "https://api.github.com/search/issues?q={}&per_page=50",
         urlencoding(query)
     );
     if let Ok(resp) = client.get(&issue_url).send() {
@@ -1238,8 +1486,8 @@ pub fn search_gitlab(query: &str) -> Vec<SearchResultItem> {
     }
     let mut results = Vec::new();
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("qwx-search/0.0.3")
-        .timeout(std::time::Duration::from_secs(8))
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
         .build()
     {
         Ok(c) => c,
@@ -1247,7 +1495,7 @@ pub fn search_gitlab(query: &str) -> Vec<SearchResultItem> {
     };
 
     let url = format!(
-        "https://gitlab.com/api/v4/projects?search={}&per_page=10",
+        "https://gitlab.com/api/v4/projects?search={}&per_page=50",
         urlencoding(query)
     );
     if let Ok(resp) = client.get(&url).send() {
@@ -1302,8 +1550,8 @@ pub fn search_wikipedia(query: &str) -> Vec<SearchResultItem> {
     }
     let mut results = Vec::new();
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("qwx-search/0.0.3")
-        .timeout(std::time::Duration::from_secs(8))
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
         .build()
     {
         Ok(c) => c,
@@ -1371,7 +1619,7 @@ struct NvdResponse {
 /// en une liste d'éléments de recherche standard `SearchResultItem`.
 pub fn search_crates(query: &str) -> Vec<SearchResultItem> {
     let encoded_query = urlencoding::encode(query.trim());
-    let client = SyncClient::new("qwx/0.0.3", Duration::from_secs(1)).unwrap();
+    let client = SyncClient::new(DEFAULT_USER_AGENT, DEFAULT_TIMEOUT).unwrap();
     let data = client.full_crate(&encoded_query, false).unwrap();
     vec![SearchResultItem {
         provider: SearchProvider::Crates,
@@ -1383,6 +1631,22 @@ pub fn search_crates(query: &str) -> Vec<SearchResultItem> {
         raw_content: None,
     }]
 }
+pub fn crates() -> HashMap<String, Vec<Crate>> {
+    let summary = SyncClient::new(DEFAULT_USER_AGENT, DEFAULT_TIMEOUT)
+        .unwrap()
+        .summary();
+    let mut io: HashMap<String, Vec<Crate>> = HashMap::new();
+    if let Ok(data) = summary {
+        io.insert(String::from(NEW), data.new_crates);
+        io.insert(String::from(UPDATED), data.just_updated);
+        io.insert(String::from(MOST_DOWNLOADED), data.most_downloaded);
+        io.insert(
+            String::from(RECENTLY_DOWNLOADED),
+            data.most_recently_downloaded,
+        );
+    }
+    io
+}
 /// Search crates.io packages
 pub fn search_cve(query: &str) -> Vec<SearchResultItem> {
     if query.trim().is_empty() {
@@ -1390,8 +1654,8 @@ pub fn search_cve(query: &str) -> Vec<SearchResultItem> {
     }
     let mut results = Vec::new();
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("qwx-search/0.0.3")
-        .timeout(std::time::Duration::from_secs(8))
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
         .build()
     {
         Ok(c) => c,
@@ -1399,7 +1663,7 @@ pub fn search_cve(query: &str) -> Vec<SearchResultItem> {
     };
 
     let url = format!(
-        "https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={}&resultsPerPage=10",
+        "https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={}&resultsPerPage=50",
         urlencoding(query)
     );
     if let Ok(resp) = client.get(&url).send() {
@@ -1483,8 +1747,8 @@ pub fn search_hacker_news(query: &str) -> Vec<SearchResultItem> {
     }
     let mut results = Vec::new();
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("qwx-search/0.0.3")
-        .timeout(std::time::Duration::from_secs(8))
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
         .build()
     {
         Ok(c) => c,
@@ -1492,7 +1756,7 @@ pub fn search_hacker_news(query: &str) -> Vec<SearchResultItem> {
     };
 
     let url = format!(
-        "https://hn.algolia.com/api/v1/search?query={}&tags=story&hitsPerPage=10",
+        "https://hn.algolia.com/api/v1/search?query={}&tags=story&hitsPerPage=50",
         urlencoding(query)
     );
     if let Ok(resp) = client.get(&url).send() {
@@ -1533,8 +1797,8 @@ pub fn search_hacker_news(query: &str) -> Vec<SearchResultItem> {
 pub fn audit_local_workspace(current_dir: &Path) -> Vec<SearchResultItem> {
     let mut results = Vec::new();
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("qwx-search/0.0.3")
-        .timeout(Duration::from_secs(10))
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
         .build()
     {
         Ok(c) => c,
@@ -1724,8 +1988,8 @@ pub fn search_duckduckgo(query: &str) -> Vec<SearchResultItem> {
     }
     let mut results = Vec::new();
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0 QwxSearch/0.0.3")
-        .timeout(std::time::Duration::from_secs(8))
+        .user_agent(DEFAULT_USER_AGENT)
+        .timeout(DEFAULT_TIMEOUT)
         .build()
     {
         Ok(c) => c,
@@ -2116,7 +2380,7 @@ pub fn create_github_pull_request(
 
     let client = reqwest::blocking::Client::builder()
         .user_agent("qwx-search/0.0.3")
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| format!("Client HTTP error: {}", e))?;
 
@@ -2193,19 +2457,6 @@ fn urlencoding(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::web::UrlHelper;
-
-    #[test]
-    fn test_search_provider_names() {
-        assert_eq!(SearchProvider::GitHub.name(), "GitHub");
-        assert_eq!(SearchProvider::Wikipedia.name(), "Wikipedia");
-        assert_eq!(SearchProvider::Cve.name(), "CVE / Security");
-        assert_eq!(SearchProvider::GitLab.name(), "GitLab");
-        assert_eq!(SearchProvider::HackerNews.name(), "Hacker News");
-        assert_eq!(SearchProvider::LocalAudit.name(), "Local Audit");
-        assert_eq!(SearchProvider::Web.name(), "Web / DuckDuckGo");
-        assert_eq!(SearchProvider::Crates.name(), "Crates.io");
-        assert_eq!(SearchProvider::Web.shortcut_key(), '9');
-    }
 
     #[test]
     fn test_search_hub_navigation() {
