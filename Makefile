@@ -15,9 +15,8 @@ commit:
 	@git diff --stat
 	@sleep 2
 	@git diff -p
-	@read -p "Commit message: " message
 	@git add .
-	@git commit -m "$message"
+	@git commit
 	@git push --all
 	@git push --tags
 before:
