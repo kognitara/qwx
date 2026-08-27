@@ -554,7 +554,7 @@ impl SearchHub {
                     updated_crates_idx += 1;
                     queue!(
                         w,
-                        MoveTo(width / 3, start_y    + updated_crates_idx),
+                        MoveTo(width / 3, start_y + updated_crates_idx),
                         Print(format!("{}", crates.name))
                     )?;
                 }
