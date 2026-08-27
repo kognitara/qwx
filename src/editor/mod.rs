@@ -1282,7 +1282,6 @@ impl Qwx {
                         // Sécurité pour ne pas déborder sur une ligne vide
                         self.editor.cursor_col = self.editor.cursor_col.min(max_col);
                     }
-                    // C'est follow qui se charge de faire défiler le panneau si nécessaire !
                     self.follow();
                 }
                 (KeyModifiers::NONE, KeyCode::Char('k')) => {
@@ -1467,12 +1466,10 @@ impl Qwx {
                     self.search_input.clear();
                 }
                 (KeyModifiers::ALT, KeyCode::Char('s'))
-                | (KeyModifiers::ALT, KeyCode::Char('w'))
-                | (KeyModifiers::NONE, KeyCode::Char('s')) => {
+                | (KeyModifiers::ALT, KeyCode::Char('w')) => {
                     self.mode = Mode::WebSearch;
                 }
-                (KeyModifiers::ALT, KeyCode::Char('p'))
-                | (KeyModifiers::ALT, KeyCode::Char('m')) => {
+                (KeyModifiers::ALT, KeyCode::Char('m')) => {
                     self.mode = Mode::Player;
                     self.player.refresh_playback_state();
                     let _ = execute!(stdout(), Clear(ClearType::All));
