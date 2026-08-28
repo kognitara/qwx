@@ -21,3 +21,5 @@ commit:
 	@git push --tags
 before:
 	@cargo fmt
+doc:
+	@cargo doc --open
