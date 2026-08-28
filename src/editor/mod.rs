@@ -1,6 +1,5 @@
 use crate::editor::theme::{
-    UI_BORDER_ACTIVE, UI_BORDER_INACTIVE, UI_DMENU_BG, UI_DMENU_FG, UI_TEXT_MUTED,
-    get_color_for_capture,
+    UI_BORDER_ACTIVE, UI_DMENU_BG, UI_DMENU_FG, UI_TEXT_MUTED, get_color_for_capture,
 };
 use crate::finder::{Finder, FinderLayout, list_files};
 use crate::player::MusicPlayer;
@@ -127,10 +126,13 @@ pub fn get_superscript(num: u8) -> &'static str {
 /// ```
 pub trait QwxUi<W: Write> {
     fn draw(&mut self, w: &mut W) -> Result<(), Error>;
+    fn reset(&mut self, w: &mut W) -> Result<(), Error>;
 }
 
 impl<W: Write> QwxUi<W> for Qwx {
     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
+        self.reset(w)?;
+        execute!(w, Hide)?;
         if self.mode == Mode::WebSearch {
             self.search_hub.draw(w, 0, 0, self.width, self.height)?;
             w.flush()?;
@@ -141,7 +143,6 @@ impl<W: Write> QwxUi<W> for Qwx {
             w.flush()?;
             return Ok(());
         }
-        execute!(w, Hide)?;
         let max_width = 180.min(self.width);
 
         let left_x = (self.width.saturating_sub(max_width)) / 2;
@@ -152,71 +153,6 @@ impl<W: Write> QwxUi<W> for Qwx {
         let top_y = 0;
         let bottom_y = self.height.saturating_sub(1);
         let mid_y = self.height / 2;
-
-        let horiz_line = "─".repeat(max_width.saturating_sub(2) as usize);
-
-        queue!(
-            w,
-            MoveTo(left_x, top_y),
-            SetForegroundColor(UI_BORDER_INACTIVE),
-            Print(format!("┌{}┐", horiz_line)),
-            MoveTo(left_x, bottom_y),
-            Print(format!("└{}┘", horiz_line))
-        )?;
-
-        // Vertical extern right and left
-        for y in (top_y + 1)..bottom_y {
-            if y != mid_y {
-                queue!(
-                    w,
-                    MoveTo(left_x, y),
-                    SetForegroundColor(UI_BORDER_INACTIVE),
-                    Print("│"),
-                    MoveTo(right_x, y),
-                    Print("│")
-                )?;
-            }
-        }
-
-        // Horizontal separator line
-        for x in (left_x + 1)..right_x {
-            if x != mid_x {
-                queue!(
-                    w,
-                    MoveTo(x, mid_y),
-                    SetForegroundColor(UI_BORDER_INACTIVE),
-                    Print("─")
-                )?;
-            }
-        }
-
-        // Vertical separator line
-        for y in (top_y + 1)..bottom_y {
-            if y != mid_y {
-                queue!(
-                    w,
-                    MoveTo(mid_x, y),
-                    SetForegroundColor(UI_BORDER_INACTIVE),
-                    Print("│")
-                )?;
-            }
-        }
-
-        // Intersections
-        queue!(
-            w,
-            SetForegroundColor(UI_BORDER_INACTIVE),
-            MoveTo(left_x, mid_y),
-            Print("├"),
-            MoveTo(right_x, mid_y),
-            Print("┤"),
-            MoveTo(mid_x, top_y),
-            Print("┬"),
-            MoveTo(mid_x, bottom_y),
-            Print("┴"),
-            MoveTo(mid_x, mid_y),
-            Print("┼")
-        )?;
 
         let panes_bounds = [
             (
@@ -254,29 +190,6 @@ impl<W: Write> QwxUi<W> for Qwx {
             panes_bounds.iter().enumerate()
         {
             let pane = self.panes[i];
-            let is_active = self.focus == pane_focus;
-
-            if let Some(view) = self.views.get(i)
-                && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
-                && node.is_file
-            {
-                let selection =
-                    if is_active && (self.mode == Mode::Editor || self.mode == Mode::Normal) {
-                        self.editor.selection
-                    } else {
-                        None
-                    };
-                let _ = self.preview(
-                    node,
-                    start_x,
-                    start_y,
-                    p_width,
-                    p_height,
-                    pane.cursor as usize,
-                    selection,
-                );
-            }
-
             let percentage_str = if let Some(view) = self.views.get(i)
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
                 && node.is_file
@@ -290,38 +203,61 @@ impl<W: Write> QwxUi<W> for Qwx {
             } else {
                 0
             };
+            let is_active = self.focus == pane_focus;
             let expo = get_superscript(pane.view);
-            let dirty_prefix = if is_active && self.editor.is_dirty {
-                "*"
-            } else {
-                ""
-            };
-            let info_display = format!(
-                "{}{} % {}{}",
-                dirty_prefix, percentage_str, pane.workspace, expo
-            );
-            let indicator_x = start_x + p_width.saturating_sub(info_display.len() as u16);
-            let indicator_y = start_y + p_height.saturating_sub(1);
-            queue!(w, MoveTo(indicator_x, indicator_y))?;
-            if is_active {
+            if let Some(view) = self.views.get(i)
+                && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
+                && node.is_file
+            {
+                let selection =
+                    if is_active && (self.mode == Mode::Editor || self.mode == Mode::Normal) {
+                        self.editor.selection
+                    } else {
+                        None
+                    };
+                let _ = self.preview(
+                    node,
+                    start_x,
+                    start_y + 1,
+                    p_width,
+                    p_height.saturating_sub(1),
+                    pane.cursor as usize,
+                    selection,
+                );
+
+                if is_active && self.editor.is_dirty {
+                    let dirty_display = " * ";
+                    let dirty_x = start_x + p_width.saturating_sub(dirty_display.len() as u16) - 1;
+                    queue!(
+                        w,
+                        MoveTo(dirty_x, start_y - 1),
+                        SetForegroundColor(Color::Red),
+                        Print(dirty_display)
+                    )?;
+                }
+                let name_display = format!(" {} ", node.name);
+                let name_len = name_display.chars().count() as u16;
+                let center_x = start_x + (p_width.saturating_sub(name_len)) / 2;
+
                 queue!(
                     w,
-                    SetForegroundColor(UI_BORDER_ACTIVE),
-                    Print(format!("{}{} % ", dirty_prefix, percentage_str)),
-                    Print(pane.workspace),
-                    Print(expo)
+                    MoveTo(center_x, start_y - 1),
+                    SetForegroundColor(Color::White),
+                    Print(name_display)
                 )?;
-            } else {
-                queue!(
-                    w,
-                    SetForegroundColor(UI_TEXT_MUTED),
-                    Print(format!("{} % ", percentage_str)),
-                    Print(pane.workspace),
-                    Print(expo)
-                )?;
+
+                let info_display = format!(" {} % {}{} ", percentage_str, pane.workspace, expo);
+                let indicator_x = start_x + p_width.saturating_sub(info_display.len() as u16) - 1;
+                let indicator_y = start_y + p_height;
+
+                queue!(w, MoveTo(indicator_x, indicator_y))?;
+                if is_active {
+                    queue!(w, SetForegroundColor(UI_BORDER_ACTIVE), Print(info_display))?;
+                } else {
+                    queue!(w, SetForegroundColor(UI_TEXT_MUTED), Print(info_display))?;
+                }
             }
         }
-
         if self.is_finder_open() {
             self.draw_finder(w)?;
         } else if self.mode == Mode::Menu {
@@ -381,10 +317,11 @@ impl<W: Write> QwxUi<W> for Qwx {
                 let scroll_y = active_pane.cursor as usize;
                 let line_idx = self.editor.cursor_line;
                 let col_idx = self.editor.cursor_col;
-                if line_idx >= scroll_y && line_idx < scroll_y + (p_height as usize) {
-                    let screen_y = start_y + (line_idx - scroll_y) as u16;
+                if line_idx >= scroll_y
+                    && line_idx < scroll_y + (p_height.saturating_sub(1) as usize)
+                {
+                    let screen_y = start_y + 1 + (line_idx - scroll_y) as u16;
                     let screen_x = start_x + (col_idx as u16).min(p_width.saturating_sub(1));
-
                     queue!(w, MoveTo(screen_x, screen_y))?;
                 } else {
                     queue!(w, Hide)?;
@@ -396,6 +333,17 @@ impl<W: Write> QwxUi<W> for Qwx {
 
         queue!(w, ResetColor)?;
         w.flush()?;
+        Ok(())
+    }
+
+    fn reset(&mut self, w: &mut W) -> Result<(), Error> {
+        let blank_line = " ".repeat(self.width as usize);
+        queue!(w, SetBackgroundColor(Color::Black))?;
+
+        for y in 0..self.height {
+            queue!(w, MoveTo(0, y), Print(&blank_line))?;
+        }
+        queue!(w, ResetColor)?;
         Ok(())
     }
 }
@@ -672,6 +620,12 @@ pub fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
     Ok(Node {
         id,
         name,
+        ext: path
+            .extension()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default()
+            .to_string(),
         content,
         colored_lines,
         is_file,
@@ -901,6 +855,7 @@ pub enum PaneFocus {
 pub struct Node {
     pub id: usize,
     pub name: String,
+    pub ext: String,
     pub content: Vec<String>,
     pub colored_lines: Vec<Vec<(String, Color)>>,
     pub is_file: bool,
@@ -1248,14 +1203,14 @@ impl Qwx {
     pub fn follow(&mut self) {
         let cursor_line = self.editor.cursor_line;
         let mid_y = self.height / 2;
-        let bottom_y = self.height.saturating_sub(1);
+        let bottom_y = self.height;
         let p_height = match self.focus {
             PaneFocus::TopLeft | PaneFocus::TopRight => mid_y.saturating_sub(1),
             PaneFocus::BottomLeft | PaneFocus::BottomRight => (bottom_y - mid_y).saturating_sub(1),
         } as usize;
 
         let pane = self.active_pane_mut();
-        let scroll_y = pane.cursor as usize;
+        let scroll_y = pane.cursor.saturating_add(1) as usize;
 
         let margin = 3.min(p_height / 3);
 

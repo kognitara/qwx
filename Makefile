@@ -6,7 +6,7 @@ install: completion
 uninstall:
 	@rm /usr/local/bin/qwx
 	@rm /etc/fish/completions/qwx.fish
-completion:
+completion: uninstall
 	@target/release/qwx gen fish > qwx.fish
 run:
 	@cargo run
