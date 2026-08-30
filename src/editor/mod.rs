@@ -77,19 +77,22 @@ pub const INIT_PANE_STATE: PaneState = PaneState {
 /// let result = get_superscript(0);
 /// assert_eq!(result, "⁰");
 /// ```
-pub fn get_superscript(num: u8) -> &'static str {
-    match num {
-        1 => "¹",
-        2 => "²",
-        3 => "³",
-        4 => "⁴",
-        5 => "⁵",
-        6 => "⁶",
-        7 => "⁷",
-        8 => "⁸",
-        9 => "⁹",
-        _ => "⁰",
-    }
+pub fn get_superscript(num: u8) -> String {
+    format!("{:03}", num)
+        .chars()
+        .map(|c| match c {
+            '1' => '¹',
+            '2' => '²',
+            '3' => '³',
+            '4' => '⁴',
+            '5' => '⁵',
+            '6' => '⁶',
+            '7' => '⁷',
+            '8' => '⁸',
+            '9' => '⁹',
+            _ => '⁰',
+        })
+        .collect()
 }
 /// The `QwxUi` trait defines a user interface element that can be drawn to a given writer.
 ///
@@ -245,8 +248,13 @@ impl<W: Write> QwxUi<W> for Qwx {
                     Print(name_display)
                 )?;
 
-                let info_display = format!(" {} % {}{} ", percentage_str, pane.workspace, expo);
-                let indicator_x = start_x + p_width.saturating_sub(info_display.len() as u16) - 1;
+                // {:>3} garantit que le pourcentage prend toujours 3 caractères (ex: "  0", " 10", "100")
+                let info_display =
+                    format!(" {:>3} % {:03}{} ", percentage_str, pane.workspace, expo);
+
+                // Utilise .chars().count() au lieu de .len() pour bien compter les caractères Unicode des exposants
+                let indicator_x =
+                    start_x + p_width.saturating_sub(info_display.chars().count() as u16) - 1;
                 let indicator_y = start_y + p_height;
 
                 queue!(w, MoveTo(indicator_x, indicator_y))?;
@@ -631,6 +639,10 @@ pub fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
     })
 }
 
+pub enum FacetSide {
+    Front,
+    Back,
+}
 /// The `Qwx` struct represents the core state and configuration of the application.
 /// It encapsulates the layout, navigation structure, user inputs, and various modes to define the behavior and appearance of the system.
 ///
@@ -655,6 +667,9 @@ pub struct Qwx {
     pub finder_layout: FinderLayout,
     pub finder: Finder,
     pub finder_research: String,
+    pub current_facet: FacetSide,
+    pub front_panes: [PaneState; 4],
+    pub back_panes: [PaneState; 4],
     nodes: Vec<Node>,
     views: Vec<View>,
     width: u16,
@@ -921,6 +936,11 @@ pub enum Mode {
     Search,
     WebSearch,
     Player,
+    Zen,
+    Fusion,
+    Rescue,
+    Broadcast,
+    Ephemeral,
 }
 ///
 /// A trait that provides functionality for managing a cursor in the context of a writable output.
@@ -1222,6 +1242,29 @@ impl Qwx {
     fn handle_normal(&mut self) {
         match read().expect("failed to get terminal input") {
             Event::Key(key) => match (key.modifiers, key.code) {
+                (KeyModifiers::ALT, KeyCode::Char('l')) => {
+                    let pane = self.active_pane_mut();
+                    pane.workspace = pane.workspace.saturating_add(1);
+                    self.load_active_pane_file();
+                }
+                (KeyModifiers::ALT, KeyCode::Char('h')) => {
+                    let pane = self.active_pane_mut();
+                    // On empêche de descendre en dessous du Workspace 1
+                    pane.workspace = pane.workspace.saturating_sub(1).max(1);
+                    self.load_active_pane_file();
+                }
+                // Views : naviguer dans la 4ème dimension (angles de vue)
+                (KeyModifiers::ALT, KeyCode::Char('k')) => {
+                    let pane = self.active_pane_mut();
+                    pane.view = pane.view.saturating_add(1);
+                    self.load_active_pane_file();
+                }
+                (KeyModifiers::ALT, KeyCode::Char('j')) => {
+                    let pane = self.active_pane_mut();
+                    // On empêche de descendre en dessous de la View 1
+                    pane.view = pane.view.saturating_sub(1).max(1);
+                    self.load_active_pane_file();
+                }
                 (KeyModifiers::NONE, KeyCode::Char('j')) => {
                     if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
                         self.editor.cursor_line += 1;
@@ -2380,6 +2423,11 @@ impl Qwx {
             Mode::Search => self.handle_search(),
             Mode::WebSearch => self.handle_web_search(),
             Mode::Player => self.handle_player(),
+            Mode::Zen => {}
+            Mode::Fusion => {}
+            Mode::Rescue => {}
+            Mode::Broadcast => {}
+            Mode::Ephemeral => {}
         }
     }
 
@@ -2583,6 +2631,9 @@ impl Qwx {
             last_search_query: None,
             search_hub: crate::search::SearchHub::new(),
             player: MusicPlayer::default(),
+            front_panes: [INIT_PANE_STATE; 4],
+            back_panes: [INIT_PANE_STATE; 4],
+            current_facet: FacetSide::Front,
         })
     }
 
