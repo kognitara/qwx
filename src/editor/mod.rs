@@ -131,7 +131,6 @@ pub trait QwxUi<W: Write> {
 
 impl<W: Write> QwxUi<W> for Qwx {
     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
-        self.reset(w)?;
         execute!(w, Hide)?;
         if self.mode == Mode::WebSearch {
             self.search_hub.draw(w, 0, 0, self.width, self.height)?;
@@ -1427,7 +1426,7 @@ impl Qwx {
                 (KeyModifiers::ALT, KeyCode::Char('m')) => {
                     self.mode = Mode::Player;
                     self.player.refresh_playback_state();
-                    let _ = execute!(stdout(), Clear(ClearType::All));
+                    let _ = queue!(stdout(), Clear(ClearType::All));
                 }
                 (KeyModifiers::NONE, KeyCode::Char('q')) => {
                     self.running = false;
@@ -1484,7 +1483,7 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
-                let _ = execute!(stdout(), Clear(ClearType::All));
+                let _ = queue!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1530,7 +1529,7 @@ impl Qwx {
                         self.search_hub.web_browser.open_url(&url_clean, self.width);
                         self.search_hub.show_web_reader = true;
                         self.menu_input.clear();
-                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(stdout(), Clear(ClearType::All));
                         return;
                     } else if let Some(query) = self.menu_input.strip_prefix(":search ") {
                         let q_clean = query.trim().to_string();
@@ -1539,7 +1538,7 @@ impl Qwx {
                         self.search_hub.show_web_reader = false;
                         self.search_hub.perform_search(&self.current_dir);
                         self.menu_input.clear();
-                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(stdout(), Clear(ClearType::All));
                         return;
                     } else if self.menu_input.trim() == ":player"
                         || self.menu_input.trim() == ":music"
@@ -1548,7 +1547,7 @@ impl Qwx {
                         self.mode = Mode::Player;
                         self.player.refresh_playback_state();
                         self.menu_input.clear();
-                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(stdout(), Clear(ClearType::All));
                         return;
                     }
                     self.mode = Mode::Normal;
@@ -1568,7 +1567,7 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
-                let _ = execute!(stdout(), Clear(ClearType::All));
+                let _ = queue!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1669,7 +1668,7 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
-                let _ = execute!(stdout(), Clear(ClearType::All));
+                let _ = queue!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1797,7 +1796,7 @@ impl Qwx {
                 self.width = cols;
                 self.height = rows;
                 self.finder.resize(cols, rows);
-                let _ = execute!(stdout(), Clear(ClearType::All));
+                let _ = queue!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1831,7 +1830,7 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
-                let _ = execute!(stdout(), Clear(ClearType::All));
+                let _ = queue!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1847,7 +1846,7 @@ impl Qwx {
                             (KeyModifiers::NONE, KeyCode::Esc) => {
                                 self.search_hub.web_browser.url_prompt_active = false;
                                 self.search_hub.web_browser.url_input.clear();
-                                let _ = execute!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(stdout(), Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Enter) => {
                                 let input = self.search_hub.web_browser.url_input.clone();
@@ -1856,7 +1855,7 @@ impl Qwx {
                                 if !input.trim().is_empty() {
                                     self.search_hub.web_browser.open_url(&input, self.width);
                                 }
-                                let _ = execute!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(stdout(), Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Backspace) => {
                                 self.search_hub.web_browser.url_input.pop();
@@ -1874,7 +1873,7 @@ impl Qwx {
                             (KeyModifiers::NONE, KeyCode::Esc) => {
                                 self.search_hub.web_browser.link_prompt_active = false;
                                 self.search_hub.web_browser.link_input.clear();
-                                let _ = execute!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(stdout(), Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Enter) => {
                                 let input = self.search_hub.web_browser.link_input.clone();
@@ -1885,7 +1884,7 @@ impl Qwx {
                                         .web_browser
                                         .follow_link_by_id(id, self.width);
                                 }
-                                let _ = execute!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(stdout(), Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Backspace) => {
                                 self.search_hub.web_browser.link_input.pop();
@@ -1905,7 +1904,7 @@ impl Qwx {
                             (KeyModifiers::NONE, KeyCode::Esc) => {
                                 self.search_hub.web_browser.search_mode = false;
                                 self.search_hub.web_browser.search_query.clear();
-                                let _ = execute!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(stdout(), Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Enter) => {
                                 let query = self.search_hub.web_browser.search_query.clone();
@@ -1913,7 +1912,7 @@ impl Qwx {
                                 if !query.trim().is_empty() {
                                     self.search_hub.web_browser.search_page(&query);
                                 }
-                                let _ = execute!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(stdout(), Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Backspace) => {
                                 self.search_hub.web_browser.search_query.pop();
@@ -1930,7 +1929,7 @@ impl Qwx {
                     match (key.modifiers, key.code) {
                         (KeyModifiers::NONE, KeyCode::Esc) => {
                             self.search_hub.close_web_reader();
-                            let _ = execute!(stdout(), Clear(ClearType::All));
+                            let _ = queue!(stdout(), Clear(ClearType::All));
                         }
                         (KeyModifiers::CONTROL, KeyCode::Char('o'))
                         | (KeyModifiers::CONTROL, KeyCode::Char('g')) => {
@@ -2005,7 +2004,7 @@ impl Qwx {
                         (KeyModifiers::NONE, KeyCode::Esc) => {
                             self.search_hub.prompt = None;
                             self.search_hub.status_message = Some("Action cancelled.".to_string());
-                            let _ = execute!(stdout(), Clear(ClearType::All));
+                            let _ = queue!(stdout(), Clear(ClearType::All));
                         }
                         (KeyModifiers::NONE, KeyCode::Enter) => match prompt {
                             crate::search::ActionPrompt::CloneRepo {
@@ -2241,7 +2240,7 @@ impl Qwx {
                 match (key.modifiers, key.code) {
                     (KeyModifiers::NONE, KeyCode::Esc) => {
                         self.mode = Mode::Normal;
-                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(stdout(), Clear(ClearType::All));
                     }
                     (KeyModifiers::NONE, KeyCode::Tab) => {
                         self.search_hub.next_provider();
@@ -2271,12 +2270,12 @@ impl Qwx {
                     (KeyModifiers::ALT, KeyCode::Char('w'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('w')) => {
                         self.search_hub.open_selected_in_web_reader(self.width);
-                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(stdout(), Clear(ClearType::All));
                     }
                     (KeyModifiers::ALT, KeyCode::Char('v'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('v')) => {
                         self.search_hub.view_results_as_web_page(self.width);
-                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(stdout(), Clear(ClearType::All));
                     }
                     (KeyModifiers::ALT, KeyCode::Char('o'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
@@ -2366,7 +2365,7 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
-                let _ = execute!(stdout(), Clear(ClearType::All));
+                let _ = queue!(stdout(), Clear(ClearType::All));
             }
             _ => {}
         }
@@ -2390,13 +2389,13 @@ impl Qwx {
                 Event::Key(key) => {
                     if !self.player.handle_key(key.code, key.modifiers) {
                         self.mode = Mode::Normal;
-                        let _ = execute!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(stdout(), Clear(ClearType::All));
                     }
                 }
                 Event::Resize(cols, rows) => {
                     self.width = cols;
                     self.height = rows;
-                    let _ = execute!(stdout(), Clear(ClearType::All));
+                    let _ = queue!(stdout(), Clear(ClearType::All));
                 }
                 _ => {}
             }
