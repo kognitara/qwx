@@ -1,0 +1,44 @@
+name: Cross-Platform Build
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  build-and-test:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # fail-fast à false permet de voir les résultats de tous les OS, 
+      # même si l'un d'entre eux échoue.
+      fail-fast: false 
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Le cache est séparé par OS pour éviter les conflits
+          key: ${{ matrix.os }}
+
+      - name: Install system dependencies (Ubuntu only)
+        # git2 et reqwest ont souvent besoin de pkg-config et OpenSSL sous Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+      - name: Check formatting
+        run: cargo fmt -- --check
+      - name: Build
+        # On compile pour vérifier que tout passe sans erreur
+        run: cargo build --verbose
+      - name: Run tests
+        # Exécute tes tests unitaires (comme test_ji_insert_and_undo_redo)
+        run: cargo test --verbose
