@@ -1,5 +1,8 @@
 <p align="center">
 <img src="https://raw.githubusercontent.com/kognitara/qwx/refs/heads/master/Qwx.png" alt="Qwx"  width="250px" />
+
+<img src="https://github.com/kognitara/qwx/actions/workflows/rust.yml/badge.svg" alt="Qwx status" />
+
 </p> 
 
 # Quaternary Walk Extended

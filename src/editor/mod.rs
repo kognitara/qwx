@@ -69,13 +69,13 @@ pub const INIT_PANE_STATE: PaneState = PaneState {
 /// ```
 /// use qwx::editor::get_superscript;
 /// let result = get_superscript(3);
-/// assert_eq!(result, "³");
+/// assert_eq!(result, "⁰⁰³");
 ///
 /// let result = get_superscript(9);
-/// assert_eq!(result, "⁹");
+/// assert_eq!(result, "⁰⁰⁹");
 ///
 /// let result = get_superscript(0);
-/// assert_eq!(result, "⁰");
+/// assert_eq!(result, "⁰⁰⁰");
 /// ```
 pub fn get_superscript(num: u8) -> String {
     format!("{:03}", num)
@@ -117,6 +117,11 @@ pub fn get_superscript(num: u8) -> String {
 ///
 /// impl<W: Write> QwxUi<W> for MyUiElement {
 ///     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
+///         write!(w, "Drawing MyUiElement...")?;
+///         Ok(())
+///     }
+///
+///     fn reset(&mut self, w: &mut W) -> Result<(), Error> {
 ///         write!(w, "Drawing MyUiElement...")?;
 ///         Ok(())
 ///     }
