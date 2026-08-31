@@ -12,6 +12,7 @@ use crossterm::terminal::{
     self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, size,
 };
 use crossterm::{execute, queue};
+use is_executable::IsExecutable;
 use ropey::Rope;
 use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
@@ -216,6 +217,7 @@ impl<W: Write> QwxUi<W> for Qwx {
             let expo = get_superscript(pane.view);
             if let Some(view) = self.views.get(i)
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
+                && node.is_file
             {
                 let selection =
                     if is_active && (self.mode == Mode::Editor || self.mode == Mode::Normal) {
@@ -480,72 +482,67 @@ impl QwxPanel for Qwx {
 
         if let Some(node_id) = node_id_opt
             && let Some(node) = self.nodes.get(node_id)
+            && node.is_file
         {
             self.views[active_idx].active_node_id = node_id;
 
             let mut ed = Ji::default();
 
-            if node.is_file {
-                ed.file_path = Some(self.current_dir.join(&node.name));
-            }
+            ed.file_path = Some(self.current_dir.join(&node.name));
 
             // On unifie le chargement : on construit toujours le texte depuis la RAM
             let full_text = node.content.join("\n");
             ed.rope = Rope::from_str(&full_text);
 
-            // Si c'est un fichier, on applique la coloration syntaxique Tree-sitter
-            if node.is_file {
-                let theme_keys = vec![
-                    "keyword",
-                    "keyword.function",
-                    "keyword.return",
-                    "keyword.operator",
-                    "function",
-                    "function.macro",
-                    "function.method",
-                    "method",
-                    "string",
-                    "string_literal",
-                    "character",
-                    "number",
-                    "integer",
-                    "float",
-                    "boolean",
-                    "comment",
-                    "line_comment",
-                    "block_comment",
-                    "type",
-                    "primitive_type",
-                    "type.builtin",
-                    "operator",
-                    "punctuation.bracket",
-                    "punctuation.delimiter",
-                    "variable",
-                    "variable.parameter",
-                    "variable.builtin",
-                    "property",
-                    "attribute",
-                    "label",
-                    "constant",
-                    "constant.builtin",
-                    "constant.character.escape",
-                    "namespace",
-                    "keyword.directive",
-                    "punctuation.special",
-                ];
-                if let Some(config) = detect_language(&node.ext, &theme_keys) {
-                    ed.query = Query::new(&config.ts_config.language, config.query_string).ok();
-                    let _ = ed.parser.set_language(&config.ts_config.language);
-                    ed.lang_config = Some(config);
-                    ed.update_syntax_tree();
-                }
+            let theme_keys = vec![
+                "keyword",
+                "keyword.function",
+                "keyword.return",
+                "keyword.operator",
+                "function",
+                "function.macro",
+                "function.method",
+                "method",
+                "string",
+                "string_literal",
+                "character",
+                "number",
+                "integer",
+                "float",
+                "boolean",
+                "comment",
+                "line_comment",
+                "block_comment",
+                "type",
+                "primitive_type",
+                "type.builtin",
+                "operator",
+                "punctuation.bracket",
+                "punctuation.delimiter",
+                "variable",
+                "variable.parameter",
+                "variable.builtin",
+                "property",
+                "attribute",
+                "label",
+                "constant",
+                "constant.builtin",
+                "constant.character.escape",
+                "namespace",
+                "keyword.directive",
+                "punctuation.special",
+            ];
+            if let Some(config) = detect_language(&node.ext, &theme_keys) {
+                ed.query = Query::new(&config.ts_config.language, config.query_string).ok();
+                let _ = ed.parser.set_language(&config.ts_config.language);
+                ed.lang_config = Some(config);
+                ed.update_syntax_tree();
             }
             ed.cursor_col = pane.cursor_col as usize;
             ed.undo_stack = node.undo_stack.clone();
             ed.redo_stack = node.redo_stack.clone();
             ed.cursor_line = pane.cursor as usize;
             self.editor = ed;
-            return;
         }
     }
 
@@ -577,7 +574,7 @@ impl QwxPanel for Qwx {
 /// match lines {
 ///     Ok(lines) => {
 ///         for line in lines {
-///             println!("{}", line);
+///             println!("{line}");
 ///         }
 ///     }
 ///     Err(e) => eprintln!("Error reading file: {e}"),
@@ -647,7 +644,7 @@ pub fn qwx_read_lines(path: impl AsRef<Path>) -> Result<Vec<String>, Error> {
 /// let node = qwx_load_node(1, path);
 /// match node {
 ///     Ok(n) => println!("Node loaded with name: {}", n.name),
-///     Err(e) => eprintln!("Failed to load Node: {:?}", e),
+///     Err(e) => eprintln!("Failed to load Node: {e:?}"),
 /// }
 /// ```
 ///
@@ -664,7 +661,7 @@ pub fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
         .to_str()
         .unwrap_or_default()
         .to_string();
-    let is_file = path.is_file();
+    let is_file = path.is_file() && !path.is_executable();
 
     let mut colored_lines = Vec::new();
 

@@ -6,6 +6,7 @@ use crossterm::{
     style::{Print, SetForegroundColor},
     terminal::size,
 };
+use is_executable::IsExecutable;
 use std::fmt::{Display, Formatter};
 use std::{
     io::{Result, Write},
@@ -1508,7 +1509,7 @@ pub fn list_files(path: &Path) -> Vec<String> {
         .into_iter()
         .flatten()
     {
-        if entry.path().is_file() {
+        if entry.path().is_file() && !entry.path().is_executable() {
             let path_str = entry
                 .path()
                 .canonicalize()
@@ -1694,7 +1695,7 @@ pub fn list_sub_files(path: &Path) -> Vec<String> {
         .into_iter()
         .flatten()
     {
-        if entry.path().is_file() {
+        if entry.path().is_file() && !entry.path().is_executable() {
             if let Ok(rel_path) = entry.path().strip_prefix(path) {
                 files.push(rel_path.to_string_lossy().to_string());
             }
