@@ -13,6 +13,7 @@ use crossterm::terminal::{
 };
 use crossterm::{execute, queue};
 use ropey::Rope;
+use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
 use std::io::{self, BufRead, BufReader, Error, Write, stdout};
 use std::path::Path;
@@ -22,7 +23,6 @@ use tree_sitter::{Parser, Tree};
 use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-
 pub mod theme;
 /// Represents the initial state of a `PaneState` in the application.
 ///
@@ -30,6 +30,7 @@ pub mod theme;
 /// - `workspace`: The default workspace index, set to `1`.
 /// - `view`: The default view index, set to `1`.
 /// - `cursor`: The initial cursor position, set to `0`.
+/// - `cursor_col`: The initial cursor column position, set to `0`.
 ///
 /// # Example
 /// ```rust
@@ -45,6 +46,8 @@ pub const INIT_PANE_STATE: PaneState = PaneState {
     workspace: 1,
     view: 1,
     cursor: 0,
+    cursor_col: 0,
+    facet: Facet::Front,
 };
 
 /// Converts a numerical value (0-9) into its corresponding superscript Unicode character.
@@ -199,7 +202,6 @@ impl<W: Write> QwxUi<W> for Qwx {
             let pane = self.panes[i];
             let percentage_str = if let Some(view) = self.views.get(i)
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
-                && node.is_file
             {
                 let len = node.content.len();
                 if len <= 1 {
@@ -214,7 +216,6 @@ impl<W: Write> QwxUi<W> for Qwx {
             let expo = get_superscript(pane.view);
             if let Some(view) = self.views.get(i)
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
-                && node.is_file
             {
                 let selection =
                     if is_active && (self.mode == Mode::Editor || self.mode == Mode::Normal) {
@@ -231,7 +232,15 @@ impl<W: Write> QwxUi<W> for Qwx {
                     pane.cursor as usize,
                     selection,
                 );
-
+                // Nettoyage des bordures supérieure et inférieure du panneau
+                let empty_border = " ".repeat(p_width as usize);
+                queue!(
+                    w,
+                    MoveTo(start_x, start_y - 1),
+                    Print(&empty_border),
+                    MoveTo(start_x, start_y + p_height),
+                    Print(&empty_border)
+                )?;
                 if is_active && self.editor.is_dirty {
                     let dirty_display = " * ";
                     let dirty_x = start_x + p_width.saturating_sub(dirty_display.len() as u16) - 1;
@@ -462,18 +471,81 @@ pub trait QwxPanel {
 impl QwxPanel for Qwx {
     fn load_active_pane_file(&mut self) {
         let active_idx = self.focus as usize;
-        if let Some(view) = self.views.get(active_idx)
-            && let Some(node) = self.nodes.get(view.active_node_id)
-            && node.is_file
+        let pane = self.panes[active_idx];
+
+        let node_id_opt = self
+            .spatial_map
+            .get(&(active_idx, pane.workspace, pane.view))
+            .copied();
+
+        if let Some(node_id) = node_id_opt
+            && let Some(node) = self.nodes.get(node_id)
         {
-            let full_path = self.current_dir.join(&node.name);
-            if let Some(path_str) = full_path.to_str()
-                && let Ok(editor) = Ji::open(path_str)
-            {
-                self.editor = editor;
-                self.editor.cursor_line = self.panes[active_idx].cursor as usize;
-                self.editor.cursor_col = 0;
+            self.views[active_idx].active_node_id = node_id;
+
+            let mut ed = Ji::default();
+
+            if node.is_file {
+                ed.file_path = Some(self.current_dir.join(&node.name));
             }
+
+            // On unifie le chargement : on construit toujours le texte depuis la RAM
+            let full_text = node.content.join("\n");
+            ed.rope = Rope::from_str(&full_text);
+
+            // Si c'est un fichier, on applique la coloration syntaxique Tree-sitter
+            if node.is_file {
+                let theme_keys = vec![
+                    "keyword",
+                    "keyword.function",
+                    "keyword.return",
+                    "keyword.operator",
+                    "function",
+                    "function.macro",
+                    "function.method",
+                    "method",
+                    "string",
+                    "string_literal",
+                    "character",
+                    "number",
+                    "integer",
+                    "float",
+                    "boolean",
+                    "comment",
+                    "line_comment",
+                    "block_comment",
+                    "type",
+                    "primitive_type",
+                    "type.builtin",
+                    "operator",
+                    "punctuation.bracket",
+                    "punctuation.delimiter",
+                    "variable",
+                    "variable.parameter",
+                    "variable.builtin",
+                    "property",
+                    "attribute",
+                    "label",
+                    "constant",
+                    "constant.builtin",
+                    "constant.character.escape",
+                    "namespace",
+                    "keyword.directive",
+                    "punctuation.special",
+                ];
+                if let Some(config) = detect_language(&node.ext, &theme_keys) {
+                    ed.query = Query::new(&config.ts_config.language, config.query_string).ok();
+                    let _ = ed.parser.set_language(&config.ts_config.language);
+                    ed.lang_config = Some(config);
+                    ed.update_syntax_tree();
+                }
+            }
+            ed.cursor_col = pane.cursor_col as usize;
+            ed.undo_stack = node.undo_stack.clone();
+            ed.redo_stack = node.redo_stack.clone();
+            ed.cursor_line = pane.cursor as usize;
+            self.editor = ed;
+            return;
         }
     }
 
@@ -596,27 +668,25 @@ pub fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
 
     let mut colored_lines = Vec::new();
 
-    if is_file {
-        if let Ok(temp_ji) = Ji::open(path) {
-            let spans = temp_ji.get_colored_spans();
+    if is_file && let Ok(temp_ji) = Ji::open(path) {
+        let spans = temp_ji.get_colored_spans();
 
-            // On ne peuple le cache que si Tree-sitter a vraiment renvoyé des couleurs
-            if !spans.is_empty() {
-                colored_lines.push(vec![]);
-                for (text, color) in spans {
-                    let mut is_first = true;
-                    for part in text.split('\n') {
-                        if !is_first {
-                            colored_lines.push(vec![]);
-                        }
-                        if !part.is_empty() {
-                            colored_lines
-                                .last_mut()
-                                .unwrap()
-                                .push((part.to_string(), color));
-                        }
-                        is_first = false;
+        // On ne peuple le cache que si Tree-sitter a vraiment renvoyé des couleurs
+        if !spans.is_empty() {
+            colored_lines.push(vec![]);
+            for (text, color) in spans {
+                let mut is_first = true;
+                for part in text.split('\n') {
+                    if !is_first {
+                        colored_lines.push(vec![]);
                     }
+                    if !part.is_empty() {
+                        colored_lines
+                            .last_mut()
+                            .unwrap()
+                            .push((part.to_string(), color));
+                    }
+                    is_first = false;
                 }
             }
         }
@@ -641,12 +711,20 @@ pub fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
         content,
         colored_lines,
         is_file,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     })
 }
-
-pub enum FacetSide {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Facet {
     Front,
     Back,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct FacetSide {
+    current: Facet,
+    front: [PaneState; 4],
+    back: [PaneState; 4],
 }
 /// The `Qwx` struct represents the core state and configuration of the application.
 /// It encapsulates the layout, navigation structure, user inputs, and various modes to define the behavior and appearance of the system.
@@ -672,9 +750,10 @@ pub struct Qwx {
     pub finder_layout: FinderLayout,
     pub finder: Finder,
     pub finder_research: String,
-    pub current_facet: FacetSide,
+    pub current_facet: Facet,
     pub front_panes: [PaneState; 4],
     pub back_panes: [PaneState; 4],
+    pub spatial_map: HashMap<(usize, u8, u8), usize>,
     nodes: Vec<Node>,
     views: Vec<View>,
     width: u16,
@@ -878,6 +957,8 @@ pub struct Node {
     pub content: Vec<String>,
     pub colored_lines: Vec<Vec<(String, Color)>>,
     pub is_file: bool,
+    pub undo_stack: Vec<EditSnapshot>,
+    pub redo_stack: Vec<EditSnapshot>,
 }
 
 /// Represents the state of a pane in an application.
@@ -889,11 +970,13 @@ pub struct Node {
 /// - `workspace` (`u8`): Indicates the current workspace index the pane belongs to.
 /// - `view` (`u8`): Represents the current view index within the pane.
 /// - `cursor` (`u16`): Stores the position of the cursor in the pane.
-#[derive(Copy, Clone)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct PaneState {
+    pub facet: Facet,
     pub workspace: u8,
     pub view: u8,
     pub cursor: u16,
+    pub cursor_col: u16,
 }
 
 /// An enumeration representing the different operational modes of an application.
@@ -1173,8 +1256,32 @@ impl<W: Write> QwxRenderer<W> for Qwx {
 }
 
 impl Qwx {
+    pub fn toggle_facet(&mut self) {
+        // 1. Sauvegarder l'état actuel de l'écran dans la bonne facette
+        match self.current_facet {
+            Facet::Front => self.front_panes = self.panes,
+            Facet::Back => self.back_panes = self.panes,
+        }
+
+        // 2. Inverser la facette active
+        self.current_facet = match self.current_facet {
+            Facet::Front => Facet::Back,
+            Facet::Back => Facet::Front,
+        };
+
+        // 3. Charger les panneaux de la nouvelle facette sur l'écran
+        match self.current_facet {
+            Facet::Front => self.panes = self.front_panes,
+            Facet::Back => self.panes = self.back_panes,
+        }
+        // 4. Charger le fichier du panneau actif et forcer un rafraîchissement complet
+        self.load_active_pane_file();
+        let _ = queue!(stdout(), Clear(ClearType::All));
+    }
     fn sync_node_content(&mut self) {
         let active_idx = self.focus as usize;
+        self.panes[active_idx].cursor = self.editor.cursor_line as u16;
+        self.panes[active_idx].cursor_col = self.editor.cursor_col as u16;
 
         if let Some(view) = self.views.get(active_idx) {
             let node_id = view.active_node_id;
@@ -1189,7 +1296,8 @@ impl Qwx {
                         .to_string();
                     new_content.push(clean_line);
                 }
-
+                node.undo_stack = self.editor.undo_stack.clone();
+                node.redo_stack = self.editor.redo_stack.clone();
                 node.content = new_content;
                 let mut new_colored = Vec::new();
                 let spans = self.editor.get_colored_spans();
@@ -1247,6 +1355,20 @@ impl Qwx {
     fn handle_normal(&mut self) {
         match read().expect("failed to get terminal input") {
             Event::Key(key) => match (key.modifiers, key.code) {
+                // --- FACETTES (Recto / Verso) ---
+                (KeyModifiers::ALT, KeyCode::Char('x')) => {
+                    self.toggle_facet();
+                }
+                (KeyModifiers::ALT, KeyCode::Char('a')) => {
+                    if self.current_facet == Facet::Back {
+                        self.toggle_facet();
+                    }
+                }
+                (KeyModifiers::ALT, KeyCode::Char('z')) => {
+                    if self.current_facet == Facet::Front {
+                        self.toggle_facet();
+                    }
+                }
                 (KeyModifiers::ALT, KeyCode::Char('l')) => {
                     let pane = self.active_pane_mut();
                     pane.workspace = pane.workspace.saturating_add(1);
@@ -1500,15 +1622,28 @@ impl Qwx {
                     self.views[3].active_node_id = v1;
                     self.views[2].active_node_id = v3;
                     self.views[0].active_node_id = v2;
+                    let mut new_map = HashMap::new();
+                    for (&(p, w, v), &node_id) in self.spatial_map.iter() {
+                        let new_p = match p {
+                            0 => 1,
+                            1 => 2,
+                            2 => 3,
+                            3 => 0,
+                            _ => p,
+                        };
+                        new_map.insert((new_p, w, v), node_id);
+                    }
+                    self.spatial_map = new_map;
 
                     self.load_active_pane_file();
                 }
+                // --- Rotation anti Horaire (Alt + r) ---
                 (KeyModifiers::ALT, KeyCode::Char('r')) => {
                     let old_panes = self.panes;
-                    self.panes[2] = old_panes[0];
+                    self.panes[0] = old_panes[3];
                     self.panes[3] = old_panes[2];
-                    self.panes[1] = old_panes[3];
-                    self.panes[0] = old_panes[1];
+                    self.panes[2] = old_panes[1];
+                    self.panes[1] = old_panes[0];
 
                     if self.views.len() < 4 {
                         self.views.resize_with(4, || View { active_node_id: 0 });
@@ -1523,6 +1658,18 @@ impl Qwx {
                     self.views[3].active_node_id = v2;
                     self.views[1].active_node_id = v3;
                     self.views[0].active_node_id = v1;
+                    let mut new_map = HashMap::new();
+                    for (&(p, w, v), &node_id) in self.spatial_map.iter() {
+                        let new_p = match p {
+                            0 => 3,
+                            3 => 2,
+                            2 => 1,
+                            1 => 0,
+                            _ => p,
+                        };
+                        new_map.insert((new_p, w, v), node_id);
+                    }
+                    self.spatial_map = new_map;
 
                     self.load_active_pane_file();
                 }
@@ -1571,6 +1718,35 @@ impl Qwx {
                                 }
                             }
                         }
+                    } else if let Some(file_name) = self.menu_input.strip_prefix(":w ") {
+                        let clean_name = file_name.trim();
+                        if !clean_name.is_empty() {
+                            // On définit le chemin complet et on sauvegarde
+                            let target_path = self.current_dir.join(clean_name);
+                            self.editor.file_path = Some(target_path.clone());
+                            let _ = self.editor.save();
+
+                            // On met à jour le noeud dans le Tesseract pour qu'il devienne un "vrai" fichier
+                            let active_idx = self.focus as usize;
+                            if let Some(view) = self.views.get(active_idx) {
+                                let node_id = view.active_node_id;
+                                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id)
+                                {
+                                    node.name = clean_name.to_string();
+                                    node.ext = target_path
+                                        .extension()
+                                        .unwrap_or_default()
+                                        .to_str()
+                                        .unwrap_or_default()
+                                        .to_string();
+                                    node.is_file = true;
+                                }
+                            }
+                        }
+                        self.mode = Mode::Normal;
+                        self.menu_input.clear();
+                        let _ = queue!(stdout(), Clear(ClearType::All));
+                        return;
                     } else if let Some(url) = self.menu_input.strip_prefix(":web ") {
                         let url_clean = url.trim().to_string();
                         self.mode = Mode::WebSearch;
@@ -1641,8 +1817,11 @@ impl Qwx {
                     self.sync_node_content();
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
-                    if self.editor.save().is_err() {
-                        eprintln!("Failed to save");
+                    if self.editor.file_path.is_some() {
+                        let _ = self.editor.save();
+                    } else {
+                        self.mode = Mode::Menu;
+                        self.menu_input = ":w ".to_string();
                     }
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('z')) => {
@@ -1823,17 +2002,18 @@ impl Qwx {
                             self.views
                                 .resize_with(active_idx + 1, || View { active_node_id: 0 });
                         }
+                        let pane = self.panes[active_idx];
 
-                        if let Some(view) = self.views.get_mut(active_idx) {
-                            view.active_node_id = node_id;
-                        }
+                        // 1. On ancre le fichier dans le Tesseract
+                        self.spatial_map
+                            .insert((active_idx, pane.workspace, pane.view), node_id);
 
+                        // 2. On réinitialise la position du curseur
                         self.panes[active_idx].cursor = 0;
-                        if let Some(path_str) = full_path.to_str()
-                            && let Ok(editor) = Ji::open(path_str)
-                        {
-                            self.editor = editor;
-                        }
+                        self.panes[active_idx].cursor_col = 0;
+                        // 3. LA MAGIE EST ICI : On délègue tout le chargement à notre fonction centralisée !
+                        // Elle va synchroniser self.views, charger depuis la RAM, et créer l'éditeur.
+                        self.load_active_pane_file();
                     }
                     self.mode = Mode::Normal;
                     self.finder_research.clear();
@@ -2616,10 +2796,18 @@ impl Qwx {
         if target_file.is_some() && target_node_id < views.len() {
             panes[0].view = target_node_id as u8;
         }
-
+        let mut spatial_map = HashMap::new();
+        // On initialise le panneau 0 (TopLeft) sur le Workspace 1, View 1 avec le fichier cible
+        if target_file.is_some() && target_node_id < views.len() {
+            spatial_map.insert((0, 1, 1), target_node_id);
+        } else if !nodes.is_empty() {
+            // Sinon on met le premier fichier dispo
+            spatial_map.insert((0, 1, 1), 0);
+        }
         Ok(Self {
             width,
             height,
+            spatial_map,
             running: true,
             focus: PaneFocus::TopLeft,
             panes,
@@ -2638,7 +2826,7 @@ impl Qwx {
             player: MusicPlayer::default(),
             front_panes: [INIT_PANE_STATE; 4],
             back_panes: [INIT_PANE_STATE; 4],
-            current_facet: FacetSide::Front,
+            current_facet: Facet::Front,
         })
     }
 
