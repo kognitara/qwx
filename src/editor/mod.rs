@@ -2959,319 +2959,380 @@ pub fn create_config(
 /// - This function relies on the `create_config` helper for building language configurations.
 fn detect_language(extension: &str, theme_keys: &[&'static str]) -> Option<LangConfig> {
     match extension {
+        #[cfg(feature = "tree-sitter-ada")]
         "ada" | "adb" => create_config(
             "ada",
             Language::from(tree_sitter_ada::LANGUAGE),
             "",
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-powershell")]
         "ps1" | "psm1" | "psd1" => create_config(
             "powershell",
             Language::from(tree_sitter_powershell::LANGUAGE),
             tree_sitter_powershell::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-sas")]
         "scss" | "sass" => create_config(
             "scss",
             Language::from(tree_sitter_sas::LANGUAGE),
             tree_sitter_sas::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-kconfig")]
         "Kconfig" => create_config(
             "Kconfig",
             Language::from(tree_sitter_kconfig::LANGUAGE),
             tree_sitter_kconfig::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-vhdl")]
         "vhdl" => create_config(
             "vhdl",
             Language::from(tree_sitter_vhdl::LANGUAGE),
             tree_sitter_vhdl::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-jinja")]
+        "jinja" => create_config(
+            "jinja",
+            Language::from(tree_sitter_jinja::LANGUAGE),
+            tree_sitter_jinja::HIGHLIGHTS_QUERY,
+            theme_keys,
+        ),
+        #[cfg(feature = "tree-sitter-jinja2")]
         "jinja2" => create_config(
             "jinja2",
             Language::from(tree_sitter_jinja2::LANGUAGE),
             tree_sitter_jinja2::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-nginx")]
         "nginx" => create_config(
             "nginx",
             Language::from(tree_sitter_nginx::LANGUAGE),
             "",
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-zsh")]
         "zsh" => create_config(
             "zsh",
             Language::from(tree_sitter_zsh::LANGUAGE),
             tree_sitter_zsh::HIGHLIGHT_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-markdown")]
         "md" => create_config(
             "md",
-            Language::from(tree_sitter_md::LANGUAGE),
+            Language::from(tree_sitter_markdown::LANGUAGE),
             "",
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-agda")]
         "agda" => create_config(
             "agda",
             Language::from(tree_sitter_agda::LANGUAGE),
             tree_sitter_agda::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-asm")]
         "asm" | "s" => create_config(
             "asm",
             Language::from(tree_sitter_asm::LANGUAGE),
             tree_sitter_asm::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-bash")]
         "sh" | "bash" => create_config(
             "bash",
             Language::from(tree_sitter_bash::LANGUAGE),
             tree_sitter_bash::HIGHLIGHT_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-batch")]
         "bat" | "cmd" => create_config(
             "batch",
             Language::from(tree_sitter_batch::LANGUAGE),
             tree_sitter_batch::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-c")]
         "c" | "h" => create_config(
             "c",
             Language::from(tree_sitter_c::LANGUAGE),
             tree_sitter_c::HIGHLIGHT_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-c-sharp")]
         "cs" => create_config(
             "c_sharp",
             Language::from(tree_sitter_c_sharp::LANGUAGE),
             tree_sitter_c_sharp::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-cmake")]
         "cmake" => create_config(
             "cmake",
             Language::from(tree_sitter_cmake::LANGUAGE),
             tree_sitter_cmake::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-cpp")]
         "cpp" | "cc" | "cxx" | "hpp" => create_config(
             "cpp",
             Language::from(tree_sitter_cpp::LANGUAGE),
             tree_sitter_cpp::HIGHLIGHT_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-css")]
         "css" => create_config(
             "css",
             Language::from(tree_sitter_css::LANGUAGE),
             tree_sitter_css::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-d")]
         "d" => create_config("d", Language::from(tree_sitter_d::LANGUAGE), "", theme_keys),
+        #[cfg(feature = "tree-sitter-dart")]
         "dart" => create_config(
             "dart",
             Language::from(tree_sitter_dart::LANGUAGE),
             tree_sitter_dart::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-diff")]
         "diff" | "patch" => create_config(
             "diff",
             Language::from(tree_sitter_diff::LANGUAGE),
             "",
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-elixir")]
         "ex" | "exs" => create_config(
             "elixir",
             Language::from(tree_sitter_elixir::LANGUAGE),
             tree_sitter_elixir::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-elm")]
         "elm" => create_config(
             "elm",
             Language::from(tree_sitter_elm::LANGUAGE),
             tree_sitter_elm::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-erlang")]
         "erl" | "hrl" => create_config(
             "erlang",
             Language::from(tree_sitter_erlang::LANGUAGE),
             tree_sitter_erlang::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-fish")]
         "fish" => create_config(
             "fish",
             tree_sitter_fish::language(),
             tree_sitter_fish::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-fsharp")]
         "fs" | "fsi" | "fsx" => create_config(
             "fsharp",
             Language::from(tree_sitter_fsharp::LANGUAGE_FSHARP),
             tree_sitter_fsharp::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-glsl")]
         "glsl" | "vert" | "frag" => create_config(
             "glsl",
             Language::from(tree_sitter_glsl::LANGUAGE_GLSL),
             "",
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-go")]
         "go" => create_config(
             "go",
             Language::from(tree_sitter_go::LANGUAGE),
             tree_sitter_go::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-graphql")]
         "gql" | "graphql" => create_config(
             "graphql",
             Language::from(tree_sitter_graphql::LANGUAGE),
             "",
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-haskell")]
         "hs" => create_config(
             "haskell",
             Language::from(tree_sitter_haskell::LANGUAGE),
             tree_sitter_haskell::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-hcl")]
         "hcl" | "tf" => create_config(
             "hcl",
             Language::from(tree_sitter_hcl::LANGUAGE),
             "",
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-hlsl")]
         "hlsl" => create_config(
             "hlsl",
             Language::from(tree_sitter_hlsl::LANGUAGE_HLSL),
             "",
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-html")]
         "html" | "htm" => create_config(
             "html",
             Language::from(tree_sitter_html::LANGUAGE),
             tree_sitter_html::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-ini")]
         "ini" => create_config(
             "ini",
             Language::from(tree_sitter_ini::LANGUAGE),
             tree_sitter_ini::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-java")]
         "java" => create_config(
             "java",
             Language::from(tree_sitter_java::LANGUAGE),
             tree_sitter_java::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-javascript")]
         "js" | "mjs" | "cjs" => create_config(
             "javascript",
             Language::from(tree_sitter_javascript::LANGUAGE),
             tree_sitter_javascript::HIGHLIGHT_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-json")]
         "json" => create_config(
             "json",
             Language::from(tree_sitter_json::LANGUAGE),
             tree_sitter_json::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-lua")]
         "lua" => create_config(
             "lua",
             Language::from(tree_sitter_lua::LANGUAGE),
             tree_sitter_lua::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-make")]
         "make" | "makefile" | "Makefile" => create_config(
             "make",
             Language::from(tree_sitter_make::LANGUAGE),
             tree_sitter_make::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-nix")]
         "nix" => create_config(
             "nix",
             Language::from(tree_sitter_nix::LANGUAGE),
             tree_sitter_nix::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-objc")]
         "m" => create_config(
             "objc",
             Language::from(tree_sitter_objc::LANGUAGE),
             tree_sitter_objc::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-odin")]
         "odin" => create_config(
             "odin",
             Language::from(tree_sitter_odin::LANGUAGE),
             tree_sitter_odin::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-perl")]
         "pl" | "pm" => create_config(
             "perl",
             Language::from(tree_sitter_perl::LANGUAGE),
             "",
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-php")]
         "php" => create_config(
             "php",
             Language::from(tree_sitter_php::LANGUAGE_PHP),
             tree_sitter_php::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-python")]
         "py" | "pyw" => create_config(
             "python",
             Language::from(tree_sitter_python::LANGUAGE),
             tree_sitter_python::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-r")]
         "r" => create_config(
             "r",
             Language::from(tree_sitter_r::LANGUAGE),
             tree_sitter_r::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-ruby")]
         "rb" => create_config(
             "ruby",
             Language::from(tree_sitter_ruby::LANGUAGE),
             tree_sitter_ruby::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-rust")]
         "rs" => create_config(
             "rust",
             Language::from(tree_sitter_rust::LANGUAGE),
             tree_sitter_rust::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-scala")]
         "scala" | "sc" => create_config(
             "scala",
             Language::from(tree_sitter_scala::LANGUAGE),
             tree_sitter_scala::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-swift")]
         "swift" => create_config(
             "swift",
             Language::from(tree_sitter_swift::LANGUAGE),
             tree_sitter_swift::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-typescript")]
         "ts" | "mts" | "cts" => create_config(
             "typescript",
             Language::from(tree_sitter_typescript::LANGUAGE_TYPESCRIPT),
             tree_sitter_typescript::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-xml")]
         "xml" | "xsd" => create_config(
             "xml",
             Language::from(tree_sitter_xml::LANGUAGE_XML),
             tree_sitter_xml::XML_HIGHLIGHT_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-yaml")]
         "yaml" | "yml" => create_config(
             "yaml",
             Language::from(tree_sitter_yaml::LANGUAGE),
             tree_sitter_yaml::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
+        #[cfg(feature = "tree-sitter-zig")]
         "zig" => create_config(
             "zig",
             Language::from(tree_sitter_zig::LANGUAGE),

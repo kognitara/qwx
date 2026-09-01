@@ -7,6 +7,13 @@ license = "AGPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/kognitara/qwx.git"
 
+[profile.release]
+opt-level = 3       # Optimisation maximale pour la vitesse (remplace "z")
+lto = true          # Link Time Optimization "fat" (analyse tout le graphe d'un coup)
+codegen-units = 1   # Force un seul thread de compilation pour maximiser l'optimisation
+panic = "abort"     # Supprime le code de "stack unwinding" (gagne en vitesse et en taille)
+strip = true        # On garde ça pour virer les symboles de debug
+
 [dependencies]
 clap = "4.6.6"
 clap_complete = "4.6.9"
@@ -18,74 +25,129 @@ indicatif = "0.18.6"
 inquire = "0.9.4"
 num_cpus = "1.17.0"
 regex = "1.13.1"
-reqwest = { version = "0.13.4", features = ["blocking", "json", "form"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "form", "native-tls"] }
 ropey = "1.6.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tree-sitter = { version = "0.26.11", features = ["bindgen"] }
-tree-sitter-ada = "0.1.0"
-tree-sitter-agda = "1.3.3"
-tree-sitter-asm = "0.24.0"
-tree-sitter-bash = "0.25.1"
-tree-sitter-batch = "0.11.1"
-tree-sitter-c = "0.24.2"
-tree-sitter-c-sharp = "0.23.5"
-tree-sitter-cmake = "0.7.4"
-tree-sitter-cpp = "0.23.4"
-tree-sitter-css = "0.25.0"
-tree-sitter-d = "0.8.2"
-tree-sitter-dart = "0.2.0"
-tree-sitter-diff = "0.1.0"
-tree-sitter-elixir = "0.3.5"
-tree-sitter-elm = "5.9.4"
-tree-sitter-erlang = "0.20.0"
-tree-sitter-fish = "3.6.0"
-tree-sitter-fsharp = "0.3.3"
-tree-sitter-glsl = "0.2.0"
-tree-sitter-go = "0.25.0"
-tree-sitter-graphql = "0.2.0"
-tree-sitter-haskell = "0.23.1"
-tree-sitter-hcl = "1.1.0"
-tree-sitter-highlight = "0.26.11"
-tree-sitter-hlsl = "0.2.0"
-tree-sitter-html = "0.23.2"
-tree-sitter-ini = "1.4.0"
-tree-sitter-java = "0.23.5"
-tree-sitter-javascript = "0.25.0"
-tree-sitter-jinja2 = "0.0.16"
-tree-sitter-json = "0.24.8"
-tree-sitter-kconfig = "1.3.0"
-tree-sitter-lua = "0.5.0"
-tree-sitter-make = "1.1.1"
-tree-sitter-md = { version = "0.5.3", features = ["parser"] }
-tree-sitter-nginx = "1.0.1"
-tree-sitter-nix = "0.3.0"
-tree-sitter-objc = "3.0.2"
-tree-sitter-odin = "1.3.0"
-tree-sitter-perl = "1.1.2"
-tree-sitter-php = "0.24.2"
-tree-sitter-powershell = "0.26.4"
-tree-sitter-python = "0.25.0"
-tree-sitter-r = "1.3.0"
-tree-sitter-ruby = "0.23.1"
-tree-sitter-rust = "0.24.2"
-tree-sitter-sas = "0.4.2"
-tree-sitter-scala = "0.26.0"
-tree-sitter-swift = "0.7.3"
-tree-sitter-typescript = "0.23.2"
-tree-sitter-vhdl = "1.4.0"
-tree-sitter-xml = "0.7.0"
-tree-sitter-yaml = "0.7.2"
-tree-sitter-zig = "1.1.2"
-tree-sitter-zsh = "0.63.4"
 unicode-width = "0.2.2"
 walkdir = "2.5.0"
 urlencoding = "2.1.3"
+tree-sitter = "0.26.11"
 crates_io_api = "0.12.0"
 is_executable = "1.0.6"
+tree-sitter-c = { version = "0.24.2", default-features = false, optional = true }
+tree-sitter-d = { version = "0.8.2", default-features = false, optional = true }
+tree-sitter-rust = { version = "0.24.2", default-features = false, optional = true }
+tree-sitter-java = { version = "0.23.5", default-features = false, optional = true }
+tree-sitter-python = { version = "0.25.0", default-features = false, optional = true }
+tree-sitter-perl = { version = "1.1.2", default-features = false, optional = true }
+tree-sitter-ada = { version = "0.1.0", default-features = false, optional = true }
+tree-sitter-agda = { version = "1.3.3", default-features = false, optional = true }
+tree-sitter-asm = { version = "0.24.0", default-features = false, optional = true, features = ["wasm"] }
+tree-sitter-bash = { version = "0.25.1", default-features = false, optional = true }
+tree-sitter-fish = { version = "3.6.0", default-features = false, optional = true }
+tree-sitter-batch = { version = "0.11.1", default-features = false, optional = true }
+tree-sitter-c-sharp = { version = "0.23.5", default-features = false, optional = true }
+tree-sitter-cmake = { version = "0.7.4", default-features = false, optional = true }
+tree-sitter-cpp = { version = "0.23.4", default-features = false, optional = true }
+tree-sitter-css = { version = "0.25.0", default-features = false, optional = true }
+tree-sitter-scss = { version = "1.0.0", default-features = false, optional = true }
+tree-sitter-dart = { version = "0.2.0", default-features = false, optional = true }
+tree-sitter-elixir = { version = "0.3.5", default-features = false, optional = true }
+tree-sitter-elm = { version = "5.9.4", default-features = false, optional = true }
+tree-sitter-erlang = { version = "0.20.0", default-features = false, optional = true }
+tree-sitter-fsharp = { version = "0.3.11", default-features = false, optional = true }
+tree-sitter-go = { version = "0.25.0", default-features = false, optional = true }
+tree-sitter-haskell = { version = "0.23.1", default-features = false, optional = true }
+tree-sitter-graphql = { version = "0.2.1", default-features = false, optional = true }
+tree-sitter-hcl = { version = "1.1.0", default-features = false, optional = true }
+tree-sitter-html = { version = "0.23.2", default-features = false, optional = true }
+tree-sitter-make = { version = "1.1.1", default-features = false, optional = true }
+tree-sitter-nix = { version = "0.3.0", default-features = false, optional = true }
+tree-sitter-nginx = { version = "1.0.1", default-features = false, optional = true }
+tree-sitter-markdown = { version = "0.7.1", default-features = false, optional = true }
+tree-sitter-objc = { version = "3.0.2", default-features = false, optional = true }
+tree-sitter-php = { version = "0.24.2", default-features = false, optional = true }
+tree-sitter-typescript = { version = "0.23.2", default-features = false, optional = true }
+tree-sitter-powershell = { version = "0.26.4", default-features = false, optional = true }
+tree-sitter-javascript = { version = "0.25.0", default-features = false, optional = true }
+tree-sitter-odin = { version = "1.3.0", default-features = false, optional = true }
+tree-sitter-r = { version = "1.3.0", default-features = false, optional = true }
+tree-sitter-ruby = { version = "0.23.1", default-features = false, optional = true }
+tree-sitter-sas = { version = "0.4.2", default-features = false, optional = true }
+tree-sitter-swift = { version = "0.7.3", default-features = false, optional = true }
+tree-sitter-vhdl = { version = "1.4.0", default-features = false, optional = true }
+tree-sitter-xml = { version = "0.7.0", default-features = false, optional = true }
+tree-sitter-yaml = { version = "0.7.2", default-features = false, optional = true }
+tree-sitter-scala = { version = "0.26.2", default-features = false, optional = true }
+tree-sitter-zig = { version = "1.1.2", default-features = false, optional = true }
+tree-sitter-zsh = { version = "0.63.4", default-features = false, optional = true }
+tree-sitter-ini = { version = "1.4.0", default-features = false, optional = true }
+tree-sitter-kconfig = { version = "1.3.0", default-features = false, optional = true }
+tree-sitter-jinja = { version = "0.13.0", default-features = false, optional = true }
+tree-sitter-jinja2 = { version = "0.0.16", default-features = false, optional = true }
+tree-sitter-json = { version = "0.24.8", default-features = false, optional = true }
+tree-sitter-diff = { version = "0.1.0", default-features = false, optional = true }
+tree-sitter-glsl = { version = "0.2.0", default-features = false, optional = true }
+tree-sitter-hlsl = { version = "0.2.0", default-features = false, optional = true }
+tree-sitter-lua = { version = "0.5.0", default-features = false, optional = true }
+tree-sitter-highlight = "0.26.11"
 
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
+[features]
+default = ["tree-sitter-rust"]
+tree-sitter-c = ["dep:tree-sitter-c"]
+tree-sitter-d = ["dep:tree-sitter-d"]
+tree-sitter-rust = ["dep:tree-sitter-rust"]
+tree-sitter-java = ["dep:tree-sitter-java"]
+tree-sitter-python = ["dep:tree-sitter-python"]
+tree-sitter-perl = ["dep:tree-sitter-perl"]
+tree-sitter-ada = ["dep:tree-sitter-ada"]
+tree-sitter-agda = ["dep:tree-sitter-agda"]
+tree-sitter-asm = ["dep:tree-sitter-asm"]
+tree-sitter-bash = ["dep:tree-sitter-bash"]
+tree-sitter-fish = ["dep:tree-sitter-fish"]
+tree-sitter-batch = ["dep:tree-sitter-batch"]
+tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
+tree-sitter-cmake = ["dep:tree-sitter-cmake"]
+tree-sitter-cpp = ["dep:tree-sitter-cpp"]
+tree-sitter-css = ["dep:tree-sitter-css"]
+tree-sitter-scss = ["dep:tree-sitter-scss"]
+tree-sitter-dart = ["dep:tree-sitter-dart"]
+tree-sitter-elixir = ["dep:tree-sitter-elixir"]
+tree-sitter-elm = ["dep:tree-sitter-elm"]
+tree-sitter-erlang = ["dep:tree-sitter-erlang"]
+tree-sitter-fsharp = ["dep:tree-sitter-fsharp"]
+tree-sitter-go = ["dep:tree-sitter-go"]
+tree-sitter-haskell = ["dep:tree-sitter-haskell"]
+tree-sitter-graphql = ["dep:tree-sitter-graphql"]
+tree-sitter-hcl = ["dep:tree-sitter-hcl"]
+tree-sitter-html = ["dep:tree-sitter-html"]
+tree-sitter-make = ["dep:tree-sitter-make"]
+tree-sitter-nix = ["dep:tree-sitter-nix"]
+tree-sitter-nginx = ["dep:tree-sitter-nginx"]
+tree-sitter-markdown = ["dep:tree-sitter-markdown"]
+tree-sitter-objc = ["dep:tree-sitter-objc"]
+tree-sitter-php = ["dep:tree-sitter-php"]
+tree-sitter-typescript = ["dep:tree-sitter-typescript"]
+tree-sitter-powershell = ["dep:tree-sitter-powershell"]
+tree-sitter-javascript = ["dep:tree-sitter-javascript"]
+tree-sitter-odin = ["dep:tree-sitter-odin"]
+tree-sitter-r = ["dep:tree-sitter-r"]
+tree-sitter-ruby = ["dep:tree-sitter-ruby"]
+tree-sitter-sas = ["dep:tree-sitter-sas"]
+tree-sitter-swift = ["dep:tree-sitter-swift"]
+tree-sitter-vhdl = ["dep:tree-sitter-vhdl"]
+tree-sitter-xml = ["dep:tree-sitter-xml"]
+tree-sitter-yaml = ["dep:tree-sitter-yaml"]
+tree-sitter-scala = ["dep:tree-sitter-scala"]
+tree-sitter-zig = ["dep:tree-sitter-zig"]
+tree-sitter-zsh = ["dep:tree-sitter-zsh"]
+tree-sitter-ini = ["dep:tree-sitter-ini"]
+tree-sitter-kconfig = ["dep:tree-sitter-kconfig"]
+tree-sitter-jinja = ["dep:tree-sitter-jinja"]
+tree-sitter-jinja2 = ["dep:tree-sitter-jinja2"]
+tree-sitter-json = ["dep:tree-sitter-json"]
+tree-sitter-diff = ["dep:tree-sitter-diff"]
+tree-sitter-glsl = ["dep:tree-sitter-glsl"]
+tree-sitter-hlsl = ["dep:tree-sitter-hlsl"]
+tree-sitter-lua = ["dep:tree-sitter-lua"]
