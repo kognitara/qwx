@@ -25,6 +25,7 @@ use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 pub mod theme;
+
 /// Represents the initial state of a `PaneState` in the application.
 ///
 /// This constant defines default values for the pane's configuration:
@@ -1349,7 +1350,7 @@ impl Qwx {
             pane.cursor = (cursor_line + margin + 1).saturating_sub(p_height) as u16;
         }
     }
-    fn handle_normal(&mut self) {
+    fn handle_normal<W: Write>(&mut self, w: &mut W) {
         match read().expect("failed to get terminal input") {
             Event::Key(key) => match (key.modifiers, key.code) {
                 // --- FACETTES (Recto / Verso) ---
@@ -1593,7 +1594,7 @@ impl Qwx {
                 (KeyModifiers::ALT, KeyCode::Char('m')) => {
                     self.mode = Mode::Player;
                     self.player.refresh_playback_state();
-                    let _ = queue!(stdout(), Clear(ClearType::All));
+                    let _ = queue!(w, Clear(ClearType::All));
                 }
                 (KeyModifiers::NONE, KeyCode::Char('q')) => {
                     self.running = false;
@@ -1675,7 +1676,7 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
-                let _ = queue!(stdout(), Clear(ClearType::All));
+                let _ = queue!(w, Clear(ClearType::All));
             }
             _ => {}
         }
@@ -1794,7 +1795,7 @@ impl Qwx {
         }
     }
 
-    fn handle_editor(&mut self) {
+    fn handle_editor<W: Write>(&mut self, w: &mut W) {
         match read().expect("msg") {
             Event::Key(key) => match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, KeyCode::Esc) => {
@@ -1892,18 +1893,19 @@ impl Qwx {
             Event::Resize(cols, rows) => {
                 self.width = cols;
                 self.height = rows;
-                let _ = queue!(stdout(), Clear(ClearType::All));
+                let _ = queue!(w, Clear(ClearType::All));
             }
             _ => {}
         }
     }
 
-    fn handle_finder(&mut self) {
+    fn handle_finder<W: Write>(&mut self, w: &mut W) {
         match read().expect("msg") {
             Event::Key(key) => match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, KeyCode::Esc) => {
                     self.mode = Mode::Normal;
                     self.finder_research.clear();
+                    let _ = execute!(w, Clear(ClearType::All));
                 }
                 (KeyModifiers::NONE, KeyCode::Backspace) => {
                     self.finder_research.pop();
@@ -2021,7 +2023,7 @@ impl Qwx {
                 self.width = cols;
                 self.height = rows;
                 self.finder.resize(cols, rows);
-                let _ = queue!(stdout(), Clear(ClearType::All));
+                let _ = queue!(w, Clear(ClearType::All));
             }
             _ => {}
         }
@@ -2060,7 +2062,7 @@ impl Qwx {
             _ => {}
         }
     }
-    fn handle_web_search(&mut self) {
+    fn handle_web_search<W: Write>(&mut self, w: &mut W) {
         match read().expect("msg") {
             Event::Key(key) => {
                 // 1. If Web Reader is currently active inside the Search Hub
@@ -2071,7 +2073,7 @@ impl Qwx {
                             (KeyModifiers::NONE, KeyCode::Esc) => {
                                 self.search_hub.web_browser.url_prompt_active = false;
                                 self.search_hub.web_browser.url_input.clear();
-                                let _ = queue!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(w, Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Enter) => {
                                 let input = self.search_hub.web_browser.url_input.clone();
@@ -2080,7 +2082,7 @@ impl Qwx {
                                 if !input.trim().is_empty() {
                                     self.search_hub.web_browser.open_url(&input, self.width);
                                 }
-                                let _ = queue!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(w, Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Backspace) => {
                                 self.search_hub.web_browser.url_input.pop();
@@ -2098,7 +2100,7 @@ impl Qwx {
                             (KeyModifiers::NONE, KeyCode::Esc) => {
                                 self.search_hub.web_browser.link_prompt_active = false;
                                 self.search_hub.web_browser.link_input.clear();
-                                let _ = queue!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(w, Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Enter) => {
                                 let input = self.search_hub.web_browser.link_input.clone();
@@ -2109,7 +2111,7 @@ impl Qwx {
                                         .web_browser
                                         .follow_link_by_id(id, self.width);
                                 }
-                                let _ = queue!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(w, Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Backspace) => {
                                 self.search_hub.web_browser.link_input.pop();
@@ -2129,7 +2131,7 @@ impl Qwx {
                             (KeyModifiers::NONE, KeyCode::Esc) => {
                                 self.search_hub.web_browser.search_mode = false;
                                 self.search_hub.web_browser.search_query.clear();
-                                let _ = queue!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(w, Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Enter) => {
                                 let query = self.search_hub.web_browser.search_query.clone();
@@ -2137,7 +2139,7 @@ impl Qwx {
                                 if !query.trim().is_empty() {
                                     self.search_hub.web_browser.search_page(&query);
                                 }
-                                let _ = queue!(stdout(), Clear(ClearType::All));
+                                let _ = queue!(w, Clear(ClearType::All));
                             }
                             (KeyModifiers::NONE, KeyCode::Backspace) => {
                                 self.search_hub.web_browser.search_query.pop();
@@ -2154,7 +2156,7 @@ impl Qwx {
                     match (key.modifiers, key.code) {
                         (KeyModifiers::NONE, KeyCode::Esc) => {
                             self.search_hub.close_web_reader();
-                            let _ = queue!(stdout(), Clear(ClearType::All));
+                            let _ = queue!(w, Clear(ClearType::All));
                         }
                         (KeyModifiers::CONTROL, KeyCode::Char('o'))
                         | (KeyModifiers::CONTROL, KeyCode::Char('g')) => {
@@ -2229,7 +2231,7 @@ impl Qwx {
                         (KeyModifiers::NONE, KeyCode::Esc) => {
                             self.search_hub.prompt = None;
                             self.search_hub.status_message = Some("Action cancelled.".to_string());
-                            let _ = queue!(stdout(), Clear(ClearType::All));
+                            let _ = queue!(w, Clear(ClearType::All));
                         }
                         (KeyModifiers::NONE, KeyCode::Enter) => match prompt {
                             crate::search::ActionPrompt::CloneRepo {
@@ -2261,7 +2263,7 @@ impl Qwx {
                                     }
                                     Err(err) => {
                                         self.search_hub.status_message =
-                                            Some(format!("Error: {}", err));
+                                            Some(format!("Error: {err}"));
                                         self.search_hub.prompt = None;
                                     }
                                 }
@@ -2280,7 +2282,7 @@ impl Qwx {
                                     }
                                     Err(err) => {
                                         self.search_hub.status_message =
-                                            Some(format!("Error: {}", err));
+                                            Some(format!("Error: {err}"));
                                         self.search_hub.prompt = None;
                                     }
                                 }
@@ -2359,7 +2361,7 @@ impl Qwx {
                                         }
                                         Err(err) => {
                                             self.search_hub.status_message =
-                                                Some(format!("PR Error: {}", err));
+                                                Some(format!("PR Error: {err}"));
                                             self.search_hub.prompt = None;
                                         }
                                     }
@@ -2465,7 +2467,7 @@ impl Qwx {
                 match (key.modifiers, key.code) {
                     (KeyModifiers::NONE, KeyCode::Esc) => {
                         self.mode = Mode::Normal;
-                        let _ = queue!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(w, Clear(ClearType::All));
                     }
                     (KeyModifiers::NONE, KeyCode::Tab) => {
                         self.search_hub.next_provider();
@@ -2495,12 +2497,12 @@ impl Qwx {
                     (KeyModifiers::ALT, KeyCode::Char('w'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('w')) => {
                         self.search_hub.open_selected_in_web_reader(self.width);
-                        let _ = queue!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(w, Clear(ClearType::All));
                     }
                     (KeyModifiers::ALT, KeyCode::Char('v'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('v')) => {
                         self.search_hub.view_results_as_web_page(self.width);
-                        let _ = queue!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(w, Clear(ClearType::All));
                     }
                     (KeyModifiers::ALT, KeyCode::Char('o'))
                     | (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
@@ -2596,15 +2598,15 @@ impl Qwx {
         }
     }
 
-    pub fn handle_events(&mut self) {
+    pub fn handle_events<W: Write>(&mut self, w: &mut W) {
         match self.mode {
-            Mode::Normal => self.handle_normal(),
-            Mode::Finder => self.handle_finder(),
+            Mode::Normal => self.handle_normal(w),
+            Mode::Finder => self.handle_finder(w),
             Mode::Menu => self.handle_menu(),
-            Mode::Editor => self.handle_editor(),
+            Mode::Editor => self.handle_editor(w),
             Mode::Search => self.handle_search(),
-            Mode::WebSearch => self.handle_web_search(),
-            Mode::Player => self.handle_player(),
+            Mode::WebSearch => self.handle_web_search(w),
+            Mode::Player => self.handle_player(w),
             Mode::Zen => {}
             Mode::Fusion => {}
             Mode::Rescue => {}
@@ -2613,19 +2615,19 @@ impl Qwx {
         }
     }
 
-    fn handle_player(&mut self) {
+    fn handle_player<W: Write>(&mut self, w: &mut W) {
         if poll(std::time::Duration::from_millis(100)).unwrap_or(false) {
             match read().expect("failed to get terminal input") {
                 Event::Key(key) => {
                     if !self.player.handle_key(key.code, key.modifiers) {
                         self.mode = Mode::Normal;
-                        let _ = queue!(stdout(), Clear(ClearType::All));
+                        let _ = queue!(w, Clear(ClearType::All));
                     }
                 }
                 Event::Resize(cols, rows) => {
                     self.width = cols;
                     self.height = rows;
-                    let _ = queue!(stdout(), Clear(ClearType::All));
+                    let _ = queue!(w, Clear(ClearType::All));
                 }
                 _ => {}
             }
@@ -2642,7 +2644,7 @@ impl Qwx {
         self.clear_screen(&mut stdout)?;
         while self.running {
             self.draw(&mut stdout)?;
-            self.handle_events();
+            self.handle_events(&mut stdout);
         }
         execute!(stdout, LeaveAlternateScreen, Show)?;
         terminal::disable_raw_mode()?;
