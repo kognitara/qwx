@@ -235,15 +235,6 @@ impl<W: Write> QwxUi<W> for Qwx {
                     pane.cursor as usize,
                     selection,
                 );
-                // Nettoyage des bordures supérieure et inférieure du panneau
-                let empty_border = " ".repeat(p_width as usize);
-                queue!(
-                    w,
-                    MoveTo(start_x, start_y - 1),
-                    Print(&empty_border),
-                    MoveTo(start_x, start_y + p_height),
-                    Print(&empty_border)
-                )?;
                 if is_active && self.editor.is_dirty {
                     let dirty_display = " * ";
                     let dirty_x = start_x + p_width.saturating_sub(dirty_display.len() as u16) - 1;
@@ -539,10 +530,25 @@ impl QwxPanel for Qwx {
                 ed.lang_config = Some(config);
                 ed.update_syntax_tree();
             }
-            ed.cursor_col = pane.cursor_col as usize;
+            // 1. Obtenir le nombre total de lignes du NOUVEAU fichier
+            let total_lines = ed.rope.len_lines();
+
+            // 2. Brider la ligne du curseur pour qu'elle ne dépasse pas la fin du fichier
+            // (saturating_sub(1) car les index commencent à 0)
+            let safe_line = (pane.cursor as usize).min(total_lines.saturating_sub(1));
+            ed.cursor_line = safe_line;
+
+            // 3. Obtenir la longueur de cette ligne spécifique pour brider la colonne
+            let line_len_chars = ed.rope.line(safe_line).len_chars();
+            let safe_col = (pane.cursor_col as usize).min(line_len_chars.saturating_sub(1));
+            ed.cursor_col = safe_col;
+
+            // 4. Mettre à jour le pane lui-même pour éviter que le prochain draw utilise d'anciennes valeurs fausses
+            self.panes[active_idx].cursor = safe_line as u16;
+            self.panes[active_idx].cursor_col = safe_col as u16;
+
             ed.undo_stack = node.undo_stack.clone();
             ed.redo_stack = node.redo_stack.clone();
-            ed.cursor_line = pane.cursor as usize;
             self.editor = ed;
         }
     }
@@ -1331,7 +1337,11 @@ impl Qwx {
         &mut self.panes[self.focus as usize]
     }
     pub fn follow(&mut self) {
+        // 1. On récupère TOUTES les données immuables de l'éditeur en premier
         let cursor_line = self.editor.cursor_line;
+        let total_lines = self.editor.rope.len_lines();
+
+        // 2. Calcul des dimensions de l'écran
         let mid_y = self.height / 2;
         let bottom_y = self.height;
         let p_height = match self.focus {
@@ -1339,17 +1349,29 @@ impl Qwx {
             PaneFocus::BottomLeft | PaneFocus::BottomRight => (bottom_y - mid_y).saturating_sub(1),
         } as usize;
 
+        // 3. Maintenant qu'on a fini avec `self.editor`, on peut emprunter mutablement le panneau
         let pane = self.active_pane_mut();
-        let scroll_y = pane.cursor.saturating_add(1) as usize;
-
+        let mut new_scroll = pane.cursor as usize;
         let margin = 3.min(p_height / 3);
 
-        if cursor_line < scroll_y + margin {
-            pane.cursor = cursor_line.saturating_sub(margin) as u16;
-        } else if cursor_line + margin >= scroll_y + p_height {
-            pane.cursor = (cursor_line + margin + 1).saturating_sub(p_height) as u16;
+        // 4. Ajuster la cible de scroll selon la position du curseur
+        if cursor_line < new_scroll + margin {
+            new_scroll = cursor_line.saturating_sub(margin);
+        } else if cursor_line >= new_scroll + p_height - margin {
+            new_scroll = (cursor_line + margin + 1).saturating_sub(p_height);
         }
+
+        // 5. Appliquer les garde-fous uniques
+        if total_lines > p_height {
+            new_scroll = new_scroll.min(total_lines - p_height);
+        } else {
+            new_scroll = 0;
+        }
+
+        // 6. Écriture finale
+        pane.cursor = new_scroll as u16;
     }
+
     fn handle_normal<W: Write>(&mut self, w: &mut W) {
         match read().expect("failed to get terminal input") {
             Event::Key(key) => match (key.modifiers, key.code) {
@@ -1384,14 +1406,10 @@ impl Qwx {
                     pane.view = pane.view.saturating_add(1);
                     self.load_active_pane_file();
                 }
-                (KeyModifiers::ALT, KeyCode::Char('j')) => {
-                    let pane = self.active_pane_mut();
-                    // On empêche de descendre en dessous de la View 1
-                    pane.view = pane.view.saturating_sub(1).max(1);
-                    self.load_active_pane_file();
-                }
                 (KeyModifiers::NONE, KeyCode::Char('j')) => {
-                    if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
+                    let total_lines = self.editor.rope.len_lines();
+                    // On bloque strictement à la dernière ligne existante (index total_lines - 1)
+                    if self.editor.cursor_line + 1 < total_lines {
                         self.editor.cursor_line += 1;
 
                         let max_col = self
@@ -1401,10 +1419,16 @@ impl Qwx {
                             .len_chars()
                             .saturating_sub(1);
 
-                        // Sécurité pour ne pas déborder sur une ligne vide
                         self.editor.cursor_col = self.editor.cursor_col.min(max_col);
                     }
                     self.follow();
+                }
+
+                (KeyModifiers::ALT, KeyCode::Char('j')) => {
+                    let pane = self.active_pane_mut();
+                    // On empêche de descendre en dessous de la View 1
+                    pane.view = pane.view.saturating_sub(1).max(1);
+                    self.load_active_pane_file();
                 }
                 (KeyModifiers::NONE, KeyCode::Char('k')) => {
                     if self.editor.cursor_line > 0 {
@@ -1451,23 +1475,21 @@ impl Qwx {
                     self.follow();
                 }
                 (KeyModifiers::NONE, KeyCode::PageDown) => {
-                    let active_idx = self.focus as usize;
-                    let node_len = if let Some(view) = self.views.get(active_idx) {
-                        self.nodes
-                            .get(view.active_node_id)
-                            .map(|n| n.content.len())
-                            .unwrap_or(0)
-                    } else {
-                        0
-                    };
+                    let total_lines = self.editor.rope.len_lines();
                     let step = 15;
-                    let active_pane = self.active_pane_mut();
-                    if (active_pane.cursor as usize) + step < node_len {
-                        active_pane.cursor += step as u16;
-                    } else {
-                        active_pane.cursor = node_len.saturating_sub(1) as u16;
-                    }
-                    self.editor.cursor_line = self.active_pane_mut().cursor as usize;
+
+                    // On déplace le curseur vers le bas, bridé à la fin du fichier
+                    self.editor.cursor_line =
+                        (self.editor.cursor_line + step).min(total_lines.saturating_sub(1));
+
+                    // On réajuste la colonne au cas où la nouvelle ligne est plus courte
+                    let max_col = self
+                        .editor
+                        .rope
+                        .line(self.editor.cursor_line)
+                        .len_chars()
+                        .saturating_sub(1);
+                    self.editor.cursor_col = self.editor.cursor_col.min(max_col);
                     self.follow();
                 }
                 (KeyModifiers::NONE, KeyCode::PageUp) => {
@@ -2641,8 +2663,8 @@ impl Qwx {
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
         execute!(stdout, EnterAlternateScreen)?;
-        self.clear_screen(&mut stdout)?;
         while self.running {
+            self.clear_screen(&mut stdout)?;
             self.draw(&mut stdout)?;
             self.handle_events(&mut stdout);
         }
