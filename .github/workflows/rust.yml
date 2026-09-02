@@ -6,6 +6,7 @@ on:
     branches: [ "master", "main" ]
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C target-cpu=x86-64"
 jobs:
   build-and-test:
     name: Build on ${{ matrix.os }}
