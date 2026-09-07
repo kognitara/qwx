@@ -3579,7 +3579,7 @@ impl Ji {
     pub fn save(&mut self) -> io::Result<()> {
         if let Some(ref path) = self.file_path {
             let file = File::create(path)?;
-            let writer = std::io::BufWriter::new(file);
+            let writer = io::BufWriter::new(file);
             self.rope.write_to(writer)?;
             self.is_dirty = false;
         }

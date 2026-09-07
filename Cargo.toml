@@ -4,7 +4,6 @@ version = "0.0.3"
 edition = "2024"
 description = "Quaternary Walk Extended"
 license = "AGPL-3.0-or-later"
-readme = "README.md"
 repository = "https://github.com/kognitara/qwx.git"
 
 [profile.release]
@@ -18,7 +17,7 @@ strip = true        # On garde ça pour virer les symboles de debug
 clap = "4.6.6"
 clap_complete = "4.6.9"
 crossterm = "0.29.0"
-dirs = "6.0.0"
+dirs = "7.0.0"
 git2 = { version = "0.21.0", features = ["https", "ssh"] }
 ignore = "0.4.31"
 indicatif = "0.18.6"
@@ -51,7 +50,6 @@ tree-sitter-c-sharp = { version = "0.23.5", default-features = false, optional =
 tree-sitter-cmake = { version = "0.7.4", default-features = false, optional = true }
 tree-sitter-cpp = { version = "0.23.4", default-features = false, optional = true }
 tree-sitter-css = { version = "0.25.0", default-features = false, optional = true }
-tree-sitter-scss = { version = "1.0.0", default-features = false, optional = true }
 tree-sitter-dart = { version = "0.2.0", default-features = false, optional = true }
 tree-sitter-elixir = { version = "0.3.5", default-features = false, optional = true }
 tree-sitter-elm = { version = "5.9.4", default-features = false, optional = true }
@@ -111,7 +109,7 @@ tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
 tree-sitter-cmake = ["dep:tree-sitter-cmake"]
 tree-sitter-cpp = ["dep:tree-sitter-cpp"]
 tree-sitter-css = ["dep:tree-sitter-css"]
-tree-sitter-scss = ["dep:tree-sitter-scss"]
+tree-sitter-scss = []
 tree-sitter-dart = ["dep:tree-sitter-dart"]
 tree-sitter-elixir = ["dep:tree-sitter-elixir"]
 tree-sitter-elm = ["dep:tree-sitter-elm"]
