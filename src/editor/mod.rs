@@ -7,11 +7,11 @@ use crossterm::cursor::{
     Hide, MoveDown, MoveLeft, MoveRight, MoveTo, MoveUp, SetCursorStyle, Show,
 };
 use crossterm::event::{Event, KeyCode, KeyModifiers, poll, read};
+use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
 use crossterm::terminal::{
     self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, size,
 };
-use crossterm::{execute, queue};
 use is_executable::IsExecutable;
 use ropey::Rope;
 use std::collections::HashMap;
@@ -19,8 +19,9 @@ use std::fs::{File, create_dir_all};
 use std::io::{self, BufRead, BufReader, Error, Write, stdout};
 use std::path::Path;
 use std::path::PathBuf;
+use tree_sitter::Parser;
+use tree_sitter::Tree;
 use tree_sitter::{InputEdit, Language, Point, QueryCursor};
-use tree_sitter::{Parser, Tree};
 use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -144,7 +145,7 @@ pub trait QwxUi<W: Write> {
 
 impl<W: Write> QwxUi<W> for Qwx {
     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
-        execute!(w, Hide)?;
+        queue!(w, Hide)?;
         if self.mode == Mode::WebSearch {
             self.search_hub.draw(w, 0, 0, self.width, self.height)?;
             w.flush()?;
@@ -277,10 +278,10 @@ impl<W: Write> QwxUi<W> for Qwx {
             self.draw_finder(w)?;
         } else if self.mode == Mode::Menu {
             let (start_x, start_y, pane_width) = match self.focus {
-                PaneFocus::TopLeft => (left_x, top_y, (mid_x - left_x)),
-                PaneFocus::TopRight => (mid_x + 1, top_y, (right_x - mid_x)),
-                PaneFocus::BottomLeft => (left_x, mid_y + 1, (mid_x - left_x)),
-                PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, (right_x - mid_x)),
+                PaneFocus::TopLeft => (left_x, top_y, mid_x - left_x),
+                PaneFocus::TopRight => (mid_x + 1, top_y, right_x - mid_x),
+                PaneFocus::BottomLeft => (left_x, mid_y + 1, mid_x - left_x),
+                PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, right_x - mid_x),
             };
 
             let prompt = format!(" {} ", self.menu_input);
@@ -296,10 +297,10 @@ impl<W: Write> QwxUi<W> for Qwx {
             )?;
         } else if self.mode == Mode::Search {
             let (start_x, start_y, pane_width) = match self.focus {
-                PaneFocus::TopLeft => (left_x, top_y, (mid_x - left_x)),
-                PaneFocus::TopRight => (mid_x + 1, top_y, (right_x - mid_x)),
-                PaneFocus::BottomLeft => (left_x, mid_y + 1, (mid_x - left_x)),
-                PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, (right_x - mid_x)),
+                PaneFocus::TopLeft => (left_x, top_y, mid_x - left_x),
+                PaneFocus::TopRight => (mid_x + 1, top_y, right_x - mid_x),
+                PaneFocus::BottomLeft => (left_x, mid_y + 1, mid_x - left_x),
+                PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, right_x - mid_x),
             };
 
             let prompt = format!(" /{} ", self.search_input);
@@ -599,7 +600,7 @@ pub fn qwx_read_lines(path: impl AsRef<Path>) -> Result<Vec<String>, Error> {
     for line_result in reader.lines() {
         match line_result {
             Ok(line) => lines.push(line),
-            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => {
                 continue;
             }
             Err(e) => return Err(e), // On continue de propager les autres erreurs (ex: droits d'accès)
@@ -1172,33 +1173,33 @@ pub trait QwxBuffer {
 impl<W: Write> QwxCursor<W> for Qwx {
     fn scroll(&mut self, w: &mut W, direction: QwxScrollDirection) -> Result<(), Error> {
         match direction {
-            QwxScrollDirection::Vertical(x) => execute!(w, MoveRight(x)),
-            QwxScrollDirection::Horizontal(x) => execute!(w, MoveDown(x)),
-            QwxScrollDirection::Left(x) => execute!(w, MoveLeft(x)),
-            QwxScrollDirection::Right(x) => execute!(w, MoveRight(x)),
-            QwxScrollDirection::Down(x) => execute!(w, MoveDown(x)),
-            QwxScrollDirection::Up(x) => execute!(w, MoveUp(x)),
+            QwxScrollDirection::Vertical(x) => queue!(w, MoveRight(x)),
+            QwxScrollDirection::Horizontal(x) => queue!(w, MoveDown(x)),
+            QwxScrollDirection::Left(x) => queue!(w, MoveLeft(x)),
+            QwxScrollDirection::Right(x) => queue!(w, MoveRight(x)),
+            QwxScrollDirection::Down(x) => queue!(w, MoveDown(x)),
+            QwxScrollDirection::Up(x) => queue!(w, MoveUp(x)),
         }
     }
     /// Displays the associated content or performs an action tied to the `Show` command.
     ///
     /// This method writes a `Show` command to the provided mutable writer `w`
-    /// and executes it. It integrates with the `execute!` macro to handle
+    /// and queues it. It integrates with the `queue!` macro to handle
     /// the operation and returns a `Result` indicating success or failure.
     ///
     /// # Parameters
     /// - `w`: A mutable reference to a writer that implements the `Write`
-    ///   trait. This is the output target where the `Show` command will be executed.
+    ///   trait. This is the output target where the `Show` command will be queued.
     ///
     /// # Returns
-    /// - `Ok(())`: If the `Show` command was successfully executed.
-    /// - `Err(Error)`: If an error occurred while attempting to execute the command.
+    /// - `Ok(())`: If the `Show` command was successfully queued.
+    /// - `Err(Error)`: If an error occurred while attempting to queue the command.
     ///
     /// # Errors
-    /// This function returns an error in cases where the `execute!` macro fails
+    /// This function returns an error in cases where the `queue!` macro fails
     /// to perform the intended operation, such as problems with the writer or internal execution.
     fn show(&mut self, w: &mut W) -> Result<(), Error> {
-        execute!(w, Show)
+        queue!(w, Show)
     }
     /// Hides the cursor in the given writable stream.
     ///
@@ -1213,16 +1214,16 @@ impl<W: Write> QwxCursor<W> for Qwx {
     ///
     /// # Returns
     ///
-    /// Returns a `Result` which is `Ok(())` if the command is executed successfully.
+    /// Returns a `Result` which is `Ok(())` if the command is queued successfully.
     /// If an error occurs during the execution of the `Hide` command, it will return
     /// an `Err` variant containing the associated `Error`.
     ///
     /// # Errors
     ///
-    /// An error may occur if the `execute!` macro fails to send the `Hide` command to
+    /// An error may occur if the `queue!` macro fails to send the `Hide` command to
     /// the writable stream, for instance, due to IO or stream-related issues.
     fn hide(&mut self, w: &mut W) -> Result<(), Error> {
-        execute!(w, Hide)
+        queue!(w, Hide)
     }
 }
 
@@ -1927,7 +1928,7 @@ impl Qwx {
                 (KeyModifiers::NONE, KeyCode::Esc) => {
                     self.mode = Mode::Normal;
                     self.finder_research.clear();
-                    let _ = execute!(w, Clear(ClearType::All));
+                    let _ = queue!(w, Clear(ClearType::All));
                 }
                 (KeyModifiers::NONE, KeyCode::Backspace) => {
                     self.finder_research.pop();
@@ -2662,13 +2663,12 @@ impl Qwx {
     pub fn run(&mut self) -> Result<(), Error> {
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
-        execute!(stdout, EnterAlternateScreen)?;
+        queue!(stdout, EnterAlternateScreen)?;
         while self.running {
-            self.clear_screen(&mut stdout)?;
             self.draw(&mut stdout)?;
             self.handle_events(&mut stdout);
         }
-        execute!(stdout, LeaveAlternateScreen, Show)?;
+        queue!(stdout, LeaveAlternateScreen, Show)?;
         terminal::disable_raw_mode()?;
         Ok(())
     }

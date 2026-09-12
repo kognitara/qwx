@@ -2,7 +2,7 @@ use crossterm::style::{Color, ResetColor, SetBackgroundColor};
 use crossterm::terminal::{Clear, ClearType};
 use crossterm::{
     cursor::MoveTo,
-    execute,
+    queue,
     style::{Print, SetForegroundColor},
     terminal::size,
 };
@@ -226,20 +226,20 @@ fn render_list<W: Write>(
     {
         let absolute_index = scroll_offset + i;
         let y = start_y + i as u16;
-        execute!(w, MoveTo(start_x, y))?;
+        queue!(w, MoveTo(start_x, y))?;
 
         if absolute_index == selected_index {
-            execute!(
+            queue!(
                 w,
                 SetBackgroundColor(FINDER_ACTIVE_SELECT),
                 SetForegroundColor(Color::Black)
             )?;
         } else {
-            execute!(w, SetForegroundColor(default_color))?;
+            queue!(w, SetForegroundColor(default_color))?;
         }
 
         let formatted = format_item_name(item, width);
-        execute!(w, Print(formatted), ResetColor)?;
+        queue!(w, Print(formatted), ResetColor)?;
     }
     Ok(())
 }
@@ -254,7 +254,7 @@ fn draw_side_by_side_finder<W: Write>(
     height: u16,
 ) -> Result<()> {
     // Draw research bar at top
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -283,7 +283,7 @@ fn draw_side_by_side_finder<W: Write>(
     let inner_height = panel_height.saturating_sub(1) as usize;
 
     // Draw left panel (DIRS) border
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, panel_start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -295,7 +295,7 @@ fn draw_side_by_side_finder<W: Write>(
     )?;
 
     // Draw DIRS and FILES labels
-    execute!(
+    queue!(
         w,
         MoveTo(start_x + 2, panel_start_y),
         SetForegroundColor(FINDER_DIR_COLOR),
@@ -307,7 +307,7 @@ fn draw_side_by_side_finder<W: Write>(
 
     // Draw middle divider and side borders
     for i in 1..panel_height {
-        execute!(
+        queue!(
             w,
             MoveTo(start_x, panel_start_y + i),
             SetForegroundColor(FINDER_BORDER),
@@ -344,7 +344,7 @@ fn draw_side_by_side_finder<W: Write>(
 
     // Draw bottom border of panels
     let bottom_y = panel_start_y + panel_height;
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, bottom_y),
         SetForegroundColor(FINDER_BORDER),
@@ -357,7 +357,7 @@ fn draw_side_by_side_finder<W: Write>(
 
     // Draw status footer
     let footer_y = bottom_y + 1;
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, footer_y),
         SetForegroundColor(FINDER_BORDER),
@@ -405,7 +405,7 @@ fn draw_grid_finder<W: Write>(
     height: u16,
 ) -> Result<()> {
     // Draw research bar at top
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -434,7 +434,7 @@ fn draw_grid_finder<W: Write>(
     let inner_height = panel_height.saturating_sub(1) as usize;
 
     // Draw top border of 2x2 grid
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, panel_start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -446,7 +446,7 @@ fn draw_grid_finder<W: Write>(
     )?;
 
     // Draw labels for top row
-    execute!(
+    queue!(
         w,
         MoveTo(start_x + 2, panel_start_y),
         SetForegroundColor(FINDER_DIR_COLOR),
@@ -457,7 +457,7 @@ fn draw_grid_finder<W: Write>(
 
     // Draw sides and middle divider for top panels
     for i in 1..panel_height {
-        execute!(
+        queue!(
             w,
             MoveTo(start_x, panel_start_y + i),
             SetForegroundColor(FINDER_BORDER),
@@ -494,7 +494,7 @@ fn draw_grid_finder<W: Write>(
 
     // Draw middle horizontal divider
     let middle_y = panel_start_y + panel_height;
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, middle_y),
         SetForegroundColor(FINDER_BORDER),
@@ -506,7 +506,7 @@ fn draw_grid_finder<W: Write>(
     )?;
 
     // Draw labels for bottom row
-    execute!(
+    queue!(
         w,
         MoveTo(start_x + 2, middle_y),
         SetForegroundColor(FINDER_FILE_COLOR),
@@ -517,7 +517,7 @@ fn draw_grid_finder<W: Write>(
 
     // Draw sides and middle divider for bottom panels
     for i in 1..panel_height {
-        execute!(
+        queue!(
             w,
             MoveTo(start_x, middle_y + i),
             SetForegroundColor(FINDER_BORDER),
@@ -554,7 +554,7 @@ fn draw_grid_finder<W: Write>(
 
     // Draw bottom border of main grid
     let bottom_y = middle_y + panel_height;
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, bottom_y),
         SetForegroundColor(FINDER_BORDER),
@@ -568,7 +568,7 @@ fn draw_grid_finder<W: Write>(
     // Draw status footer (2x2 grid for founded counts)
     let footer_y = bottom_y + 1;
 
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, footer_y),
         SetForegroundColor(FINDER_BORDER),
@@ -640,7 +640,7 @@ fn draw_miller_finder<W: Write>(
     height: u16,
 ) -> Result<()> {
     // Draw research bar at top
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -675,7 +675,7 @@ fn draw_miller_finder<W: Write>(
     let files_inner_height = files_height.saturating_sub(2) as usize;
 
     // Draw top border of three-column directory panels
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, panel_start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -689,7 +689,7 @@ fn draw_miller_finder<W: Write>(
     )?;
 
     // Draw labels for directory columns
-    execute!(
+    queue!(
         w,
         MoveTo(start_x + 2, panel_start_y),
         SetForegroundColor(FINDER_DIR_COLOR),
@@ -702,7 +702,7 @@ fn draw_miller_finder<W: Write>(
 
     // Draw sides and vertical dividers for directory panels
     for i in 1..dirs_height {
-        execute!(
+        queue!(
             w,
             MoveTo(start_x, panel_start_y + i),
             SetForegroundColor(FINDER_BORDER),
@@ -753,7 +753,7 @@ fn draw_miller_finder<W: Write>(
 
     // Draw horizontal divider between directories and files
     let files_start_y = panel_start_y + dirs_height;
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, files_start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -767,7 +767,7 @@ fn draw_miller_finder<W: Write>(
     )?;
 
     // Draw FILES label
-    execute!(
+    queue!(
         w,
         MoveTo(start_x + 2, files_start_y),
         SetForegroundColor(FINDER_FILE_COLOR),
@@ -776,7 +776,7 @@ fn draw_miller_finder<W: Write>(
 
     // Draw sides for files panel
     for i in 1..files_height {
-        execute!(
+        queue!(
             w,
             MoveTo(start_x, files_start_y + i),
             SetForegroundColor(FINDER_BORDER),
@@ -800,7 +800,7 @@ fn draw_miller_finder<W: Write>(
 
     // Draw bottom border of files panel
     let bottom_y = files_start_y + files_height;
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, bottom_y),
         SetForegroundColor(FINDER_BORDER),
@@ -811,7 +811,7 @@ fn draw_miller_finder<W: Write>(
 
     // Draw status footer
     let footer_y = bottom_y + 1;
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, footer_y),
         SetForegroundColor(FINDER_BORDER),
@@ -868,7 +868,7 @@ fn draw_commander_finder<W: Write>(
     height: u16,
 ) -> Result<()> {
     // Draw research bar at top
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -900,7 +900,7 @@ fn draw_commander_finder<W: Write>(
     let main_inner_height = main_panel_height.saturating_sub(1) as usize;
 
     // Draw directory section border
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, panel_start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -918,7 +918,7 @@ fn draw_commander_finder<W: Write>(
 
     // Draw sides for directories section
     for i in 2..dirs_height {
-        execute!(
+        queue!(
             w,
             MoveTo(start_x, panel_start_y + i),
             SetForegroundColor(FINDER_BORDER),
@@ -930,7 +930,7 @@ fn draw_commander_finder<W: Write>(
 
     // Render directories in top bar if any
     let dirs_joined = finder.directories.join("   ");
-    execute!(
+    queue!(
         w,
         MoveTo(start_x + 15, panel_start_y + 1),
         SetForegroundColor(FINDER_DIR_COLOR),
@@ -942,7 +942,7 @@ fn draw_commander_finder<W: Write>(
     )?;
 
     // Draw bottom border of directories section
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, panel_start_y + dirs_height),
         SetForegroundColor(FINDER_BORDER),
@@ -952,7 +952,7 @@ fn draw_commander_finder<W: Write>(
     )?;
 
     // Draw main panel (split: CURRENT DIRECTORY | CURRENT FILES)
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, main_panel_start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -964,7 +964,7 @@ fn draw_commander_finder<W: Write>(
     )?;
 
     // Draw labels for main panels
-    execute!(
+    queue!(
         w,
         MoveTo(start_x + 2, main_panel_start_y),
         SetForegroundColor(FINDER_DIR_COLOR),
@@ -976,7 +976,7 @@ fn draw_commander_finder<W: Write>(
 
     // Draw sides and middle divider for main panels
     for i in 1..main_panel_height {
-        execute!(
+        queue!(
             w,
             MoveTo(start_x, main_panel_start_y + i),
             SetForegroundColor(FINDER_BORDER),
@@ -1013,7 +1013,7 @@ fn draw_commander_finder<W: Write>(
 
     // Draw bottom border of main panels
     let bottom_y = main_panel_start_y + main_panel_height;
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, bottom_y),
         SetForegroundColor(FINDER_BORDER),
@@ -1026,7 +1026,7 @@ fn draw_commander_finder<W: Write>(
 
     // Draw status footer
     let footer_y = bottom_y + 1;
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, footer_y),
         SetForegroundColor(FINDER_BORDER),
@@ -1064,7 +1064,7 @@ fn draw_commander_finder<W: Write>(
     Ok(())
 }
 
-fn execute_label<W: Write>(
+fn queue_label<W: Write>(
     w: &mut W,
     x: u16,
     y: u16,
@@ -1081,7 +1081,7 @@ fn execute_label<W: Write>(
     } else {
         label
     };
-    execute!(
+    queue!(
         w,
         MoveTo(x, y),
         SetForegroundColor(color),
@@ -1116,7 +1116,7 @@ fn render_mosaic_info<W: Write>(
 
     for (i, line) in info_lines.iter().take(height).enumerate() {
         let y = start_y + i as u16;
-        execute!(
+        queue!(
             w,
             MoveTo(start_x, y),
             SetForegroundColor(UI_TEXT_MUTED),
@@ -1143,7 +1143,7 @@ fn draw_mosaic_finder<W: Write>(
     // 1. Draw top research bar
     let search_inner_w = width.saturating_sub(2) as usize;
     let truncated_research = format_item_name(&format!(" {} ", research), search_inner_w);
-    execute!(
+    queue!(
         w,
         MoveTo(start_x, start_y),
         SetForegroundColor(FINDER_BORDER),
@@ -1193,7 +1193,7 @@ fn draw_mosaic_finder<W: Write>(
     let x3 = start_x + width - 1;
 
     // 3. Draw top border of mosaic
-    execute!(
+    queue!(
         w,
         MoveTo(x0, top_y),
         SetForegroundColor(FINDER_BORDER),
@@ -1207,7 +1207,7 @@ fn draw_mosaic_finder<W: Write>(
     )?;
 
     // Draw top row labels
-    execute_label(
+    queue_label(
         w,
         x0 + 2,
         top_y,
@@ -1215,7 +1215,7 @@ fn draw_mosaic_finder<W: Write>(
         inner_w_left,
         FINDER_DIR_COLOR,
     )?;
-    execute_label(
+    queue_label(
         w,
         x1 + 2,
         top_y,
@@ -1223,7 +1223,7 @@ fn draw_mosaic_finder<W: Write>(
         inner_w_mid,
         FINDER_DIR_COLOR,
     )?;
-    execute_label(
+    queue_label(
         w,
         x2 + 2,
         top_y,
@@ -1234,7 +1234,7 @@ fn draw_mosaic_finder<W: Write>(
 
     // 4. Draw vertical dividers for top half
     for y in (top_y + 1)..mid_y {
-        execute!(
+        queue!(
             w,
             MoveTo(x0, y),
             SetForegroundColor(FINDER_BORDER),
@@ -1249,7 +1249,7 @@ fn draw_mosaic_finder<W: Write>(
     }
 
     // 5. Draw middle horizontal divider
-    execute!(
+    queue!(
         w,
         MoveTo(x0, mid_y),
         SetForegroundColor(FINDER_BORDER),
@@ -1263,7 +1263,7 @@ fn draw_mosaic_finder<W: Write>(
     )?;
 
     // Draw middle labels
-    execute_label(
+    queue_label(
         w,
         x1 + 2,
         mid_y,
@@ -1271,11 +1271,11 @@ fn draw_mosaic_finder<W: Write>(
         inner_w_mid,
         FINDER_FILE_COLOR,
     )?;
-    execute_label(w, x2 + 2, mid_y, " INFO ", inner_w_right, UI_TEXT_MUTED)?;
+    queue_label(w, x2 + 2, mid_y, " INFO ", inner_w_right, UI_TEXT_MUTED)?;
 
     // 6. Draw vertical dividers for bottom half
     for y in (mid_y + 1)..bot_y {
-        execute!(
+        queue!(
             w,
             MoveTo(x0, y),
             SetForegroundColor(FINDER_BORDER),
@@ -1290,7 +1290,7 @@ fn draw_mosaic_finder<W: Write>(
     }
 
     // 7. Draw bottom border of mosaic
-    execute!(
+    queue!(
         w,
         MoveTo(x0, bot_y),
         SetForegroundColor(FINDER_BORDER),
@@ -1360,7 +1360,7 @@ fn draw_mosaic_finder<W: Write>(
     // 9. Render status footer if space permits
     if has_footer {
         let footer_y = bot_y + 1;
-        execute!(
+        queue!(
             w,
             MoveTo(x0, footer_y),
             SetForegroundColor(FINDER_BORDER),
@@ -1827,7 +1827,7 @@ impl Finder {
         width: u16,
         height: u16,
     ) -> Result<()> {
-        execute!(w, Clear(ClearType::All))?;
+        queue!(w, Clear(ClearType::All))?;
         self.layout
             .draw(f, w, research, start_x, start_y, width, height)
     }
