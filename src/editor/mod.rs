@@ -3,6 +3,7 @@ use crate::editor::theme::{
 };
 use crate::finder::{Finder, FinderLayout, list_files};
 use crate::player::MusicPlayer;
+use crate::search::SearchHub;
 use crossterm::cursor::{
     Hide, MoveDown, MoveLeft, MoveRight, MoveTo, MoveUp, SetCursorStyle, Show,
 };
@@ -16,15 +17,16 @@ use is_executable::IsExecutable;
 use ropey::Rope;
 use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
-use std::io::{self, BufRead, BufReader, Error, Write, stdout};
-use std::path::Path;
-use std::path::PathBuf;
+use std::io::{self, BufRead, BufReader, Error, Write};
+use std::path::{Path, PathBuf};
+use std::process::exit;
 use tree_sitter::Parser;
 use tree_sitter::Tree;
 use tree_sitter::{InputEdit, Language, Point, QueryCursor};
 use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
 use unicode_width::UnicodeWidthChar;
+
 pub mod theme;
 
 /// Represents the initial state of a `PaneState` in the application.
@@ -100,6 +102,7 @@ pub fn get_superscript(num: u8) -> String {
         })
         .collect()
 }
+
 /// The `QwxUi` trait defines a user interface element that can be drawn to a given writer.
 ///
 /// # Type Parameters
@@ -416,26 +419,36 @@ impl<W: Write> QwxUi<W> for Qwx {
                 (bottom_y - mid_y).saturating_sub(1),
             ),
         ];
-
         // 3. Draw the content of each pane
         for (i, &(pane_focus, start_x, start_y, p_width, p_height)) in
             panes_bounds.iter().enumerate()
         {
             let pane = self.panes[i];
-            let percentage_str = if let Some(view) = self.views.get(i)
+            let is_active = self.focus == pane_focus;
+            let expo = get_superscript(pane.view);
+
+            // Calcul du pourcentage ET des lignes spécifiques au panneau itéré
+            let (percentage_str, current_line, total_lines) = if let Some(view) = self.views.get(i)
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
             {
                 let len = node.content.len();
-                if len <= 1 {
+                let pct = if len <= 1 {
                     100
                 } else {
                     ((pane.cursor as usize * 100) / (len - 1)).min(100)
-                }
+                };
+
+                let cur = if is_active && (self.mode == Mode::Editor || self.mode == Mode::Normal) {
+                    self.editor.cursor_line + 1
+                } else {
+                    pane.cursor as usize + 1
+                };
+
+                (pct, cur, len)
             } else {
-                0
+                (0, 0, 0)
             };
-            let is_active = self.focus == pane_focus;
-            let expo = get_superscript(pane.view);
+
             if let Some(view) = self.views.get(i)
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
                 && node.is_file
@@ -454,7 +467,7 @@ impl<W: Write> QwxUi<W> for Qwx {
                         self.last_search_query.as_deref()
                     }
                 } else {
-                    None // Les autres panneaux ne reçoivent rien
+                    None
                 };
 
                 let _ = self.preview(
@@ -468,6 +481,7 @@ impl<W: Write> QwxUi<W> for Qwx {
                     selection,
                     search_term,
                 );
+
                 if is_active && self.editor.is_dirty {
                     let dirty_display = " * ";
                     let dirty_x = start_x + p_width.saturating_sub(dirty_display.len() as u16) - 1;
@@ -478,6 +492,7 @@ impl<W: Write> QwxUi<W> for Qwx {
                         Print(dirty_display)
                     )?;
                 }
+
                 let name_display = format!(" {} ", node.name);
                 let name_len = name_display.chars().count() as u16;
                 let center_x = start_x + (p_width.saturating_sub(name_len)) / 2;
@@ -489,11 +504,12 @@ impl<W: Write> QwxUi<W> for Qwx {
                     Print(name_display)
                 )?;
 
-                // {:>3} garantit que le pourcentage prend toujours 3 caractères (ex: "  0", " 10", "100")
-                let info_display =
-                    format!(" {:>3} % {:03}{} ", percentage_str, pane.workspace, expo);
+                // Affichage propre des métadonnées du panneau
+                let info_display = format!(
+                    " Ln {}/{} | {:>3} % {:03}{} ",
+                    current_line, total_lines, percentage_str, pane.workspace, expo
+                );
 
-                // Utilise .chars().count() au lieu de .len() pour bien compter les caractères Unicode des exposants
                 let indicator_x =
                     start_x + p_width.saturating_sub(info_display.chars().count() as u16) - 1;
                 let indicator_y = start_y + p_height;
@@ -615,88 +631,93 @@ impl QwxPanel for Qwx {
         let active_idx = self.focus as usize;
         let pane = self.panes[active_idx];
 
-        let node_id_opt = self
+        // 1. Essayer de récupérer le Node depuis la carte spatiale, sinon prendre celui de la vue
+        let node_id = self
             .spatial_map
             .get(&(active_idx, pane.workspace, pane.view))
-            .copied();
+            .copied()
+            .unwrap_or_else(|| {
+                if let Some(view) = self.views.get(active_idx) {
+                    view.active_node_id
+                } else {
+                    0
+                }
+            });
 
-        if let Some(node_id) = node_id_opt
-            && let Some(node) = self.nodes.get(node_id)
-            && node.is_file
-        {
-            self.views[active_idx].active_node_id = node_id;
+        if let Some(node) = self.nodes.get(node_id) {
+            if node.is_file {
+                // On force l'ancrage pour réparer la spatial_map vide
+                self.spatial_map
+                    .insert((active_idx, pane.workspace, pane.view), node_id);
+                if active_idx < self.views.len() {
+                    self.views[active_idx].active_node_id = node_id;
+                }
 
-            let mut ed = Ji::default();
+                let mut ed = Ji::default();
+                ed.file_path = Some(self.current_dir.join(&node.name));
 
-            ed.file_path = Some(self.current_dir.join(&node.name));
+                // 2. On charge depuis la mémoire Node (pour ne pas remettre le curseur à zéro !)
+                let full_text = node.content.join("\n");
+                ed.rope = Rope::from_str(&full_text);
 
-            let full_text = node.content.join("\n");
-            ed.rope = Rope::from_str(&full_text);
+                let theme_keys = vec![
+                    "keyword",
+                    "keyword.function",
+                    "keyword.return",
+                    "keyword.operator",
+                    "function",
+                    "function.macro",
+                    "function.method",
+                    "method",
+                    "string",
+                    "string_literal",
+                    "character",
+                    "number",
+                    "integer",
+                    "float",
+                    "boolean",
+                    "comment",
+                    "line_comment",
+                    "block_comment",
+                    "type",
+                    "primitive_type",
+                    "type.builtin",
+                    "operator",
+                    "punctuation.bracket",
+                    "punctuation.delimiter",
+                    "variable",
+                    "variable.parameter",
+                    "variable.builtin",
+                    "property",
+                    "attribute",
+                    "label",
+                    "constant",
+                    "constant.builtin",
+                    "constant.character.escape",
+                    "namespace",
+                    "keyword.directive",
+                    "punctuation.special",
+                ];
+                if let Some(config) = detect_language(&node.ext, &theme_keys) {
+                    ed.query = Query::new(&config.ts_config.language, config.query_string).ok();
+                    let _ = ed.parser.set_language(&config.ts_config.language);
+                    ed.lang_config = Some(config);
+                    ed.update_syntax_tree();
+                }
 
-            let theme_keys = vec![
-                "keyword",
-                "keyword.function",
-                "keyword.return",
-                "keyword.operator",
-                "function",
-                "function.macro",
-                "function.method",
-                "method",
-                "string",
-                "string_literal",
-                "character",
-                "number",
-                "integer",
-                "float",
-                "boolean",
-                "comment",
-                "line_comment",
-                "block_comment",
-                "type",
-                "primitive_type",
-                "type.builtin",
-                "operator",
-                "punctuation.bracket",
-                "punctuation.delimiter",
-                "variable",
-                "variable.parameter",
-                "variable.builtin",
-                "property",
-                "attribute",
-                "label",
-                "constant",
-                "constant.builtin",
-                "constant.character.escape",
-                "namespace",
-                "keyword.directive",
-                "punctuation.special",
-            ];
-            if let Some(config) = detect_language(&node.ext, &theme_keys) {
-                ed.query = Query::new(&config.ts_config.language, config.query_string).ok();
-                let _ = ed.parser.set_language(&config.ts_config.language);
-                ed.lang_config = Some(config);
-                ed.update_syntax_tree();
+                // 3. On restaure les coordonnées exactes gardées en mémoire
+                let total_lines = ed.rope.len_lines();
+                let safe_line = (pane.cursor as usize).min(total_lines.saturating_sub(1));
+                ed.cursor_line = safe_line;
+
+                let line_len_chars = ed.rope.line(safe_line).len_chars();
+                let safe_col = (pane.cursor_col as usize).min(line_len_chars.saturating_sub(1));
+                ed.cursor_col = safe_col;
+
+                ed.undo_stack = node.undo_stack.clone();
+                ed.redo_stack = node.redo_stack.clone();
+                self.editor = ed;
             }
-            // 1. Obtenir le nombre total de lignes du NOUVEAU fichier
-            let total_lines = ed.rope.len_lines();
-
-            // 2. Brider la ligne du curseur pour qu'elle ne dépasse pas la fin du fichier
-            // (saturating_sub(1) car les index commencent à 0)
-            let safe_line = (pane.cursor as usize).min(total_lines.saturating_sub(1));
-            ed.cursor_line = safe_line;
-
-            // 3. Obtenir la longueur de cette ligne spécifique pour brider la colonne
-            let line_len_chars = ed.rope.line(safe_line).len_chars();
-            let safe_col = (pane.cursor_col as usize).min(line_len_chars.saturating_sub(1));
-            ed.cursor_col = safe_col;
-
-            // 4. Mettre à jour le pane lui-même pour éviter que le prochain draw utilise d'anciennes valeurs fausses
-            self.panes[active_idx].cursor = safe_line as u16;
-            self.panes[active_idx].cursor_col = safe_col as u16;
-
-            ed.undo_stack = node.undo_stack.clone();
-            ed.redo_stack = node.redo_stack.clone();
-            self.editor = ed;
         }
     }
 
@@ -752,7 +773,6 @@ pub fn qwx_read_lines(path: impl AsRef<Path>) -> Result<Vec<String>, Error> {
             Err(e) => return Err(e), // On continue de propager les autres erreurs (ex: droits d'accès)
         }
     }
-
     Ok(lines)
 }
 
@@ -792,9 +812,10 @@ pub fn qwx_read_lines(path: impl AsRef<Path>) -> Result<Vec<String>, Error> {
 /// # Examples
 ///
 /// ```
+/// use std::path;
 /// use std::path::Path;
 /// use qwx::editor::qwx_load_node;
-/// let path = Path::new("example.txt");
+/// let path::Path::new("example.txt");
 /// let node = qwx_load_node(1, path);
 /// match node {
 ///     Ok(n) => println!("Node loaded with name: {}", n.name),
@@ -909,8 +930,8 @@ pub struct Qwx {
     views: Vec<View>,
     width: u16,
     height: u16,
-    running: bool,
-    current_dir: Box<Path>,
+    pub running: bool,
+    pub current_dir: PathBuf,
     focus: PaneFocus,
     panes: [PaneState; 4],
     mode: Mode,
@@ -918,8 +939,19 @@ pub struct Qwx {
     editor: Ji,
     search_input: String,
     pub last_search_query: Option<String>,
-    pub search_hub: crate::search::SearchHub,
+    pub search_hub: SearchHub,
     pub player: MusicPlayer,
+}
+impl Default for Qwx {
+    fn default() -> Self {
+        Self::new(Path::new("."), Mode::Normal)
+    }
+}
+
+impl AsMut<Qwx> for Qwx {
+    fn as_mut(&mut self) -> &mut Qwx {
+        self
+    }
 }
 
 /// A `View` structure that represents the current state of a view in the application.
@@ -1407,6 +1439,14 @@ impl<W: Write> QwxRenderer<W> for Qwx {
 }
 
 impl Qwx {
+    pub fn refresh<W: Write>(&mut self, path: &Path, w: &mut W) -> ! {
+        self.running = false;
+        self.run(w).expect("failed to refresh");
+        Qwx::new(path, Mode::Normal)
+            .run(w)
+            .expect("failed to refresh");
+        exit(0)
+    }
     pub fn toggle_facet<W: Write>(&mut self, w: &mut W) {
         // 1. Sauvegarder l'état actuel de l'écran dans la bonne facette
         match self.current_facet {
@@ -1431,8 +1471,8 @@ impl Qwx {
     }
     fn sync_node_content(&mut self) {
         let active_idx = self.focus as usize;
-        self.panes[active_idx].cursor = self.editor.cursor_line as u16;
-        self.panes[active_idx].cursor_col = self.editor.cursor_col as u16;
+
+        // J'ai supprimé ici les deux lignes qui écrasaient `pane.cursor` par erreur !
 
         if let Some(view) = self.views.get(active_idx) {
             let node_id = view.active_node_id;
@@ -1450,6 +1490,7 @@ impl Qwx {
                 node.undo_stack = self.editor.undo_stack.clone();
                 node.redo_stack = self.editor.redo_stack.clone();
                 node.content = new_content;
+
                 let mut new_colored = Vec::new();
                 let spans = self.editor.get_colored_spans();
 
@@ -1526,10 +1567,74 @@ impl Qwx {
             self.draw_normal(w).expect("failed to draw");
             match read().expect("failed to get terminal input") {
                 Event::Key(key) => match (key.modifiers, key.code) {
-                    // Résultat suivant (minuscule)
                     (KeyModifiers::NONE, KeyCode::Char('n')) => {
                         self.search_next();
                         self.follow(); // Pas de sync_node_content() !
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char('g')) => {
+                        match read().expect("failed to get terminal input") {
+                            Event::Key(key) => match (key.modifiers, key.code) {
+                                (KeyModifiers::NONE, KeyCode::Char('h')) => {
+                                    if let Some(home) = dirs::home_dir() {
+                                        self.refresh(home.as_path(), w);
+                                    }
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('v')) => {
+                                    #[cfg(target_os = "linux")]
+                                    self.refresh(Path::new("/var/log"), w);
+                                    #[cfg(target_os = "freebsd")]
+                                    self.refresh(Path::new("/var/log"), w);
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('g')) => {
+                                    self.refresh(Path::new("/"), w);
+                                }
+
+                                (KeyModifiers::NONE, KeyCode::Char('d')) => {
+                                    if let Some(document) = dirs::document_dir() {
+                                        self.refresh(document.as_path(), w);
+                                    }
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('e')) => {
+                                    #[cfg(target_os = "linux")]
+                                    self.refresh(Path::new("/etc"), w);
+                                    #[cfg(target_os = "freebsd")]
+                                    self.refresh(Path::new("/usr/local/etc"), w);
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('i')) => {
+                                    #[cfg(target_os = "linux")]
+                                    self.refresh(Path::new("/usr/include"), w);
+                                    #[cfg(target_os = "freebsd")]
+                                    self.refresh(Path::new("/usr/local/include"), w);
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('a')) => {
+                                    if let Some(audio) = dirs::audio_dir() {
+                                        self.refresh(audio.as_path(), w);
+                                    }
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('p')) => {
+                                    if let Some(pic) = dirs::picture_dir() {
+                                        self.refresh(pic.as_path(), w);
+                                    }
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('c')) => {
+                                    if let Some(conf) = dirs::config_dir() {
+                                        self.refresh(conf.as_path(), w);
+                                    }
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('t')) => {
+                                    if let Some(template) = dirs::template_dir() {
+                                        self.refresh(template.as_path(), w);
+                                    }
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('x')) => {
+                                    if let Some(cache) = dirs::cache_dir() {
+                                        self.refresh(cache.as_path(), w);
+                                    }
+                                }
+                                _ => break,
+                            },
+                            _ => break,
+                        }
                     }
                     // Résultat précédent (Majuscule avec Shift)
                     (KeyModifiers::SHIFT, KeyCode::Char('N'))
@@ -1573,14 +1678,6 @@ impl Qwx {
                         // On bloque strictement à la dernière ligne existante (index total_lines - 1)
                         if self.editor.cursor_line + 1 < total_lines {
                             self.editor.cursor_line += 1;
-
-                            let max_col = self
-                                .editor
-                                .rope
-                                .line(self.editor.cursor_line)
-                                .len_chars()
-                                .saturating_sub(1);
-                            self.editor.cursor_col = self.editor.cursor_col.min(max_col);
                         }
                         self.follow();
                     }
@@ -1594,15 +1691,6 @@ impl Qwx {
                     (KeyModifiers::NONE, KeyCode::Char('k')) => {
                         if self.editor.cursor_line > 0 {
                             self.editor.cursor_line -= 1;
-
-                            let max_col = self
-                                .editor
-                                .rope
-                                .line(self.editor.cursor_line)
-                                .len_chars()
-                                .saturating_sub(1);
-
-                            self.editor.cursor_col = self.editor.cursor_col.min(max_col);
                         }
                         self.follow();
                     }
@@ -2114,26 +2202,26 @@ impl Qwx {
                         self.finder.filter(self.finder_research.clone());
                         continue;
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('j')) => {
                         self.finder.next_file();
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('k')) => {
                         self.finder.prev_file();
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('j')) => {
+                    (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
                         self.finder.next_dir();
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('k')) => {
+                    (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
                         self.finder.prev_dir();
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('h')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('h')) => {
                         if let Some(parent) = self.current_dir.parent() {
                             self.current_dir = parent.into();
                             self.finder =
                                 Finder::new(&self.current_dir, self.finder_layout.clone());
                         }
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('l')) => {
                         let dirs = self.finder.directories.clone();
                         if !dirs.is_empty() && self.finder.selected_dir < dirs.len() {
                             let dirname = &dirs[self.finder.selected_dir];
@@ -2152,7 +2240,8 @@ impl Qwx {
                     }
                     (KeyModifiers::NONE, KeyCode::F(5)) => {
                         self.finder_research.clear();
-                        self.finder = Finder::new(Path::new("."), self.finder_layout.clone());
+                        self.finder =
+                            Finder::new(self.current_dir.as_path(), self.finder_layout.clone());
                     }
                     (KeyModifiers::NONE, KeyCode::Enter) => {
                         let files = self.finder.get_files();
@@ -2849,17 +2938,23 @@ impl Qwx {
     pub fn is_finder_open(&self) -> bool {
         self.mode == Mode::Finder
     }
-    pub fn run(&mut self) -> Result<(), Error> {
-        let mut stdout = stdout();
-        terminal::enable_raw_mode()?;
-        execute!(stdout, Hide, EnterAlternateScreen)?;
-        while self.running {
-            self.draw(&mut stdout)?;
-            self.handle_events(&mut stdout);
+    pub fn run<W: Write>(&mut self, w: &mut W) -> Result<(), Error> {
+        if !self.running {
+            execute!(w, LeaveAlternateScreen, Show)?;
+            terminal::disable_raw_mode()?;
+            execute!(w, Clear(ClearType::All), MoveTo(0, 0))?;
+            Ok(())
+        } else {
+            terminal::enable_raw_mode()?;
+            execute!(w, Hide, EnterAlternateScreen, MoveTo(0, 0))?;
+            while self.running {
+                self.draw(w)?;
+                self.handle_events(w);
+            }
+            execute!(w, LeaveAlternateScreen, Show)?;
+            terminal::disable_raw_mode()?;
+            Ok(())
         }
-        execute!(stdout, LeaveAlternateScreen, Show)?;
-        terminal::disable_raw_mode()?;
-        Ok(())
     }
     #[allow(clippy::too_many_arguments)]
     /// Displays a preview of a given node within a specified area.
@@ -3003,8 +3098,8 @@ impl Qwx {
         Ok(())
     }
     /// Creates a new instance of the editor with the specified path and open mode.
-    pub fn new(path: &Path, open_mode: Mode) -> Result<Self, Error> {
-        let (width, height) = size()?;
+    pub fn new(path: &Path, open_mode: Mode) -> Self {
+        let (width, height) = size().expect("failed to get size");
         let (dir_path, target_file) = if path.is_file() {
             (path.parent().unwrap_or_else(|| Path::new(".")), Some(path))
         } else {
@@ -3018,7 +3113,7 @@ impl Qwx {
         let file_list = list_files(dir_path);
         for (i, filename) in file_list.iter().enumerate() {
             let fpath = PathBuf::from(filename);
-            if let Ok(node) = qwx_load_node(i, fpath.as_path()) {
+            if let Ok(node) = qwx_load_node(i, &fpath.as_path().to_path_buf()) {
                 if let Some(target) = target_file {
                     if let (Ok(p1), Ok(p2)) = (fpath.canonicalize(), target.canonicalize()) {
                         if p1 == p2 {
@@ -3059,7 +3154,7 @@ impl Qwx {
         } else if !nodes.is_empty() {
             spatial_map.insert((0, 1, 1), 0);
         }
-        Ok(Self {
+        Self {
             width,
             height,
             spatial_map,
@@ -3077,12 +3172,12 @@ impl Qwx {
             editor,
             search_input: String::new(),
             last_search_query: None,
-            search_hub: crate::search::SearchHub::new(),
+            search_hub: SearchHub::new(),
             player: MusicPlayer::default(),
             front_panes: [INIT_PANE_STATE; 4],
             back_panes: [INIT_PANE_STATE; 4],
             current_facet: Facet::Front,
-        })
+        }
     }
 
     pub fn search_next(&mut self) {

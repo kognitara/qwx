@@ -174,14 +174,14 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     let destination = sub
         .get_one::<String>("destination")
         .expect("destination is required");
-
+    let w = &mut io::stdout();
     let dest = Path::new(destination.as_str());
     let x = current_dir()?;
     let p = x.join(destination);
 
     if p.is_dir() {
         set_current_dir(p.as_path())?;
-        return Qwx::new(p.as_path(), Mode::Normal)?.run();
+        return Qwx::new(p.as_path(), Mode::Normal).as_mut().run(w);
     }
 
     let pb = ProgressBar::new(0);
@@ -215,7 +215,7 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
         }
         true
     });
-
+    let w = &mut io::stdout();
     let mut fetch_options = FetchOptions::new();
     fetch_options.remote_callbacks(callbacks);
 
@@ -230,10 +230,11 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     }
     pb.finish_with_message("Clone and checkout completed.");
     set_current_dir(p.as_path())?;
-    Qwx::new(p.as_path(), Mode::Normal)?.run()
+    Qwx::new(p.as_path(), Mode::Normal).as_mut().run(w)
 }
 fn main() -> io::Result<()> {
     let mut app = cli();
+    let w = &mut io::stdout();
     let matches = app.clone().get_matches();
     match matches.subcommand() {
         Some(("open", sub)) => {
@@ -242,7 +243,7 @@ fn main() -> io::Result<()> {
                 .map(|s| s.as_str())
                 .unwrap_or(".");
             let path = Path::new(p);
-            Qwx::new(path, Mode::Normal)?.run()
+            Qwx::new(path, Mode::Normal).as_mut().run(w)
         }
         Some(("gen", sub)) => {
             let shell = sub.get_one::<String>("shell").expect("shell is required");
@@ -254,7 +255,7 @@ fn main() -> io::Result<()> {
                 "elvish" => Shell::Elvish,
                 _ => unreachable!(),
             };
-            generate(shell, &mut app, "qwx", &mut io::stdout());
+            generate(shell, &mut app, "qwx", w);
             Ok(())
         }
         Some(("clone", sub)) => clone_and_open(sub),
@@ -268,9 +269,9 @@ fn main() -> io::Result<()> {
         None => {
             if let Some(p) = matches.get_one::<String>("path") {
                 let path = Path::new(p);
-                Qwx::new(path, Mode::Normal)?.run()
+                Qwx::new(path, Mode::Normal).as_mut().run(w)
             } else {
-                Qwx::new(Path::new("."), Mode::Normal)?.run()
+                Qwx::new(Path::new("."), Mode::Normal).as_mut().run(w)
             }
         }
         _ => {
