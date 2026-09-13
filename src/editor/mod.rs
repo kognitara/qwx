@@ -145,10 +145,8 @@ impl<W: Write> QwxUi<W> for Qwx {
     fn draw_normal(&mut self, w: &mut W) -> Result<(), Error> {
         self.base(w)?;
 
-        // 1. S'assurer que le curseur est visible
-        queue!(w, Show, SetCursorStyle::SteadyUnderScore)?;
+        queue!(w, Show, SetCursorStyle::BlinkingUnderScore)?;
 
-        // 2. Calculer la position écran active de la même manière que dans draw_editor
         let max_width = 180.min(self.width);
         let left_x = (self.width.saturating_sub(max_width)) / 2;
         let right_x = left_x + max_width.saturating_sub(1);
@@ -206,7 +204,6 @@ impl<W: Write> QwxUi<W> for Qwx {
                 queue!(w, Hide)?;
             }
         }
-
         w.flush()?;
         Ok(())
     }
@@ -374,7 +371,7 @@ impl<W: Write> QwxUi<W> for Qwx {
         Ok(())
     }
     fn reset(&mut self, w: &mut W) -> Result<(), Error> {
-        queue!(w, Clear(ClearType::All), ResetColor)?;
+        queue!(w, Clear(ClearType::All), Hide, ResetColor)?;
         Ok(())
     }
 
@@ -1500,7 +1497,6 @@ impl Qwx {
             PaneFocus::BottomLeft | PaneFocus::BottomRight => (bottom_y - mid_y).saturating_sub(1),
         } as usize;
 
-        // 3. Maintenant qu'on a fini avec `self.editor`, on peut emprunter mutablement le panneau
         let pane = self.active_pane_mut();
         let mut new_scroll = pane.cursor as usize;
         let margin = 3.min(p_height / 3);
@@ -3266,13 +3262,6 @@ fn detect_language(extension: &str, theme_keys: &[&'static str]) -> Option<LangC
             "zsh",
             Language::from(tree_sitter_zsh::LANGUAGE),
             tree_sitter_zsh::HIGHLIGHT_QUERY,
-            theme_keys,
-        ),
-        #[cfg(feature = "tree-sitter-markdown")]
-        "md" => create_config(
-            "md",
-            Language::from(tree_sitter_markdown::LANGUAGE),
-            "",
             theme_keys,
         ),
         #[cfg(feature = "tree-sitter-agda")]
