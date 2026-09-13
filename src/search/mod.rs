@@ -596,31 +596,11 @@ impl SearchHub {
 
         // Refined Dark Theme Palette
         let bg_color = Color::Black;
-        let header_bg = Color::Rgb {
-            r: 16,
-            g: 20,
-            b: 28,
-        };
-        let text_dim = Color::Rgb {
-            r: 110,
-            g: 120,
-            b: 140,
-        };
-        let highlight_bg = Color::Rgb {
-            r: 35,
-            g: 48,
-            b: 75,
-        };
-        let border_color = Color::Rgb {
-            r: 45,
-            g: 52,
-            b: 70, // FINDER_BORDER theme color
-        };
-        let border_focus = Color::Rgb {
-            r: 100,
-            g: 170,
-            b: 255,
-        };
+        let header_bg = Color::Black;
+        let text_dim = Color::DarkGrey;
+        let highlight_bg = Color::Black;
+        let border_color = Color::White;
+        let border_focus = Color::White;
         let title_color = Color::Rgb {
             r: 80,
             g: 200,
@@ -1088,8 +1068,8 @@ impl SearchHub {
             SetForegroundColor(Color::White),
             Print(&rendered_shortcuts)
         )?;
-
         queue!(w, ResetColor)?;
+        w.flush()?;
         Ok(())
     }
 }

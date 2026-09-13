@@ -1629,11 +1629,7 @@ impl WebBrowser {
             g: 120,
             b: 145,
         };
-        let bg_header = Color::Rgb {
-            r: 28,
-            g: 32,
-            b: 45,
-        };
+        let bg_header = Color::Black;
         let fg_accent = Color::Rgb {
             r: 130,
             g: 180,

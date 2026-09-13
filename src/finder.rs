@@ -1,5 +1,4 @@
 use crossterm::style::{Color, ResetColor, SetBackgroundColor};
-use crossterm::terminal::{Clear, ClearType};
 use crossterm::{
     cursor::MoveTo,
     queue,
@@ -15,9 +14,7 @@ use std::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use walkdir::WalkDir;
 
-use crate::editor::theme::{
-    FINDER_ACTIVE_SELECT, FINDER_BORDER, FINDER_DIR_COLOR, FINDER_FILE_COLOR, UI_TEXT_MUTED,
-};
+use crate::editor::theme::{FINDER_BORDER, FINDER_DIR_COLOR, FINDER_FILE_COLOR};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum FinderLayout {
@@ -231,16 +228,16 @@ fn render_list<W: Write>(
         if absolute_index == selected_index {
             queue!(
                 w,
-                SetBackgroundColor(FINDER_ACTIVE_SELECT),
-                SetForegroundColor(Color::Black)
+                SetBackgroundColor(Color::DarkBlue),
+                SetForegroundColor(Color::White)
             )?;
         } else {
             queue!(w, SetForegroundColor(default_color))?;
         }
-
         let formatted = format_item_name(item, width);
         queue!(w, Print(formatted), ResetColor)?;
     }
+    w.flush()?;
     Ok(())
 }
 
@@ -263,7 +260,7 @@ fn draw_side_by_side_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, start_y + 1),
         Print("│"),
-        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        SetForegroundColor(FINDER_BORDER),
         Print(format!(" {} ", research)),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, start_y + 1),
@@ -298,10 +295,10 @@ fn draw_side_by_side_finder<W: Write>(
     queue!(
         w,
         MoveTo(start_x + 2, panel_start_y),
-        SetForegroundColor(FINDER_DIR_COLOR),
+        SetForegroundColor(FINDER_BORDER),
         Print(" DIRS "),
         MoveTo(start_x + half_width + 2, panel_start_y),
-        SetForegroundColor(FINDER_FILE_COLOR),
+        SetForegroundColor(FINDER_BORDER),
         Print(" FILES "),
     )?;
 
@@ -368,7 +365,7 @@ fn draw_side_by_side_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, footer_y + 1),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" DIRS FOUNDED: {}", finder.directories.len()),
             left_inner_width
@@ -376,7 +373,7 @@ fn draw_side_by_side_finder<W: Write>(
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + half_width, footer_y + 1),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" FILES FOUNDED: {}", finder.files.len()),
             right_inner_width
@@ -391,7 +388,7 @@ fn draw_side_by_side_finder<W: Write>(
         Print("─".repeat(right_inner_width)),
         Print("┘"),
     )?;
-
+    w.flush()?;
     Ok(())
 }
 
@@ -414,7 +411,7 @@ fn draw_grid_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, start_y + 1),
         Print("│"),
-        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        SetForegroundColor(FINDER_BORDER),
         Print(format!(" {} ", research)),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, start_y + 1),
@@ -449,7 +446,7 @@ fn draw_grid_finder<W: Write>(
     queue!(
         w,
         MoveTo(start_x + 2, panel_start_y),
-        SetForegroundColor(FINDER_DIR_COLOR),
+        SetForegroundColor(FINDER_BORDER),
         Print(" ROOT DIRECTORIES "),
         MoveTo(start_x + half_width + 2, panel_start_y),
         Print(" SUB ROOTS DIRECTORIES "),
@@ -579,7 +576,7 @@ fn draw_grid_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, footer_y + 1),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" ROOT DIRS FOUNDED: {}", finder.directories.len()),
             left_inner_width
@@ -587,7 +584,7 @@ fn draw_grid_finder<W: Write>(
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + half_width, footer_y + 1),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" SUB ROOTS DIRS FOUNDED: {}", finder.sub_directories.len()),
             right_inner_width
@@ -603,7 +600,7 @@ fn draw_grid_finder<W: Write>(
         Print("┤"),
         MoveTo(start_x, footer_y + 3),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" ROOTS FILES FOUNDED: {}", finder.files.len()),
             left_inner_width
@@ -611,7 +608,7 @@ fn draw_grid_finder<W: Write>(
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + half_width, footer_y + 3),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" SUB ROOT FILES FOUNDED: {}", finder.sub_files.len()),
             right_inner_width
@@ -626,7 +623,7 @@ fn draw_grid_finder<W: Write>(
         Print("─".repeat(right_inner_width)),
         Print("┘"),
     )?;
-
+    w.flush()?;
     Ok(())
 }
 
@@ -649,7 +646,7 @@ fn draw_miller_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, start_y + 1),
         Print("│"),
-        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        SetForegroundColor(FINDER_BORDER),
         Print(format!(" {} ", research)),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, start_y + 1),
@@ -692,7 +689,7 @@ fn draw_miller_finder<W: Write>(
     queue!(
         w,
         MoveTo(start_x + 2, panel_start_y),
-        SetForegroundColor(FINDER_DIR_COLOR),
+        SetForegroundColor(FINDER_BORDER),
         Print(" PARENT DIRS "),
         MoveTo(start_x + third_width + 2, panel_start_y),
         Print(" ACTIVE DIR "),
@@ -824,12 +821,12 @@ fn draw_miller_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, footer_y + 1),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(" PARENT: ..", col1_width)),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + third_width, footer_y + 1),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" DIRS FOUNDED: {}", finder.directories.len()),
             col2_width
@@ -837,7 +834,7 @@ fn draw_miller_finder<W: Write>(
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + 2 * third_width, footer_y + 1),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" CHILD FOUNDED: {}", finder.sub_directories.len()),
             col3_width
@@ -854,7 +851,7 @@ fn draw_miller_finder<W: Write>(
         Print("─".repeat(col3_width)),
         Print("┘"),
     )?;
-
+    w.flush()?;
     Ok(())
 }
 
@@ -877,7 +874,7 @@ fn draw_commander_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, start_y + 1),
         Print("│"),
-        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        SetForegroundColor(FINDER_BORDER),
         Print(format!(" {} ", research)),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, start_y + 1),
@@ -909,7 +906,7 @@ fn draw_commander_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, panel_start_y + 1),
         Print("│"),
-        SetForegroundColor(FINDER_DIR_COLOR),
+        SetForegroundColor(FINDER_BORDER),
         Print(" DIRECTORIES "),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, panel_start_y + 1),
@@ -967,10 +964,10 @@ fn draw_commander_finder<W: Write>(
     queue!(
         w,
         MoveTo(start_x + 2, main_panel_start_y),
-        SetForegroundColor(FINDER_DIR_COLOR),
+        SetForegroundColor(FINDER_BORDER),
         Print(" CURRENT DIRECTORY "),
         MoveTo(start_x + half_width + 2, main_panel_start_y),
-        SetForegroundColor(FINDER_FILE_COLOR),
+        SetForegroundColor(FINDER_BORDER),
         Print(" CURRENT FILES "),
     )?;
 
@@ -1037,7 +1034,7 @@ fn draw_commander_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, footer_y + 1),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" DIRS FOUNDED: {}", finder.directories.len()),
             left_inner_width
@@ -1045,7 +1042,7 @@ fn draw_commander_finder<W: Write>(
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + half_width, footer_y + 1),
         Print("│"),
-        SetForegroundColor(UI_TEXT_MUTED),
+        SetForegroundColor(FINDER_BORDER),
         Print(format_item_name(
             &format!(" FILES FOUNDED: {}", finder.files.len()),
             right_inner_width
@@ -1060,7 +1057,7 @@ fn draw_commander_finder<W: Write>(
         Print("─".repeat(right_inner_width)),
         Print("┘"),
     )?;
-
+    w.flush()?;
     Ok(())
 }
 
@@ -1119,7 +1116,7 @@ fn render_mosaic_info<W: Write>(
         queue!(
             w,
             MoveTo(start_x, y),
-            SetForegroundColor(UI_TEXT_MUTED),
+            SetForegroundColor(FINDER_BORDER),
             Print(format_item_name(line, width)),
             ResetColor
         )?;
@@ -1152,7 +1149,7 @@ fn draw_mosaic_finder<W: Write>(
         Print("┐"),
         MoveTo(start_x, start_y + 1),
         Print("│"),
-        SetForegroundColor(FINDER_ACTIVE_SELECT),
+        SetForegroundColor(FINDER_BORDER),
         Print(truncated_research),
         SetForegroundColor(FINDER_BORDER),
         MoveTo(start_x + width - 1, start_y + 1),
@@ -1213,7 +1210,7 @@ fn draw_mosaic_finder<W: Write>(
         top_y,
         " DIRECTORIES ",
         inner_w_left,
-        FINDER_DIR_COLOR,
+        FINDER_BORDER,
     )?;
     queue_label(
         w,
@@ -1221,16 +1218,9 @@ fn draw_mosaic_finder<W: Write>(
         top_y,
         " SUB DIRECTORIES ",
         inner_w_mid,
-        FINDER_DIR_COLOR,
+        FINDER_BORDER,
     )?;
-    queue_label(
-        w,
-        x2 + 2,
-        top_y,
-        " FILES ",
-        inner_w_right,
-        FINDER_FILE_COLOR,
-    )?;
+    queue_label(w, x2 + 2, top_y, " FILES ", inner_w_right, FINDER_BORDER)?;
 
     // 4. Draw vertical dividers for top half
     for y in (top_y + 1)..mid_y {
@@ -1263,15 +1253,8 @@ fn draw_mosaic_finder<W: Write>(
     )?;
 
     // Draw middle labels
-    queue_label(
-        w,
-        x1 + 2,
-        mid_y,
-        " SUB FILES ",
-        inner_w_mid,
-        FINDER_FILE_COLOR,
-    )?;
-    queue_label(w, x2 + 2, mid_y, " INFO ", inner_w_right, UI_TEXT_MUTED)?;
+    queue_label(w, x1 + 2, mid_y, " SUB FILES ", inner_w_mid, FINDER_BORDER)?;
+    queue_label(w, x2 + 2, mid_y, " INFO ", inner_w_right, FINDER_BORDER)?;
 
     // 6. Draw vertical dividers for bottom half
     for y in (mid_y + 1)..bot_y {
@@ -1323,7 +1306,7 @@ fn draw_mosaic_finder<W: Write>(
         top_y + 1,
         inner_w_mid,
         top_cell_h as usize,
-        FINDER_DIR_COLOR,
+        Color::Blue,
     )?;
 
     render_list(
@@ -1345,7 +1328,7 @@ fn draw_mosaic_finder<W: Write>(
         mid_y + 1,
         inner_w_mid,
         bot_cell_h as usize,
-        FINDER_FILE_COLOR,
+        Color::Green,
     )?;
 
     render_mosaic_info(
@@ -1373,7 +1356,7 @@ fn draw_mosaic_finder<W: Write>(
             Print("┐"),
             MoveTo(x0, footer_y + 1),
             Print("│"),
-            SetForegroundColor(UI_TEXT_MUTED),
+            SetForegroundColor(FINDER_BORDER),
             Print(format_item_name(
                 &format!(" DIRS: {}", finder.directories.len()),
                 inner_w_left,
@@ -1381,7 +1364,7 @@ fn draw_mosaic_finder<W: Write>(
             SetForegroundColor(FINDER_BORDER),
             MoveTo(x1, footer_y + 1),
             Print("│"),
-            SetForegroundColor(UI_TEXT_MUTED),
+            SetForegroundColor(FINDER_BORDER),
             Print(format_item_name(
                 &format!(" SUB DIRS: {}", finder.sub_directories.len()),
                 inner_w_mid,
@@ -1389,7 +1372,7 @@ fn draw_mosaic_finder<W: Write>(
             SetForegroundColor(FINDER_BORDER),
             MoveTo(x2, footer_y + 1),
             Print("│"),
-            SetForegroundColor(UI_TEXT_MUTED),
+            SetForegroundColor(FINDER_BORDER),
             Print(format_item_name(
                 &format!(" FILES: {}", finder.files.len()),
                 inner_w_right,
@@ -1407,7 +1390,7 @@ fn draw_mosaic_finder<W: Write>(
             Print("┘"),
         )?;
     }
-
+    w.flush()?;
     Ok(())
 }
 
@@ -1643,6 +1626,33 @@ pub fn list_sub_dirs(path: &Path) -> Vec<String> {
     dirs
 }
 
+pub fn all_files() -> Vec<String> {
+    let mut files: Vec<String> = Vec::new();
+    for entry in ignore::WalkBuilder::new(".")
+        .threads(num_cpus::get())
+        .standard_filters(true)
+        .ignore(true)
+        .hidden(false)
+        .add_custom_ignore_filename(".gitignore")
+        .add_custom_ignore_filename(".hgignore")
+        .add_custom_ignore_filename(".svnignore")
+        .build()
+        .into_iter()
+        .flatten()
+    {
+        if entry.path().is_file()
+            && let Ok(rel_path) = entry.path().canonicalize()
+        {
+            let p = rel_path.to_string_lossy().to_string();
+            if !p.contains(".git") && !p.contains(".hg") && !p.contains(".svn") {
+                files.push(p);
+            }
+        }
+    }
+    files.sort();
+    files.dedup();
+    files
+}
 /// Generates a list of files located within the subdirectories of a specified directory.
 ///
 /// This function traverses the directory tree starting at the provided path and identifies
@@ -1761,16 +1771,15 @@ pub fn list_sub_files(path: &Path) -> Vec<String> {
 #[derive(Clone)]
 pub struct Finder {
     pub layout: FinderLayout,
-    directories: Vec<String>,
-    sub_directories: Vec<String>,
-    sub_files: Vec<String>,
-    files: Vec<String>,
-    base_directories: Vec<String>,
-    base_sub_directories: Vec<String>,
-    base_sub_files: Vec<String>,
+    pub directories: Vec<String>,
+    pub sub_directories: Vec<String>,
+    pub sub_files: Vec<String>,
+    pub files: Vec<String>,
+    pub base_directories: Vec<String>,
+    pub base_sub_directories: Vec<String>,
+    pub base_sub_files: Vec<String>,
     pub selected_file: usize,
-    base_files: Vec<String>,
-    deep_search_cache: Option<(String, Vec<String>)>,
+    pub base_files: Vec<String>,
     pub selected_dir: usize,
     pub selected_sub_dir: usize,
     pub selected_sub_file: usize,
@@ -1808,7 +1817,6 @@ impl Finder {
             selected_sub_dir: 0,
             selected_sub_file: 0,
             selected_file: 0,
-            deep_search_cache: None,
             width: w,
             height: h,
             base_directories: dirs,
@@ -1827,7 +1835,6 @@ impl Finder {
         width: u16,
         height: u16,
     ) -> Result<()> {
-        queue!(w, Clear(ClearType::All))?;
         self.layout
             .draw(f, w, research, start_x, start_y, width, height)
     }
@@ -1839,7 +1846,12 @@ impl Finder {
     pub fn get_sub_directories(&self) -> Vec<String> {
         self.sub_directories.to_vec()
     }
-
+    pub fn get_base_directories(&self) -> Vec<String> {
+        self.base_directories.to_vec()
+    }
+    pub fn get_base_sub_directories(&self) -> Vec<String> {
+        self.base_sub_directories.to_vec()
+    }
     /// Selects the next subdirectory in the list.
     pub fn next_sub_dir(&mut self) {
         if !self.sub_directories.is_empty() {
@@ -1917,6 +1929,7 @@ impl Finder {
     pub fn get_directories(&self) -> Vec<String> {
         self.directories.to_vec()
     }
+
     /// Retrieves a list of files associated with the current instance.
     ///
     /// # Returns
@@ -1929,6 +1942,17 @@ impl Finder {
     /// consider providing a reference to the files instead.
     pub fn get_files(&self) -> Vec<String> {
         self.files.to_vec()
+    }
+    pub fn get_sub_files(&self) -> Vec<String> {
+        self.sub_files.to_vec()
+    }
+
+    pub fn get_base_files(&self) -> Vec<String> {
+        self.base_files.to_vec()
+    }
+
+    pub fn get_base_sub_files(&self) -> Vec<String> {
+        self.base_sub_files.to_vec()
     }
 
     /// Moves the selection to the next directory in the list.
@@ -2019,118 +2043,27 @@ impl Finder {
     ///   and `self.base_sub_files` are populated before invocation and accessible for filtering.
     /// - Potential performance impact if disk scans via `deep_search_recursive` are required for
     ///   extensive searches in large directories.
-    pub fn filter(&mut self, research: String) -> (Vec<String>, Vec<String>) {
-        self.selected_file = 0;
-        self.selected_dir = 0;
+    pub fn filter(&mut self, research: String) {
         let research_lower = research.to_ascii_lowercase();
-
-        if let Some(deep_query) = research_lower.strip_prefix('?') {
-            let queries: Vec<&str> = deep_query.split_whitespace().collect();
-
-            if queries.is_empty() {
-                self.files.clear();
-                self.deep_search_cache = None;
+        let matcher = |item_name: &String| -> bool {
+            let item_lower = item_name.to_lowercase();
+            if let Some(target) = research_lower.strip_prefix('=') {
+                item_lower == target
+            } else if let Some(target) = research_lower.strip_prefix('^') {
+                item_lower.starts_with(target)
+            } else if let Some(target) = research_lower.strip_prefix('$') {
+                item_lower.ends_with(target)
+            } else if let Some(target) = research_lower.strip_prefix('!') {
+                !item_lower.contains(target)
             } else {
-                let primary_query = queries[0];
-
-                let mut needs_disk_scan = true;
-                if let Some((cached_query, _)) = &self.deep_search_cache
-                    && primary_query.starts_with(cached_query)
-                {
-                    needs_disk_scan = false;
-                }
-
-                if needs_disk_scan {
-                    let mut new_results = Vec::new();
-                    deep_search_recursive(primary_query, &mut new_results);
-                    self.deep_search_cache = Some((primary_query.to_string(), new_results));
-                }
-
-                let mut current_results = self.deep_search_cache.as_ref().unwrap().1.clone();
-
-                let apply_modifier = |results: &mut Vec<String>, query: &str| {
-                    let (modifier, target) = if let Some(t) = query.strip_prefix('=') {
-                        ('=', t)
-                    } else if let Some(t) = query.strip_prefix('^') {
-                        ('^', t)
-                    } else if let Some(t) = query.strip_prefix('$') {
-                        ('$', t)
-                    } else if let Some(t) = query.strip_prefix('!') {
-                        ('!', t)
-                    } else {
-                        ('*', query)
-                    };
-
-                    results.retain(|name| {
-                        let name_lower = name.to_lowercase();
-                        match modifier {
-                            '=' => name_lower == target,
-                            '^' => name_lower.starts_with(target),
-                            '$' => name_lower.ends_with(target),
-                            '!' => !name_lower.contains(target),
-                            _ => name_lower.contains(target),
-                        }
-                    });
-                };
-
-                if primary_query != self.deep_search_cache.as_ref().unwrap().0 {
-                    apply_modifier(&mut current_results, primary_query);
-                }
-
-                for q in queries.iter().skip(1) {
-                    apply_modifier(&mut current_results, q);
-                }
-                self.files = current_results;
+                item_lower.contains(&research_lower)
             }
-
-            self.directories.clear();
-            self.sub_directories.clear();
-            self.sub_files.clear();
-            (self.get_directories(), self.get_files())
+        };
+        if research.starts_with("?") {
+            self.files = all_files();
+            self.files.retain(|f| matcher(f));
         } else {
-            self.deep_search_cache = None;
-
-            let matcher = |item_name: &String| -> bool {
-                let item_lower = item_name.to_lowercase();
-                if let Some(target) = research_lower.strip_prefix('=') {
-                    item_lower == target
-                } else if let Some(target) = research_lower.strip_prefix('^') {
-                    item_lower.starts_with(target)
-                } else if let Some(target) = research_lower.strip_prefix('$') {
-                    item_lower.ends_with(target)
-                } else if let Some(target) = research_lower.strip_prefix('!') {
-                    !item_lower.contains(target)
-                } else {
-                    item_lower.contains(&research_lower)
-                }
-            };
-
-            self.files = self
-                .base_files
-                .iter()
-                .filter(|f| matcher(f))
-                .cloned()
-                .collect();
-            self.directories = self
-                .base_directories
-                .iter()
-                .filter(|d| matcher(d))
-                .cloned()
-                .collect();
-            self.sub_directories = self
-                .base_sub_directories
-                .iter()
-                .filter(|d| matcher(d))
-                .cloned()
-                .collect();
-
-            self.sub_files = self
-                .base_sub_files
-                .iter()
-                .filter(|d| matcher(d))
-                .cloned()
-                .collect();
-            (self.get_directories(), self.get_files())
+            self.files.retain(|f| matcher(f));
         }
     }
 }

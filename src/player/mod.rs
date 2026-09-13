@@ -13,8 +13,8 @@
 
 use crossterm::cursor::{Hide, MoveTo};
 use crossterm::event::{KeyCode, KeyModifiers};
+use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
-use crossterm::{execute, queue};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
@@ -2091,7 +2091,7 @@ impl MusicPlayer {
         }
     }
     pub fn draw_player<W: Write>(&mut self, writer: &mut W, w: u16, h: u16) -> io::Result<()> {
-        execute!(writer, Hide)?;
+        queue!(writer, ResetColor, Hide)?;
         let w_usize = w as usize;
         let h_usize = h as usize;
 

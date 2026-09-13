@@ -7,11 +7,11 @@ use crossterm::cursor::{
     Hide, MoveDown, MoveLeft, MoveRight, MoveTo, MoveUp, SetCursorStyle, Show,
 };
 use crossterm::event::{Event, KeyCode, KeyModifiers, poll, read};
-use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
 use crossterm::terminal::{
     self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, size,
 };
+use crossterm::{execute, queue};
 use is_executable::IsExecutable;
 use ropey::Rope;
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ use tree_sitter::Tree;
 use tree_sitter::{InputEdit, Language, Point, QueryCursor};
 use tree_sitter::{Query, StreamingIterator};
 use tree_sitter_highlight::HighlightConfiguration;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthChar;
 pub mod theme;
 
 /// Represents the initial state of a `PaneState` in the application.
@@ -115,49 +115,271 @@ pub fn get_superscript(num: u8) -> String {
 /// # Errors
 /// - If an error occurs while writing to the given writer, the method can return an `Error`.
 ///
-/// # Example
-/// ```
-/// use std::io::{Write, Error};
-/// use qwx::editor::QwxUi;
-/// struct MyUiElement;
-///
-/// impl<W: Write> QwxUi<W> for MyUiElement {
-///     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
-///         write!(w, "Drawing MyUiElement...")?;
-///         Ok(())
-///     }
-///
-///     fn reset(&mut self, w: &mut W) -> Result<(), Error> {
-///         write!(w, "Drawing MyUiElement...")?;
-///         Ok(())
-///     }
-/// }
-///
-/// let mut output = Vec::new(); // Example writer
-/// let mut ui_element = MyUiElement;
-/// ui_element.draw(&mut output).unwrap();
-/// println!("{}", String::from_utf8(output).unwrap());
-/// ```
 pub trait QwxUi<W: Write> {
     fn draw(&mut self, w: &mut W) -> Result<(), Error>;
+    fn draw_normal(&mut self, w: &mut W) -> Result<(), Error>;
+    fn draw_finder(&mut self, w: &mut W) -> Result<(), Error>;
+    fn draw_spotify_player(&mut self, w: &mut W) -> Result<(), Error>;
+    fn draw_local_player(&mut self, w: &mut W) -> Result<(), Error>;
+    fn draw_web(&mut self, w: &mut W) -> Result<(), Error>;
+    fn draw_menu(&mut self, w: &mut W) -> Result<(), Error>;
+    fn draw_editor(&mut self, w: &mut W) -> Result<(), Error>;
+    fn draw_search(&mut self, w: &mut W) -> Result<(), Error>;
     fn reset(&mut self, w: &mut W) -> Result<(), Error>;
+    fn base(&mut self, w: &mut W) -> Result<(), Error>;
 }
 
 impl<W: Write> QwxUi<W> for Qwx {
     fn draw(&mut self, w: &mut W) -> Result<(), Error> {
-        queue!(w, Hide)?;
-        if self.mode == Mode::WebSearch {
-            self.search_hub.draw(w, 0, 0, self.width, self.height)?;
-            w.flush()?;
-            return Ok(());
+        match self.mode {
+            Mode::Normal => self.draw_normal(w),
+            Mode::Menu => self.draw_menu(w),
+            Mode::Finder => self.draw_finder(w),
+            Mode::Editor => self.draw_editor(w),
+            Mode::Search => self.draw_search(w),
+            Mode::WebSearch => self.draw_web(w),
+            Mode::Player => self.draw_spotify_player(w),
+            Mode::Zen | Mode::Fusion | Mode::Rescue | Mode::Broadcast | Mode::Ephemeral => Ok(()),
         }
-        if self.mode == Mode::Player {
-            self.player.draw_player(w, self.width, self.height)?;
-            w.flush()?;
-            return Ok(());
+    }
+    fn draw_normal(&mut self, w: &mut W) -> Result<(), Error> {
+        self.base(w)?;
+
+        // 1. S'assurer que le curseur est visible
+        queue!(w, Show, SetCursorStyle::SteadyUnderScore)?;
+
+        // 2. Calculer la position écran active de la même manière que dans draw_editor
+        let max_width = 180.min(self.width);
+        let left_x = (self.width.saturating_sub(max_width)) / 2;
+        let right_x = left_x + max_width.saturating_sub(1);
+        let mid_x = left_x + (max_width / 2);
+
+        let top_y = 0;
+        let bottom_y = self.height.saturating_sub(1);
+        let mid_y = self.height / 2;
+
+        let panes_bounds = [
+            (
+                PaneFocus::TopLeft,
+                left_x + 1,
+                top_y + 1,
+                (mid_x - left_x).saturating_sub(1),
+                (mid_y - top_y).saturating_sub(1),
+            ),
+            (
+                PaneFocus::TopRight,
+                mid_x + 1,
+                top_y + 1,
+                (right_x - mid_x).saturating_sub(1),
+                (mid_y - top_y).saturating_sub(1),
+            ),
+            (
+                PaneFocus::BottomLeft,
+                left_x + 1,
+                mid_y + 1,
+                (mid_x - left_x).saturating_sub(1),
+                (bottom_y - mid_y).saturating_sub(1),
+            ),
+            (
+                PaneFocus::BottomRight,
+                mid_x + 1,
+                mid_y + 1,
+                (right_x - mid_x).saturating_sub(1),
+                (bottom_y - mid_y).saturating_sub(1),
+            ),
+        ];
+
+        if let Some(&(_, start_x, start_y, p_width, p_height)) = panes_bounds
+            .iter()
+            .find(|(focus, _, _, _, _)| *focus == self.focus)
+        {
+            let active_pane = self.panes[self.focus as usize];
+            let scroll_y = active_pane.cursor as usize;
+            let line_idx = self.editor.cursor_line;
+            let col_idx = self.editor.cursor_col;
+
+            if line_idx >= scroll_y && line_idx < scroll_y + (p_height.saturating_sub(1) as usize) {
+                let screen_y = start_y + 1 + (line_idx - scroll_y) as u16;
+                let screen_x = start_x + (col_idx as u16).min(p_width.saturating_sub(1));
+                queue!(w, MoveTo(screen_x, screen_y))?;
+            } else {
+                queue!(w, Hide)?;
+            }
         }
+
+        w.flush()?;
+        Ok(())
+    }
+    fn draw_finder(&mut self, w: &mut W) -> io::Result<()> {
+        self.reset(w)?;
+        let max_width = 180.min(self.width);
+        let left_x = (self.width.saturating_sub(max_width)) / 2;
+        self.finder.clone().show(
+            w,
+            &mut self.finder,
+            &mut self.finder_research.as_mut(),
+            left_x,
+            0,
+            max_width,
+            self.height,
+        )
+    }
+    fn draw_spotify_player(&mut self, w: &mut W) -> Result<(), Error> {
+        self.player.draw_player(w, self.width, self.height)?;
+        Ok(())
+    }
+    fn draw_local_player(&mut self, w: &mut W) -> Result<(), Error> {
+        self.player.draw_player(w, self.width, self.height)?;
+        Ok(())
+    }
+
+    fn draw_web(&mut self, w: &mut W) -> Result<(), Error> {
+        self.search_hub.draw(w, 0, 0, self.width, self.height)?;
+        Ok(())
+    }
+
+    fn draw_menu(&mut self, w: &mut W) -> Result<(), Error> {
+        self.base(w)?;
         let max_width = 180.min(self.width);
 
+        let left_x = (self.width.saturating_sub(max_width)) / 2;
+
+        let right_x = left_x + max_width.saturating_sub(1);
+        let mid_x = left_x + (max_width / 2);
+
+        let top_y = 1;
+        let mid_y = self.height / 2;
+        let (start_x, start_y, pane_width) = match self.focus {
+            PaneFocus::TopLeft => (left_x, top_y, mid_x - left_x),
+            PaneFocus::TopRight => (mid_x + 1, top_y, right_x - mid_x),
+            PaneFocus::BottomLeft => (left_x, mid_y + 1, mid_x - left_x),
+            PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, right_x - mid_x),
+        };
+        let prompt = format!(" {} ", self.menu_input);
+        let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
+        queue!(
+            w,
+            MoveTo(start_x, start_y),
+            SetBackgroundColor(UI_DMENU_BG),
+            SetForegroundColor(UI_DMENU_FG),
+            Print(padded_prompt),
+            ResetColor
+        )?;
+        w.flush()?;
+        Ok(())
+    }
+
+    fn draw_editor(&mut self, w: &mut W) -> Result<(), Error> {
+        self.base(w)?;
+        queue!(w, Show, SetCursorStyle::SteadyBlock)?;
+
+        let max_width = 180.min(self.width);
+
+        let left_x = (self.width.saturating_sub(max_width)) / 2;
+
+        let right_x = left_x + max_width.saturating_sub(1);
+        let mid_x = left_x + (max_width / 2);
+
+        let top_y = 0;
+        let bottom_y = self.height.saturating_sub(1);
+        let mid_y = self.height / 2;
+
+        let panes_bounds = [
+            (
+                PaneFocus::TopLeft,
+                left_x + 1,
+                top_y + 1,
+                (mid_x - left_x).saturating_sub(1),
+                (mid_y - top_y).saturating_sub(1),
+            ),
+            (
+                PaneFocus::TopRight,
+                mid_x + 1,
+                top_y + 1,
+                (right_x - mid_x).saturating_sub(1),
+                (mid_y - top_y).saturating_sub(1),
+            ),
+            (
+                PaneFocus::BottomLeft,
+                left_x + 1,
+                mid_y + 1,
+                (mid_x - left_x).saturating_sub(1),
+                (bottom_y - mid_y).saturating_sub(1),
+            ),
+            (
+                PaneFocus::BottomRight,
+                mid_x + 1,
+                mid_y + 1,
+                (right_x - mid_x).saturating_sub(1),
+                (bottom_y - mid_y).saturating_sub(1),
+            ),
+        ];
+        let active_bounds = panes_bounds
+            .iter()
+            .find(|(focus, _, _, _, _)| *focus == self.focus);
+
+        if let Some(&(_, start_x, start_y, p_width, p_height)) = active_bounds {
+            let active_pane = self.panes[self.focus as usize];
+            let scroll_y = active_pane.cursor as usize;
+            let line_idx = self.editor.cursor_line;
+            let col_idx = self.editor.cursor_col;
+            if line_idx >= scroll_y && line_idx < scroll_y + (p_height.saturating_sub(1) as usize) {
+                let screen_y = start_y + 1 + (line_idx - scroll_y) as u16;
+                let screen_x = start_x + (col_idx as u16).min(p_width.saturating_sub(1));
+                queue!(w, MoveTo(screen_x, screen_y))?;
+            } else {
+                queue!(w, Hide)?;
+            }
+        }
+        w.flush()?;
+        Ok(())
+    }
+
+    fn draw_search(&mut self, w: &mut W) -> Result<(), Error> {
+        // 1. On dessine l'interface de base (les panneaux, le texte, etc.)
+        self.base(w)?;
+
+        // 2. Calcul des dimensions (identique à ton draw_menu)
+        let max_width = 180.min(self.width);
+        let left_x = (self.width.saturating_sub(max_width)) / 2;
+        let right_x = left_x + max_width.saturating_sub(1);
+        let mid_x = left_x + (max_width / 2);
+
+        let top_y = 0; // Haut de l'écran
+        let mid_y = self.height / 2;
+
+        // 3. Déterminer la position de la barre de recherche selon le panneau actif
+        let (start_x, start_y, pane_width) = match self.focus {
+            PaneFocus::TopLeft => (left_x, top_y + 1, mid_x - left_x),
+            PaneFocus::TopRight => (mid_x + 1, top_y + 1, right_x - mid_x),
+            PaneFocus::BottomLeft => (left_x, mid_y + 1, mid_x - left_x),
+            PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, right_x - mid_x),
+        };
+
+        // 4. Formater la barre de recherche avec le préfixe '/'
+        let prompt = format!(" /{} ", self.search_input);
+        let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
+
+        // 5. Afficher la barre de recherche avec les couleurs de ton thème
+        queue!(
+            w,
+            MoveTo(start_x, start_y),
+            SetBackgroundColor(UI_DMENU_BG),
+            SetForegroundColor(UI_DMENU_FG),
+            Print(padded_prompt),
+            ResetColor
+        )?;
+
+        w.flush()?;
+        Ok(())
+    }
+    fn reset(&mut self, w: &mut W) -> Result<(), Error> {
+        queue!(w, Clear(ClearType::All), ResetColor)?;
+        Ok(())
+    }
+
+    fn base(&mut self, w: &mut W) -> Result<(), Error> {
+        let max_width = 180.min(self.width);
         let left_x = (self.width.saturating_sub(max_width)) / 2;
 
         let right_x = left_x + max_width.saturating_sub(1);
@@ -227,7 +449,19 @@ impl<W: Write> QwxUi<W> for Qwx {
                     } else {
                         None
                     };
+
+                let search_term = if is_active {
+                    if self.mode == Mode::Search && !self.search_input.is_empty() {
+                        Some(self.search_input.as_str())
+                    } else {
+                        self.last_search_query.as_deref()
+                    }
+                } else {
+                    None // Les autres panneaux ne reçoivent rien
+                };
+
                 let _ = self.preview(
+                    w,
                     node,
                     start_x,
                     start_y + 1,
@@ -235,6 +469,7 @@ impl<W: Write> QwxUi<W> for Qwx {
                     p_height.saturating_sub(1),
                     pane.cursor as usize,
                     selection,
+                    search_term,
                 );
                 if is_active && self.editor.is_dirty {
                     let dirty_display = " * ";
@@ -274,99 +509,14 @@ impl<W: Write> QwxUi<W> for Qwx {
                 }
             }
         }
-        if self.is_finder_open() {
-            self.draw_finder(w)?;
-        } else if self.mode == Mode::Menu {
-            let (start_x, start_y, pane_width) = match self.focus {
-                PaneFocus::TopLeft => (left_x, top_y, mid_x - left_x),
-                PaneFocus::TopRight => (mid_x + 1, top_y, right_x - mid_x),
-                PaneFocus::BottomLeft => (left_x, mid_y + 1, mid_x - left_x),
-                PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, right_x - mid_x),
-            };
-
-            let prompt = format!(" {} ", self.menu_input);
-            let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
-
-            queue!(
-                w,
-                MoveTo(start_x, start_y),
-                SetBackgroundColor(UI_DMENU_BG),
-                SetForegroundColor(UI_DMENU_FG),
-                Print(padded_prompt),
-                ResetColor
-            )?;
-        } else if self.mode == Mode::Search {
-            let (start_x, start_y, pane_width) = match self.focus {
-                PaneFocus::TopLeft => (left_x, top_y, mid_x - left_x),
-                PaneFocus::TopRight => (mid_x + 1, top_y, right_x - mid_x),
-                PaneFocus::BottomLeft => (left_x, mid_y + 1, mid_x - left_x),
-                PaneFocus::BottomRight => (mid_x + 1, mid_y + 1, right_x - mid_x),
-            };
-
-            let prompt = format!(" /{} ", self.search_input);
-            let padded_prompt = format!("{:<width$}", prompt, width = pane_width as usize);
-            queue!(
-                w,
-                MoveTo(start_x, start_y),
-                SetBackgroundColor(UI_DMENU_BG),
-                SetForegroundColor(UI_DMENU_FG),
-                Print(padded_prompt),
-                ResetColor
-            )?;
-        }
-
-        if self.mode == Mode::Editor || self.mode == Mode::Normal {
-            queue!(w, Show)?;
-
-            if self.mode == Mode::Editor {
-                queue!(w, SetCursorStyle::SteadyBlock)?;
-            } else {
-                queue!(w, SetCursorStyle::SteadyUnderScore)?;
-            }
-
-            let active_bounds = panes_bounds
-                .iter()
-                .find(|(focus, _, _, _, _)| *focus == self.focus);
-
-            if let Some(&(_, start_x, start_y, p_width, p_height)) = active_bounds {
-                let active_pane = self.panes[self.focus as usize];
-                let scroll_y = active_pane.cursor as usize;
-                let line_idx = self.editor.cursor_line;
-                let col_idx = self.editor.cursor_col;
-                if line_idx >= scroll_y
-                    && line_idx < scroll_y + (p_height.saturating_sub(1) as usize)
-                {
-                    let screen_y = start_y + 1 + (line_idx - scroll_y) as u16;
-                    let screen_x = start_x + (col_idx as u16).min(p_width.saturating_sub(1));
-                    queue!(w, MoveTo(screen_x, screen_y))?;
-                } else {
-                    queue!(w, Hide)?;
-                }
-            }
-        } else {
-            queue!(w, Hide)?;
-        }
-
-        queue!(w, ResetColor)?;
         w.flush()?;
-        Ok(())
-    }
-
-    fn reset(&mut self, w: &mut W) -> Result<(), Error> {
-        let blank_line = " ".repeat(self.width as usize);
-        queue!(w, SetBackgroundColor(Color::Black))?;
-
-        for y in 0..self.height {
-            queue!(w, MoveTo(0, y), Print(&blank_line))?;
-        }
-        queue!(w, ResetColor)?;
         Ok(())
     }
 }
 
 /// A trait for managing and navigating through a sequence of finder layouts.
 ///
-/// The `QwxFinder` trait provides methods for transitioning between layouts in a sequence,
+/// The `QwxFinder` trait provides methods for transitioning between layouts in a sequence of layouts,
 /// allowing forward and backward traversal. This trait is particularly useful for implementations
 /// that involve dynamic layout switching, such as editors, UI/UX flows, or complex state systems.
 pub trait QwxFinder {
@@ -483,7 +633,6 @@ impl QwxPanel for Qwx {
 
             ed.file_path = Some(self.current_dir.join(&node.name));
 
-            // On unifie le chargement : on construit toujours le texte depuis la RAM
             let full_text = node.content.join("\n");
             ed.rope = Rope::from_str(&full_text);
 
@@ -697,10 +846,10 @@ pub fn qwx_load_node(id: usize, path: &Path) -> Result<Node, Error> {
         }
     }
 
-    // Fallback : Si le fichier est vide, ou qu'il n'y a pas de Tree-sitter pour lui, texte en blanc
+    // Fallback : no tree sitter
     if colored_lines.is_empty() {
         for line in &content {
-            colored_lines.push(vec![(line.clone(), Color::White)]);
+            colored_lines.push(vec![(line.clone(), Color::DarkGrey)]);
         }
     }
 
@@ -1261,7 +1410,7 @@ impl<W: Write> QwxRenderer<W> for Qwx {
 }
 
 impl Qwx {
-    pub fn toggle_facet(&mut self) {
+    pub fn toggle_facet<W: Write>(&mut self, w: &mut W) {
         // 1. Sauvegarder l'état actuel de l'écran dans la bonne facette
         match self.current_facet {
             Facet::Front => self.front_panes = self.panes,
@@ -1279,9 +1428,9 @@ impl Qwx {
             Facet::Front => self.panes = self.front_panes,
             Facet::Back => self.panes = self.back_panes,
         }
+        self.reset(w).expect("failed to reset");
         // 4. Charger le fichier du panneau actif et forcer un rafraîchissement complet
         self.load_active_pane_file();
-        let _ = queue!(stdout(), Clear(ClearType::All));
     }
     fn sync_node_content(&mut self) {
         let active_idx = self.focus as usize;
@@ -1340,6 +1489,7 @@ impl Qwx {
     pub fn follow(&mut self) {
         // 1. On récupère TOUTES les données immuables de l'éditeur en premier
         let cursor_line = self.editor.cursor_line;
+        let cursor_col = self.editor.cursor_col;
         let total_lines = self.editor.rope.len_lines();
 
         // 2. Calcul des dimensions de l'écran
@@ -1370,1012 +1520,945 @@ impl Qwx {
         }
 
         // 6. Écriture finale
-        pane.cursor = new_scroll as u16;
+        pane.cursor = new_scroll as u16; // (Gère déjà le défilement vertical)
+        pane.cursor_col = cursor_col as u16; // <-- AJOUTE CETTE LIGNE ICI
     }
 
-    fn handle_normal<W: Write>(&mut self, w: &mut W) {
-        match read().expect("failed to get terminal input") {
-            Event::Key(key) => match (key.modifiers, key.code) {
-                // --- FACETTES (Recto / Verso) ---
-                (KeyModifiers::ALT, KeyCode::Char('x')) => {
-                    self.toggle_facet();
-                }
-                (KeyModifiers::ALT, KeyCode::Char('a')) => {
-                    if self.current_facet == Facet::Back {
-                        self.toggle_facet();
+    pub fn handle_normal<W: Write>(&mut self, w: &mut W) {
+        self.reset(w).expect("failed to reset");
+        loop {
+            self.draw_normal(w).expect("failed to draw");
+            match read().expect("failed to get terminal input") {
+                Event::Key(key) => match (key.modifiers, key.code) {
+                    // Résultat suivant (minuscule)
+                    (KeyModifiers::NONE, KeyCode::Char('n')) => {
+                        self.search_next();
+                        self.follow(); // Pas de sync_node_content() !
                     }
-                }
-                (KeyModifiers::ALT, KeyCode::Char('z')) => {
-                    if self.current_facet == Facet::Front {
-                        self.toggle_facet();
+                    // Résultat précédent (Majuscule avec Shift)
+                    (KeyModifiers::SHIFT, KeyCode::Char('N'))
+                    | (KeyModifiers::SHIFT, KeyCode::Char('n')) => {
+                        self.search_prev();
+                        self.follow(); // Pas de sync_node_content() !
                     }
-                }
-                (KeyModifiers::ALT, KeyCode::Char('l')) => {
-                    let pane = self.active_pane_mut();
-                    pane.workspace = pane.workspace.saturating_add(1);
-                    self.load_active_pane_file();
-                }
-                (KeyModifiers::ALT, KeyCode::Char('h')) => {
-                    let pane = self.active_pane_mut();
-                    // On empêche de descendre en dessous du Workspace 1
-                    pane.workspace = pane.workspace.saturating_sub(1).max(1);
-                    self.load_active_pane_file();
-                }
-                // Views : naviguer dans la 4ème dimension (angles de vue)
-                (KeyModifiers::ALT, KeyCode::Char('k')) => {
-                    let pane = self.active_pane_mut();
-                    pane.view = pane.view.saturating_add(1);
-                    self.load_active_pane_file();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('j')) => {
-                    let total_lines = self.editor.rope.len_lines();
-                    // On bloque strictement à la dernière ligne existante (index total_lines - 1)
-                    if self.editor.cursor_line + 1 < total_lines {
-                        self.editor.cursor_line += 1;
+                    // --- FACETTES (Recto / Verso) ---
+                    (KeyModifiers::ALT, KeyCode::Char('x')) => {
+                        self.toggle_facet(w);
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('a')) => {
+                        if self.current_facet == Facet::Back {
+                            self.toggle_facet(w);
+                        }
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('z')) => {
+                        if self.current_facet == Facet::Front {
+                            self.toggle_facet(w);
+                        }
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('l')) => {
+                        let pane = self.active_pane_mut();
+                        pane.workspace = pane.workspace.saturating_add(1);
+                        self.load_active_pane_file();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('h')) => {
+                        let pane = self.active_pane_mut();
+                        // On empêche de descendre en dessous du Workspace 1
+                        pane.workspace = pane.workspace.saturating_sub(1).max(1);
+                        self.load_active_pane_file();
+                    }
+                    // Views : naviguer dans la 4ème dimension (angles de vue)
+                    (KeyModifiers::ALT, KeyCode::Char('k')) => {
+                        let pane = self.active_pane_mut();
+                        pane.view = pane.view.saturating_add(1);
+                        self.load_active_pane_file();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char('j')) => {
+                        let total_lines = self.editor.rope.len_lines();
+                        // On bloque strictement à la dernière ligne existante (index total_lines - 1)
+                        if self.editor.cursor_line + 1 < total_lines {
+                            self.editor.cursor_line += 1;
 
+                            let max_col = self
+                                .editor
+                                .rope
+                                .line(self.editor.cursor_line)
+                                .len_chars()
+                                .saturating_sub(1);
+                            self.editor.cursor_col = self.editor.cursor_col.min(max_col);
+                        }
+                        self.follow();
+                    }
+
+                    (KeyModifiers::ALT, KeyCode::Char('j')) => {
+                        let pane = self.active_pane_mut();
+                        // On empêche de descendre en dessous de la View 1
+                        pane.view = pane.view.saturating_sub(1).max(1);
+                        self.load_active_pane_file();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char('k')) => {
+                        if self.editor.cursor_line > 0 {
+                            self.editor.cursor_line -= 1;
+
+                            let max_col = self
+                                .editor
+                                .rope
+                                .line(self.editor.cursor_line)
+                                .len_chars()
+                                .saturating_sub(1);
+
+                            self.editor.cursor_col = self.editor.cursor_col.min(max_col);
+                        }
+                        self.follow();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char('h')) => {
+                        if self.editor.cursor_col > 0 {
+                            self.editor.cursor_col -= 1;
+                        } else if self.editor.cursor_line > 0 {
+                            self.editor.cursor_line -= 1;
+                            self.editor.cursor_col = self
+                                .editor
+                                .rope
+                                .line(self.editor.cursor_line)
+                                .len_chars()
+                                .saturating_sub(1);
+                        }
+                        self.follow();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char('l')) => {
                         let max_col = self
                             .editor
                             .rope
                             .line(self.editor.cursor_line)
                             .len_chars()
                             .saturating_sub(1);
-
-                        self.editor.cursor_col = self.editor.cursor_col.min(max_col);
+                        if self.editor.cursor_col < max_col {
+                            self.editor.cursor_col += 1;
+                        } else if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
+                            self.editor.cursor_line += 1;
+                            self.editor.cursor_col = 0;
+                        }
+                        self.follow();
                     }
-                    self.follow();
-                }
+                    (KeyModifiers::NONE, KeyCode::PageDown) => {
+                        let total_lines = self.editor.rope.len_lines();
+                        let step = 15;
 
-                (KeyModifiers::ALT, KeyCode::Char('j')) => {
-                    let pane = self.active_pane_mut();
-                    // On empêche de descendre en dessous de la View 1
-                    pane.view = pane.view.saturating_sub(1).max(1);
-                    self.load_active_pane_file();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('k')) => {
-                    if self.editor.cursor_line > 0 {
-                        self.editor.cursor_line -= 1;
+                        // On déplace le curseur vers le bas, bridé à la fin du fichier
+                        self.editor.cursor_line =
+                            (self.editor.cursor_line + step).min(total_lines.saturating_sub(1));
 
+                        // On réajuste la colonne au cas où la nouvelle ligne est plus courte
                         let max_col = self
                             .editor
                             .rope
                             .line(self.editor.cursor_line)
                             .len_chars()
                             .saturating_sub(1);
-
                         self.editor.cursor_col = self.editor.cursor_col.min(max_col);
+                        self.follow();
                     }
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('h')) => {
-                    if self.editor.cursor_col > 0 {
-                        self.editor.cursor_col -= 1;
-                    } else if self.editor.cursor_line > 0 {
-                        self.editor.cursor_line -= 1;
-                        self.editor.cursor_col = self
-                            .editor
-                            .rope
-                            .line(self.editor.cursor_line)
-                            .len_chars()
-                            .saturating_sub(1);
+                    (KeyModifiers::NONE, KeyCode::PageUp) => {
+                        let step = 15;
+                        let active_pane = self.active_pane_mut();
+                        active_pane.cursor = active_pane.cursor.saturating_sub(step);
+                        self.editor.cursor_line = self.active_pane_mut().cursor as usize;
+                        self.follow();
                     }
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('l')) => {
-                    let max_col = self
-                        .editor
-                        .rope
-                        .line(self.editor.cursor_line)
-                        .len_chars()
-                        .saturating_sub(1);
-                    if self.editor.cursor_col < max_col {
-                        self.editor.cursor_col += 1;
-                    } else if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
-                        self.editor.cursor_line += 1;
-                        self.editor.cursor_col = 0;
+
+                    (KeyModifiers::NONE, KeyCode::Char('x')) => {
+                        self.editor.select_line();
+                        self.follow();
                     }
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::PageDown) => {
-                    let total_lines = self.editor.rope.len_lines();
-                    let step = 15;
-
-                    // On déplace le curseur vers le bas, bridé à la fin du fichier
-                    self.editor.cursor_line =
-                        (self.editor.cursor_line + step).min(total_lines.saturating_sub(1));
-
-                    // On réajuste la colonne au cas où la nouvelle ligne est plus courte
-                    let max_col = self
-                        .editor
-                        .rope
-                        .line(self.editor.cursor_line)
-                        .len_chars()
-                        .saturating_sub(1);
-                    self.editor.cursor_col = self.editor.cursor_col.min(max_col);
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::PageUp) => {
-                    let step = 15;
-                    let active_pane = self.active_pane_mut();
-                    active_pane.cursor = active_pane.cursor.saturating_sub(step);
-                    self.editor.cursor_line = self.active_pane_mut().cursor as usize;
-                    self.follow();
-                }
-
-                (KeyModifiers::NONE, KeyCode::Char('x')) => {
-                    self.editor.select_line();
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('d')) => {
-                    if self.editor.selection.is_some() {
-                        self.editor.delete_selection();
+                    (KeyModifiers::NONE, KeyCode::Char('d')) => {
+                        if self.editor.selection.is_some() {
+                            self.editor.delete_selection();
+                            self.sync_node_content();
+                            self.follow();
+                        }
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char('u')) => {
+                        self.editor.undo();
                         self.sync_node_content();
                         self.follow();
                     }
-                }
-                (KeyModifiers::NONE, KeyCode::Char('u')) => {
-                    self.editor.undo();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('U'))
-                | (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
-                    self.editor.redo();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('y')) => {
-                    self.editor.yank();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('p')) => {
-                    self.editor.paste();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('n')) => {
-                    self.search_next();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::Char('N')) => {
-                    self.search_prev();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
-                    let _ = self.editor.save();
-                }
-                (KeyModifiers::NONE, KeyCode::Esc) => {
-                    if self.editor.selection.is_some() {
-                        self.editor.selection = None;
+                    (KeyModifiers::NONE, KeyCode::Char('U'))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
+                        self.editor.redo();
+                        self.sync_node_content();
+                        self.follow();
                     }
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
-                    self.focus = match self.focus {
-                        PaneFocus::TopLeft => PaneFocus::TopRight,
-                        PaneFocus::BottomLeft => PaneFocus::BottomRight,
-                        _ => self.focus,
-                    };
-                    self.load_active_pane_file();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('h')) => {
-                    self.focus = match self.focus {
-                        PaneFocus::TopRight => PaneFocus::TopLeft,
-                        PaneFocus::BottomRight => PaneFocus::BottomLeft,
-                        _ => self.focus,
-                    };
-                    self.load_active_pane_file();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
-                    self.focus = match self.focus {
-                        PaneFocus::TopLeft => PaneFocus::BottomLeft,
-                        PaneFocus::TopRight => PaneFocus::BottomRight,
-                        _ => self.focus,
-                    };
-                    self.load_active_pane_file();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
-                    self.focus = match self.focus {
-                        PaneFocus::BottomLeft => PaneFocus::TopLeft,
-                        PaneFocus::BottomRight => PaneFocus::TopRight,
-                        _ => self.focus,
-                    };
-                    self.load_active_pane_file();
-                }
-
-                // --- TRANSITIONS DE MODES ---
-                (KeyModifiers::NONE, KeyCode::Char('o')) => {
-                    let max_col = self
-                        .editor
-                        .rope
-                        .line(self.editor.cursor_line)
-                        .len_chars()
-                        .saturating_sub(1);
-                    self.editor.cursor_col = max_col;
-                    self.editor.insert_char('\n');
-                    self.sync_node_content();
-                    self.follow();
-                    self.mode = Mode::Editor;
-                }
-                (KeyModifiers::NONE, KeyCode::Char('e')) => {
-                    self.mode = Mode::Editor;
-                }
-                (KeyModifiers::ALT, KeyCode::Char('f')) => {
-                    self.mode = Mode::Finder;
-                }
-                (KeyModifiers::ALT, KeyCode::Char('d')) => {
-                    self.mode = Mode::Menu;
-                    self.menu_input.clear();
-                }
-                (KeyModifiers::ALT, KeyCode::Char('/')) => {
-                    self.mode = Mode::Search;
-                    self.search_input.clear();
-                }
-                (KeyModifiers::ALT, KeyCode::Char('s'))
-                | (KeyModifiers::ALT, KeyCode::Char('w')) => {
-                    self.mode = Mode::WebSearch;
-                }
-                (KeyModifiers::ALT, KeyCode::Char('m')) => {
-                    self.mode = Mode::Player;
-                    self.player.refresh_playback_state();
-                    let _ = queue!(w, Clear(ClearType::All));
-                }
-                (KeyModifiers::NONE, KeyCode::Char('q')) => {
-                    self.running = false;
-                }
-                // --- Rotation Horaire (Ctrl + r) ---
-                (KeyModifiers::CONTROL, KeyCode::Char('r')) => {
-                    let old_panes = self.panes;
-                    self.panes[1] = old_panes[0];
-                    self.panes[3] = old_panes[1];
-                    self.panes[2] = old_panes[3];
-                    self.panes[0] = old_panes[2];
-
-                    if self.views.len() < 4 {
-                        self.views.resize_with(4, || View { active_node_id: 0 });
+                    (KeyModifiers::NONE, KeyCode::Char('y')) => {
+                        self.editor.yank();
                     }
+                    (KeyModifiers::NONE, KeyCode::Char('p')) => {
+                        self.editor.paste();
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
+                        let _ = self.editor.save();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Esc) => {
+                        // 1. Enlever la sélection visuelle du mode éditeur
+                        if self.editor.selection.is_some() {
+                            self.editor.selection = None;
+                        }
 
-                    let v0 = self.views[0].active_node_id;
-                    let v1 = self.views[1].active_node_id;
-                    let v2 = self.views[2].active_node_id;
-                    let v3 = self.views[3].active_node_id;
-
-                    self.views[1].active_node_id = v0;
-                    self.views[3].active_node_id = v1;
-                    self.views[2].active_node_id = v3;
-                    self.views[0].active_node_id = v2;
-                    let mut new_map = HashMap::new();
-                    for (&(p, w, v), &node_id) in self.spatial_map.iter() {
-                        let new_p = match p {
-                            0 => 1,
-                            1 => 2,
-                            2 => 3,
-                            3 => 0,
-                            _ => p,
+                        // 2. Vider la recherche pour éteindre la surbrillance jaune
+                        if self.last_search_query.is_some() {
+                            self.last_search_query = None;
+                        }
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
+                        self.focus = match self.focus {
+                            PaneFocus::TopLeft => PaneFocus::TopRight,
+                            PaneFocus::BottomLeft => PaneFocus::BottomRight,
+                            _ => self.focus,
                         };
-                        new_map.insert((new_p, w, v), node_id);
+                        self.load_active_pane_file();
                     }
-                    self.spatial_map = new_map;
-
-                    self.load_active_pane_file();
-                }
-                // --- Rotation anti Horaire (Alt + r) ---
-                (KeyModifiers::ALT, KeyCode::Char('r')) => {
-                    let old_panes = self.panes;
-                    self.panes[0] = old_panes[3];
-                    self.panes[3] = old_panes[2];
-                    self.panes[2] = old_panes[1];
-                    self.panes[1] = old_panes[0];
-
-                    if self.views.len() < 4 {
-                        self.views.resize_with(4, || View { active_node_id: 0 });
-                    }
-
-                    let v0 = self.views[0].active_node_id;
-                    let v1 = self.views[1].active_node_id;
-                    let v2 = self.views[2].active_node_id;
-                    let v3 = self.views[3].active_node_id;
-
-                    self.views[2].active_node_id = v0;
-                    self.views[3].active_node_id = v2;
-                    self.views[1].active_node_id = v3;
-                    self.views[0].active_node_id = v1;
-                    let mut new_map = HashMap::new();
-                    for (&(p, w, v), &node_id) in self.spatial_map.iter() {
-                        let new_p = match p {
-                            0 => 3,
-                            3 => 2,
-                            2 => 1,
-                            1 => 0,
-                            _ => p,
+                    (KeyModifiers::CONTROL, KeyCode::Char('h')) => {
+                        self.focus = match self.focus {
+                            PaneFocus::TopRight => PaneFocus::TopLeft,
+                            PaneFocus::BottomRight => PaneFocus::BottomLeft,
+                            _ => self.focus,
                         };
-                        new_map.insert((new_p, w, v), node_id);
+                        self.load_active_pane_file();
                     }
-                    self.spatial_map = new_map;
+                    (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
+                        self.focus = match self.focus {
+                            PaneFocus::TopLeft => PaneFocus::BottomLeft,
+                            PaneFocus::TopRight => PaneFocus::BottomRight,
+                            _ => self.focus,
+                        };
+                        self.load_active_pane_file();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                        self.focus = match self.focus {
+                            PaneFocus::BottomLeft => PaneFocus::TopLeft,
+                            PaneFocus::BottomRight => PaneFocus::TopRight,
+                            _ => self.focus,
+                        };
+                        self.load_active_pane_file();
+                    }
 
-                    self.load_active_pane_file();
+                    // --- TRANSITIONS DE MODES ---
+                    (KeyModifiers::NONE, KeyCode::Char('o')) => {
+                        let max_col = self
+                            .editor
+                            .rope
+                            .line(self.editor.cursor_line)
+                            .len_chars()
+                            .saturating_sub(1);
+                        self.editor.cursor_col = max_col;
+                        self.editor.insert_char('\n');
+                        self.sync_node_content();
+                        self.follow();
+                        self.mode = Mode::Editor;
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char('e')) => {
+                        self.mode = Mode::Editor;
+                        break;
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('f')) => {
+                        self.mode = Mode::Finder;
+                        break;
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('d')) => {
+                        self.mode = Mode::Menu;
+                        self.menu_input.clear();
+                        break;
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char('/')) => {
+                        self.mode = Mode::Search;
+                        self.search_input.clear();
+                        break;
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('w')) => {
+                        self.mode = Mode::WebSearch;
+                        break;
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('m')) => {
+                        self.mode = Mode::Player;
+                        self.player.refresh_playback_state();
+                        break;
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char('q')) => {
+                        self.running = false;
+                        break;
+                    }
+                    // --- Rotation Horaire (Ctrl + r) ---
+                    (KeyModifiers::CONTROL, KeyCode::Char('r')) => {
+                        let old_panes = self.panes;
+                        self.panes[1] = old_panes[0];
+                        self.panes[3] = old_panes[1];
+                        self.panes[2] = old_panes[3];
+                        self.panes[0] = old_panes[2];
+
+                        if self.views.len() < 4 {
+                            self.views.resize_with(4, || View { active_node_id: 0 });
+                        }
+
+                        let v0 = self.views[0].active_node_id;
+                        let v1 = self.views[1].active_node_id;
+                        let v2 = self.views[2].active_node_id;
+                        let v3 = self.views[3].active_node_id;
+
+                        self.views[1].active_node_id = v0;
+                        self.views[3].active_node_id = v1;
+                        self.views[2].active_node_id = v3;
+                        self.views[0].active_node_id = v2;
+                        let mut new_map = HashMap::new();
+                        for (&(p, w, v), &node_id) in self.spatial_map.iter() {
+                            let new_p = match p {
+                                0 => 1,
+                                1 => 2,
+                                2 => 3,
+                                3 => 0,
+                                _ => p,
+                            };
+                            new_map.insert((new_p, w, v), node_id);
+                        }
+                        self.spatial_map = new_map;
+                        self.load_active_pane_file();
+                    }
+                    // --- Rotation anti Horaire (Alt + r) ---
+                    (KeyModifiers::ALT, KeyCode::Char('r')) => {
+                        let old_panes = self.panes;
+                        self.panes[0] = old_panes[3];
+                        self.panes[3] = old_panes[2];
+                        self.panes[2] = old_panes[1];
+                        self.panes[1] = old_panes[0];
+
+                        if self.views.len() < 4 {
+                            self.views.resize_with(4, || View { active_node_id: 0 });
+                        }
+
+                        let v0 = self.views[0].active_node_id;
+                        let v1 = self.views[1].active_node_id;
+                        let v2 = self.views[2].active_node_id;
+                        let v3 = self.views[3].active_node_id;
+
+                        self.views[2].active_node_id = v0;
+                        self.views[3].active_node_id = v2;
+                        self.views[1].active_node_id = v3;
+                        self.views[0].active_node_id = v1;
+                        let mut new_map = HashMap::new();
+                        for (&(p, w, v), &node_id) in self.spatial_map.iter() {
+                            let new_p = match p {
+                                0 => 3,
+                                3 => 2,
+                                2 => 1,
+                                1 => 0,
+                                _ => p,
+                            };
+                            new_map.insert((new_p, w, v), node_id);
+                        }
+                        self.spatial_map = new_map;
+                        self.load_active_pane_file();
+                    }
+                    _ => {}
+                },
+                Event::Resize(cols, rows) => {
+                    self.width = cols;
+                    self.height = rows;
+                    self.reset(w).expect("failed to reset");
                 }
                 _ => {}
-            },
-            Event::Resize(cols, rows) => {
-                self.width = cols;
-                self.height = rows;
-                let _ = queue!(w, Clear(ClearType::All));
             }
-            _ => {}
         }
+        self.reset(w).expect("failed to reset");
     }
 
-    fn handle_menu(&mut self) {
-        match read().expect("msg") {
-            Event::Key(key) => match (key.modifiers, key.code) {
-                (KeyModifiers::NONE, KeyCode::Esc) => {
-                    self.mode = Mode::Normal;
-                    self.menu_input.clear();
-                }
-                (KeyModifiers::NONE, KeyCode::Enter) => {
-                    if let Some(cmd) = self.menu_input.strip_prefix('!') {
-                        let cmd_clean = cmd.trim();
-                        if let Some(dir_name) = cmd_clean.strip_prefix("mkdir ") {
-                            let target_path = self.current_dir.join(dir_name.trim());
-                            let _ = create_dir_all(&target_path);
-                        } else if let Some(file_name) = cmd_clean.strip_prefix("touch ") {
-                            let target_path = self.current_dir.join(file_name.trim());
-                            let _ = File::create(&target_path);
-                        } else {
-                            let _ = std::process::Command::new("sh")
-                                .arg("-c")
-                                .arg(cmd_clean)
-                                .stdout(std::process::Stdio::null())
-                                .stderr(std::process::Stdio::null())
-                                .status();
+    pub fn handle_menu<W: Write>(&mut self, w: &mut W) {
+        self.reset(w).expect("failed to reset");
+        loop {
+            self.draw_menu(w).expect("failed to draw");
+            match read().expect("msg") {
+                Event::Key(key) => match (key.modifiers, key.code) {
+                    (KeyModifiers::NONE, KeyCode::Esc) => {
+                        self.mode = Mode::Normal;
+                        self.menu_input.clear();
+                        self.reset(w).expect("failed to reset");
+                        break;
+                    }
+                    (KeyModifiers::NONE, KeyCode::Enter) => {
+                        if let Some(cmd) = self.menu_input.strip_prefix('!') {
+                            let cmd_clean = cmd.trim();
+                            if let Some(dir_name) = cmd_clean.strip_prefix("mkdir ") {
+                                let target_path = self.current_dir.join(dir_name.trim());
+                                let _ = create_dir_all(&target_path);
+                            } else if let Some(file_name) = cmd_clean.strip_prefix("touch ") {
+                                let target_path = self.current_dir.join(file_name.trim());
+                                let _ = File::create(&target_path);
+                            } else {
+                                let _ = std::process::Command::new("sh")
+                                    .arg("-c")
+                                    .arg(cmd_clean)
+                                    .stdout(std::process::Stdio::null())
+                                    .stderr(std::process::Stdio::null())
+                                    .status();
 
-                            for node in self.nodes.iter_mut() {
-                                if node.is_file {
-                                    let full_path = self.current_dir.join(&node.name);
-                                    if let Ok(fresh_node) = qwx_load_node(node.id, &full_path) {
-                                        node.content = fresh_node.content;
-                                        node.colored_lines = fresh_node.colored_lines;
+                                for node in self.nodes.iter_mut() {
+                                    if node.is_file {
+                                        let full_path = self.current_dir.join(&node.name);
+                                        if let Ok(fresh_node) = qwx_load_node(node.id, &full_path) {
+                                            node.content = fresh_node.content;
+                                            node.colored_lines = fresh_node.colored_lines;
+                                        }
                                     }
                                 }
                             }
-                        }
-                    } else if let Some(file_name) = self.menu_input.strip_prefix(":w ") {
-                        let clean_name = file_name.trim();
-                        if !clean_name.is_empty() {
-                            // On définit le chemin complet et on sauvegarde
-                            let target_path = self.current_dir.join(clean_name);
-                            self.editor.file_path = Some(target_path.clone());
-                            let _ = self.editor.save();
+                        } else if let Some(file_name) = self.menu_input.strip_prefix(":w ") {
+                            let clean_name = file_name.trim();
+                            if !clean_name.is_empty() {
+                                // On définit le chemin complet et on sauvegarde
+                                let target_path = self.current_dir.join(clean_name);
+                                self.editor.file_path = Some(target_path.clone());
+                                let _ = self.editor.save();
 
-                            // On met à jour le noeud dans le Tesseract pour qu'il devienne un "vrai" fichier
-                            let active_idx = self.focus as usize;
-                            if let Some(view) = self.views.get(active_idx) {
-                                let node_id = view.active_node_id;
-                                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id)
-                                {
-                                    node.name = clean_name.to_string();
-                                    node.ext = target_path
-                                        .extension()
-                                        .unwrap_or_default()
-                                        .to_str()
-                                        .unwrap_or_default()
-                                        .to_string();
-                                    node.is_file = true;
+                                // On met à jour le noeud dans le Tesseract pour qu'il devienne un "vrai" fichier
+                                let active_idx = self.focus as usize;
+                                if let Some(view) = self.views.get(active_idx) {
+                                    let node_id = view.active_node_id;
+                                    if let Some(node) =
+                                        self.nodes.iter_mut().find(|n| n.id == node_id)
+                                    {
+                                        node.name = clean_name.to_string();
+                                        node.ext = target_path
+                                            .extension()
+                                            .unwrap_or_default()
+                                            .to_str()
+                                            .unwrap_or_default()
+                                            .to_string();
+                                        node.is_file = true;
+                                    }
                                 }
                             }
+                            self.mode = Mode::Normal;
+                            self.menu_input.clear();
+                            self.reset(w).expect("failed to reset");
+                            break;
+                        } else if let Some(url) = self.menu_input.strip_prefix(":web ") {
+                            let url_clean = url.trim().to_string();
+                            self.mode = Mode::WebSearch;
+                            self.search_hub.web_browser.open_url(&url_clean, self.width);
+                            self.search_hub.show_web_reader = true;
+                            self.menu_input.clear();
+                            break;
+                        } else if let Some(query) = self.menu_input.strip_prefix(":search ") {
+                            let q_clean = query.trim().to_string();
+                            self.mode = Mode::WebSearch;
+                            self.search_hub.query = q_clean;
+                            self.search_hub.show_web_reader = false;
+                            self.search_hub.perform_search(&self.current_dir);
+                            self.menu_input.clear();
+                            break;
+                        } else if self.menu_input.trim() == ":player"
+                            || self.menu_input.trim() == ":music"
+                            || self.menu_input.trim() == ":spotify"
+                        {
+                            self.mode = Mode::Player;
+                            self.player.refresh_playback_state();
+                            self.menu_input.clear();
+                            break;
                         }
                         self.mode = Mode::Normal;
                         self.menu_input.clear();
-                        let _ = queue!(stdout(), Clear(ClearType::All));
-                        return;
-                    } else if let Some(url) = self.menu_input.strip_prefix(":web ") {
-                        let url_clean = url.trim().to_string();
-                        self.mode = Mode::WebSearch;
-                        self.search_hub.web_browser.open_url(&url_clean, self.width);
-                        self.search_hub.show_web_reader = true;
-                        self.menu_input.clear();
-                        let _ = queue!(stdout(), Clear(ClearType::All));
-                        return;
-                    } else if let Some(query) = self.menu_input.strip_prefix(":search ") {
-                        let q_clean = query.trim().to_string();
-                        self.mode = Mode::WebSearch;
-                        self.search_hub.query = q_clean;
-                        self.search_hub.show_web_reader = false;
-                        self.search_hub.perform_search(&self.current_dir);
-                        self.menu_input.clear();
-                        let _ = queue!(stdout(), Clear(ClearType::All));
-                        return;
-                    } else if self.menu_input.trim() == ":player"
-                        || self.menu_input.trim() == ":music"
-                        || self.menu_input.trim() == ":spotify"
-                    {
-                        self.mode = Mode::Player;
-                        self.player.refresh_playback_state();
-                        self.menu_input.clear();
-                        let _ = queue!(stdout(), Clear(ClearType::All));
-                        return;
                     }
-                    self.mode = Mode::Normal;
-                    self.menu_input.clear();
+                    (KeyModifiers::NONE, KeyCode::Backspace) => {
+                        self.menu_input.pop();
+                    }
+                    (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                        self.menu_input.push(c);
+                    }
+                    _ => {}
+                },
+                Event::Paste(x) => {
+                    self.menu_input.push_str(x.as_str());
                 }
-                (KeyModifiers::NONE, KeyCode::Backspace) => {
-                    self.menu_input.pop();
-                }
-                (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                    self.menu_input.push(c);
+                Event::Resize(cols, rows) => {
+                    self.width = cols;
+                    self.height = rows;
+                    self.reset(w).expect("failed to reset");
                 }
                 _ => {}
-            },
-            Event::Paste(x) => {
-                self.menu_input.push_str(x.as_str());
             }
-            Event::Resize(cols, rows) => {
-                self.width = cols;
-                self.height = rows;
-                let _ = queue!(stdout(), Clear(ClearType::All));
-            }
-            _ => {}
         }
     }
 
     fn handle_editor<W: Write>(&mut self, w: &mut W) {
-        match read().expect("msg") {
-            Event::Key(key) => match (key.modifiers, key.code) {
-                (KeyModifiers::NONE, KeyCode::Esc) => {
-                    if self.editor.selection.is_some() {
-                        self.editor.selection = None;
-                    } else {
-                        self.mode = Mode::Normal;
-                    }
-                }
-                (KeyModifiers::NONE, KeyCode::Enter) => {
-                    self.editor.insert_char('\n');
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::Delete) => {
-                    self.editor.delete();
-                    self.sync_node_content();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
-                    if self.editor.file_path.is_some() {
-                        let _ = self.editor.save();
-                    } else {
-                        self.mode = Mode::Menu;
-                        self.menu_input = ":w ".to_string();
-                    }
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('z')) => {
-                    self.editor.undo();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
-                    self.editor.redo();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('v')) => {
-                    self.editor.paste();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
-                    let current_line = self.editor.cursor_line;
-                    if current_line < self.editor.rope.len_lines() {
-                        let chars_to_delete = self.editor.rope.line(current_line).len_chars();
-                        self.editor.cursor_col = 0;
-                        for _ in 0..chars_to_delete {
-                            self.editor.delete();
+        self.reset(w).expect("failed to reset");
+        loop {
+            self.draw_editor(w).expect("failed to draw");
+            self.sync_node_content();
+            match read().expect("msg") {
+                Event::Key(key) => match (key.modifiers, key.code) {
+                    (KeyModifiers::NONE, KeyCode::Esc) => {
+                        if self.editor.selection.is_some() {
+                            self.editor.selection = None;
+                        } else {
+                            self.mode = Mode::Normal;
                         }
-                        if current_line >= self.editor.rope.len_lines() && current_line > 0 {
-                            self.editor.cursor_line -= 1;
+                        self.reset(w).expect("failed to reset");
+                        break;
+                    }
+                    (KeyModifiers::NONE, KeyCode::Enter) => {
+                        self.editor.insert_char('\n');
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Delete) => {
+                        self.editor.delete();
+                        self.sync_node_content();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
+                        if self.editor.file_path.is_some() {
+                            let _ = self.editor.save();
+                        } else {
+                            self.mode = Mode::Menu;
+                            self.menu_input = ":w ".to_string();
+                        }
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('z')) => {
+                        self.editor.undo();
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
+                        self.editor.redo();
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('v')) => {
+                        self.editor.paste();
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                        // 1. On réinitialise la sélection pour s'assurer de ne cibler que la ligne courante
+                        self.editor.selection = None;
+
+                        // 2. On sélectionne la ligne entière grâce à ta fonction
+                        self.editor.select_line();
+
+                        // 3. On supprime la sélection d'un bloc.
+                        // Cela ne créera qu'UNE SEULE entrée dans l'historique d'annulation
+                        // et mettra à jour Tree-sitter 1 seule fois.
+                        self.editor.delete_selection();
+
+                        // 4. On synchronise le contenu et la caméra (le curseur se remet à la colonne 0 tout seul)
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Backspace) => {
+                        self.editor.backspace();
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('x')) => {
+                        self.editor.select_line();
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('d')) => {
+                        if self.editor.selection.is_some() {
+                            self.editor.delete_selection();
+                        }
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Tab) => {
+                        for _ in 0..4 {
+                            self.editor.insert_char(' ');
                         }
                         self.sync_node_content();
                     }
-                }
-                (KeyModifiers::NONE, KeyCode::Backspace) => {
-                    self.editor.backspace();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::ALT, KeyCode::Char('x')) => {
-                    self.editor.select_line();
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::ALT, KeyCode::Char('d')) => {
-                    if self.editor.selection.is_some() {
-                        self.editor.delete_selection();
+                    (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                        self.editor.insert_char(c);
+                        self.sync_node_content();
+                        self.follow();
                     }
-                    self.sync_node_content();
-                    self.follow();
-                }
-                (KeyModifiers::NONE, KeyCode::Tab) => {
-                    for _ in 0..4 {
-                        self.editor.insert_char(' ');
+                    _ => {}
+                },
+                Event::Paste(x) => {
+                    self.editor.record_undo();
+                    for ch in x.chars() {
+                        self.editor.insert_char_raw(ch);
                     }
-                    self.sync_node_content();
-                }
-                (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                    self.editor.insert_char(c);
+                    self.editor.update_syntax_tree();
                     self.sync_node_content();
                     self.follow();
+                }
+                Event::Resize(cols, rows) => {
+                    self.width = cols;
+                    self.height = rows;
+                    self.reset(w).expect("failed to reset");
                 }
                 _ => {}
-            },
-            Event::Paste(x) => {
-                self.editor.record_undo();
-                for ch in x.chars() {
-                    self.editor.insert_char_raw(ch);
-                }
-                self.editor.update_syntax_tree();
-                self.sync_node_content();
-                self.follow();
             }
-            Event::Resize(cols, rows) => {
-                self.width = cols;
-                self.height = rows;
-                let _ = queue!(w, Clear(ClearType::All));
-            }
-            _ => {}
         }
     }
 
     fn handle_finder<W: Write>(&mut self, w: &mut W) {
-        match read().expect("msg") {
-            Event::Key(key) => match (key.modifiers, key.code) {
-                (KeyModifiers::NONE, KeyCode::Esc) => {
-                    self.mode = Mode::Normal;
-                    self.finder_research.clear();
-                    let _ = queue!(w, Clear(ClearType::All));
-                }
-                (KeyModifiers::NONE, KeyCode::Backspace) => {
-                    self.finder_research.pop();
-                    self.finder.filter(self.finder_research.clone());
-                }
-                (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                    self.finder_research.push(c);
-                    self.finder.filter(self.finder_research.clone());
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
-                    self.finder.next_file();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
-                    self.finder.prev_file();
-                }
-                (KeyModifiers::ALT, KeyCode::Char('j')) => {
-                    self.finder.next_dir();
-                }
-                (KeyModifiers::ALT, KeyCode::Char('k')) => {
-                    self.finder.prev_dir();
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('h')) => {
-                    if let Some(parent) = self.current_dir.parent() {
-                        self.current_dir = parent.into();
-                        self.finder = Finder::new(&self.current_dir, self.finder_layout.clone());
-                        self.finder_research.clear();
+        loop {
+            self.draw_finder(w).expect("failed to draw");
+            match read().expect("msg") {
+                Event::Key(key) => match (key.modifiers, key.code) {
+                    (KeyModifiers::NONE, KeyCode::Esc) => {
+                        break;
                     }
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
-                    let dirs = self.finder.get_directories();
-                    if !dirs.is_empty() && self.finder.selected_dir < dirs.len() {
-                        let dirname = &dirs[self.finder.selected_dir];
-                        let new_path = self.current_dir.join(dirname);
-                        self.current_dir = new_path.clone().into();
-                        self.finder = Finder::new(&new_path, self.finder_layout.clone());
-                        self.finder_research.clear();
+                    (KeyModifiers::NONE, KeyCode::Backspace) => {
+                        self.finder_research.pop();
+                        self.finder.filter(self.finder_research.clone());
+                        continue;
                     }
-                }
-                (m, KeyCode::Char('j'))
-                    if m.contains(KeyModifiers::CONTROL) && m.contains(KeyModifiers::SHIFT) =>
-                {
-                    self.finder.next_sub_dir();
-                }
-                (m, KeyCode::Char('k'))
-                    if m.contains(KeyModifiers::CONTROL) && m.contains(KeyModifiers::SHIFT) =>
-                {
-                    self.finder.prev_sub_dir();
-                }
-                (m, KeyCode::Char('l'))
-                    if m.contains(KeyModifiers::CONTROL) && m.contains(KeyModifiers::SHIFT) =>
-                {
-                    let sub_dirs = self.finder.get_sub_directories();
-                    if !sub_dirs.is_empty() && self.finder.selected_sub_dir < sub_dirs.len() {
-                        let dirname = &sub_dirs[self.finder.selected_sub_dir];
-                        let new_path = self.current_dir.join(dirname);
-                        self.current_dir = new_path.clone().into();
-                        self.finder = Finder::new(&new_path, self.finder_layout.clone());
-                        self.finder_research.clear();
+                    (KeyModifiers::NONE, KeyCode::Char(c)) => {
+                        self.finder_research.push(c);
+                        self.finder.filter(self.finder_research.clone());
+                        continue;
                     }
-                }
-                (KeyModifiers::ALT, KeyCode::Right) => {
-                    self.previous_finder_layout();
-                }
-                (KeyModifiers::ALT, KeyCode::Left) => {
-                    self.next_finder_layout();
-                }
-                (KeyModifiers::NONE, KeyCode::F(5)) => {
-                    self.finder = Finder::new(Path::new("."), self.finder_layout.clone());
-                }
-                (KeyModifiers::NONE, KeyCode::Enter) => {
-                    let files = self.finder.get_files();
-                    if !files.is_empty() && self.finder.selected_file < files.len() {
-                        let filename = &files[self.finder.selected_file];
-                        let full_path = self.current_dir.join(filename);
-
-                        let node_id = if let Some(existing_node) =
-                            self.nodes.iter().find(|n| n.name == *filename)
-                        {
-                            existing_node.id
-                        } else {
-                            let new_id = self.nodes.len();
-                            if let Ok(node) = qwx_load_node(new_id, &full_path) {
-                                self.nodes.push(node);
-                                new_id
-                            } else {
-                                self.finder_research.clear();
-                                return;
-                            }
-                        };
-                        let active_idx = self.focus as usize;
-
-                        if self.views.len() <= active_idx {
-                            self.views
-                                .resize_with(active_idx + 1, || View { active_node_id: 0 });
+                    (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
+                        self.finder.next_file();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                        self.finder.prev_file();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('j')) => {
+                        self.finder.next_dir();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Char('k')) => {
+                        self.finder.prev_dir();
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('h')) => {
+                        if let Some(parent) = self.current_dir.parent() {
+                            self.current_dir = parent.into();
+                            self.finder =
+                                Finder::new(&self.current_dir, self.finder_layout.clone());
                         }
-                        let pane = self.panes[active_idx];
-
-                        // 1. On ancre le fichier dans le Tesseract
-                        self.spatial_map
-                            .insert((active_idx, pane.workspace, pane.view), node_id);
-
-                        // 2. On réinitialise la position du curseur
-                        self.panes[active_idx].cursor = 0;
-                        self.panes[active_idx].cursor_col = 0;
-                        // 3. LA MAGIE EST ICI : On délègue tout le chargement à notre fonction centralisée !
-                        // Elle va synchroniser self.views, charger depuis la RAM, et créer l'éditeur.
-                        self.load_active_pane_file();
                     }
-                    self.mode = Mode::Normal;
-                    self.finder_research.clear();
+                    (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
+                        let dirs = self.finder.directories.clone();
+                        if !dirs.is_empty() && self.finder.selected_dir < dirs.len() {
+                            let dirname = &dirs[self.finder.selected_dir];
+                            let new_path = self.current_dir.join(dirname);
+                            self.current_dir = new_path.clone().into();
+                            self.finder = Finder::new(&new_path, self.finder_layout.clone());
+                        }
+                    }
+                    (KeyModifiers::ALT, KeyCode::Right) => {
+                        self.reset(w).expect("failed to reset");
+                        self.previous_finder_layout();
+                    }
+                    (KeyModifiers::ALT, KeyCode::Left) => {
+                        self.reset(w).expect("failed to reset");
+                        self.next_finder_layout();
+                    }
+                    (KeyModifiers::NONE, KeyCode::F(5)) => {
+                        self.finder_research.clear();
+                        self.finder = Finder::new(Path::new("."), self.finder_layout.clone());
+                    }
+                    (KeyModifiers::NONE, KeyCode::Enter) => {
+                        let files = self.finder.get_files();
+                        if !files.is_empty() && self.finder.selected_file < files.len() {
+                            let filename = &files[self.finder.selected_file];
+                            let full_path = self.current_dir.join(filename);
+
+                            let node_id = if let Some(existing_node) =
+                                self.nodes.iter().find(|n| n.name == *filename)
+                            {
+                                existing_node.id
+                            } else {
+                                let new_id = self.nodes.len();
+                                if let Ok(node) = qwx_load_node(new_id, &full_path) {
+                                    self.nodes.push(node);
+                                    new_id
+                                } else {
+                                    break;
+                                }
+                            };
+                            let active_idx = self.focus as usize;
+
+                            if self.views.len() <= active_idx {
+                                self.views
+                                    .resize_with(active_idx + 1, || View { active_node_id: 0 });
+                            }
+                            let pane = self.panes[active_idx];
+
+                            // 1. On ancre le fichier dans le Tesseract
+                            self.spatial_map
+                                .insert((active_idx, pane.workspace, pane.view), node_id);
+
+                            // 2. On réinitialise la position du curseur
+                            self.panes[active_idx].cursor = 0;
+                            self.panes[active_idx].cursor_col = 0;
+                            break;
+                        }
+                    }
+                    _ => {}
+                },
+                Event::Resize(cols, rows) => {
+                    self.width = cols;
+                    self.height = rows;
+                    self.finder.resize(cols, rows);
+                    self.reset(w).expect("failed to reset editor");
                 }
                 _ => {}
-            },
-            Event::Resize(cols, rows) => {
-                self.width = cols;
-                self.height = rows;
-                self.finder.resize(cols, rows);
-                let _ = queue!(w, Clear(ClearType::All));
             }
-            _ => {}
         }
+        self.mode = Mode::Normal;
+        self.finder_research.clear();
+        self.reset(w).expect("failed to reset");
+        self.load_active_pane_file();
     }
 
-    fn handle_search(&mut self) {
-        match read().expect("msg") {
-            Event::Key(key) => match (key.modifiers, key.code) {
-                (KeyModifiers::NONE, KeyCode::Esc) => {
-                    self.mode = Mode::Normal;
-                    self.search_input.clear();
-                }
-                (KeyModifiers::NONE, KeyCode::Enter) => {
-                    if !self.search_input.is_empty() {
-                        self.last_search_query = Some(self.search_input.clone());
-                        self.search_next();
-                        self.sync_node_content();
-                        self.follow();
+    fn handle_search<W: Write>(&mut self, w: &mut W) {
+        self.reset(w).expect("failed to reset editor");
+        loop {
+            self.draw_search(w).expect("failed to draw search");
+            match read().expect("msg") {
+                Event::Key(key) => match (key.modifiers, key.code) {
+                    (KeyModifiers::NONE, KeyCode::Esc) => {
+                        self.mode = Mode::Normal;
+                        self.reset(w).expect("failed to reset editor");
+                        break;
                     }
-                    self.mode = Mode::Normal;
-                    self.search_input.clear();
-                }
-                (KeyModifiers::NONE, KeyCode::Backspace) => {
-                    self.search_input.pop();
-                }
-                (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                    self.search_input.push(c);
+                    (KeyModifiers::NONE, KeyCode::Enter) => {
+                        if !self.search_input.is_empty() {
+                            self.last_search_query = Some(self.search_input.clone());
+                            self.mode = Mode::Normal;
+                            break;
+                        }
+                    }
+                    (KeyModifiers::NONE, KeyCode::Backspace) => {
+                        self.search_input.pop();
+                    }
+                    (KeyModifiers::NONE, KeyCode::Char(c)) => {
+                        self.search_input.push(c);
+                    }
+                    _ => {}
+                },
+                Event::Resize(cols, rows) => {
+                    self.width = cols;
+                    self.height = rows;
+                    self.reset(w).expect("failed to reset on resize");
                 }
                 _ => {}
-            },
-            Event::Resize(cols, rows) => {
-                self.width = cols;
-                self.height = rows;
-                let _ = queue!(stdout(), Clear(ClearType::All));
             }
-            _ => {}
         }
     }
     fn handle_web_search<W: Write>(&mut self, w: &mut W) {
-        match read().expect("msg") {
-            Event::Key(key) => {
-                // 1. If Web Reader is currently active inside the Search Hub
-                if self.search_hub.show_web_reader {
-                    // 1.1 Web Reader active input prompts (URL bar, jump to link ID, in-page search)
-                    if self.search_hub.web_browser.url_prompt_active {
-                        match (key.modifiers, key.code) {
-                            (KeyModifiers::NONE, KeyCode::Esc) => {
-                                self.search_hub.web_browser.url_prompt_active = false;
-                                self.search_hub.web_browser.url_input.clear();
-                                let _ = queue!(w, Clear(ClearType::All));
-                            }
-                            (KeyModifiers::NONE, KeyCode::Enter) => {
-                                let input = self.search_hub.web_browser.url_input.clone();
-                                self.search_hub.web_browser.url_prompt_active = false;
-                                self.search_hub.web_browser.url_input.clear();
-                                if !input.trim().is_empty() {
-                                    self.search_hub.web_browser.open_url(&input, self.width);
+        self.reset(w).expect("failed to reset");
+        loop {
+            self.draw_web(w).expect("failed to draw web");
+            match read().expect("msg") {
+                Event::Key(key) => {
+                    // 1. If Web Reader is currently active inside the Search Hub
+                    if self.search_hub.show_web_reader {
+                        // 1.1 Web Reader active input prompts (URL bar, jump to link ID, in-page search)
+                        if self.search_hub.web_browser.url_prompt_active {
+                            match (key.modifiers, key.code) {
+                                (KeyModifiers::NONE, KeyCode::Esc) => {
+                                    self.mode = Mode::Normal;
+                                    self.search_hub.web_browser.url_prompt_active = false;
+                                    self.search_hub.web_browser.url_input.clear();
+                                    break;
                                 }
-                                let _ = queue!(w, Clear(ClearType::All));
+                                (KeyModifiers::NONE, KeyCode::Enter) => {
+                                    let input = self.search_hub.web_browser.url_input.clone();
+                                    self.search_hub.web_browser.url_prompt_active = false;
+                                    self.search_hub.web_browser.url_input.clear();
+                                    if !input.trim().is_empty() {
+                                        self.search_hub.web_browser.open_url(&input, self.width);
+                                    }
+                                    self.reset(w).expect("failed to reset");
+                                    break;
+                                }
+                                (KeyModifiers::NONE, KeyCode::Backspace) => {
+                                    self.search_hub.web_browser.url_input.pop();
+                                }
+                                (m, KeyCode::Char(c))
+                                    if m.is_empty() || m == KeyModifiers::SHIFT =>
+                                {
+                                    self.search_hub.web_browser.url_input.push(c);
+                                }
+                                _ => {}
                             }
-                            (KeyModifiers::NONE, KeyCode::Backspace) => {
-                                self.search_hub.web_browser.url_input.pop();
-                            }
-                            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                                self.search_hub.web_browser.url_input.push(c);
-                            }
-                            _ => {}
+                            break;
                         }
-                        return;
-                    }
 
-                    if self.search_hub.web_browser.link_prompt_active {
-                        match (key.modifiers, key.code) {
-                            (KeyModifiers::NONE, KeyCode::Esc) => {
-                                self.search_hub.web_browser.link_prompt_active = false;
-                                self.search_hub.web_browser.link_input.clear();
-                                let _ = queue!(w, Clear(ClearType::All));
-                            }
-                            (KeyModifiers::NONE, KeyCode::Enter) => {
-                                let input = self.search_hub.web_browser.link_input.clone();
-                                self.search_hub.web_browser.link_prompt_active = false;
-                                self.search_hub.web_browser.link_input.clear();
-                                if let Ok(id) = input.trim().parse::<usize>() {
-                                    self.search_hub
-                                        .web_browser
-                                        .follow_link_by_id(id, self.width);
+                        if self.search_hub.web_browser.link_prompt_active {
+                            match (key.modifiers, key.code) {
+                                (KeyModifiers::NONE, KeyCode::Esc) => {
+                                    self.search_hub.web_browser.link_prompt_active = false;
+                                    self.search_hub.web_browser.link_input.clear();
+                                    self.reset(w).expect("failed to reset");
+                                    break;
                                 }
-                                let _ = queue!(w, Clear(ClearType::All));
-                            }
-                            (KeyModifiers::NONE, KeyCode::Backspace) => {
-                                self.search_hub.web_browser.link_input.pop();
-                            }
-                            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                                if c.is_ascii_digit() {
-                                    self.search_hub.web_browser.link_input.push(c);
+                                (KeyModifiers::NONE, KeyCode::Enter) => {
+                                    let input = self.search_hub.web_browser.link_input.clone();
+                                    self.search_hub.web_browser.link_prompt_active = false;
+                                    self.search_hub.web_browser.link_input.clear();
+                                    if let Ok(id) = input.trim().parse::<usize>() {
+                                        self.search_hub
+                                            .web_browser
+                                            .follow_link_by_id(id, self.width);
+                                    }
+                                    self.reset(w).expect("failed to reset");
+                                    break;
                                 }
+                                (KeyModifiers::NONE, KeyCode::Backspace) => {
+                                    self.search_hub.web_browser.link_input.pop();
+                                }
+                                (m, KeyCode::Char(c))
+                                    if m.is_empty() || m == KeyModifiers::SHIFT =>
+                                {
+                                    if c.is_ascii_digit() {
+                                        self.search_hub.web_browser.link_input.push(c);
+                                    }
+                                }
+                                _ => {}
                             }
-                            _ => {}
+                            break;
                         }
-                        return;
-                    }
 
-                    if self.search_hub.web_browser.search_mode {
+                        if self.search_hub.web_browser.search_mode {
+                            match (key.modifiers, key.code) {
+                                (KeyModifiers::NONE, KeyCode::Esc) => {
+                                    self.search_hub.web_browser.search_mode = false;
+                                    self.search_hub.web_browser.search_query.clear();
+                                    self.reset(w).expect("failed to reset");
+                                    break;
+                                }
+                                (KeyModifiers::NONE, KeyCode::Enter) => {
+                                    let query = self.search_hub.web_browser.search_query.clone();
+                                    self.search_hub.web_browser.search_mode = false;
+                                    if !query.trim().is_empty() {
+                                        self.search_hub.web_browser.search_page(&query);
+                                    }
+                                    self.reset(w).expect("failed to reset");
+                                    break;
+                                }
+                                (KeyModifiers::NONE, KeyCode::Backspace) => {
+                                    self.search_hub.web_browser.search_query.pop();
+                                }
+                                (m, KeyCode::Char(c))
+                                    if m.is_empty() || m == KeyModifiers::SHIFT =>
+                                {
+                                    self.search_hub.web_browser.search_query.push(c);
+                                }
+                                _ => {}
+                            }
+                            break;
+                        }
+
+                        // 1.2 Web Reader Navigation Keys
                         match (key.modifiers, key.code) {
                             (KeyModifiers::NONE, KeyCode::Esc) => {
-                                self.search_hub.web_browser.search_mode = false;
+                                self.search_hub.close_web_reader();
+                                self.reset(w).expect("Failed to reset editor");
+                                break;
+                            }
+                            (KeyModifiers::CONTROL, KeyCode::Char('o'))
+                            | (KeyModifiers::CONTROL, KeyCode::Char('g')) => {
+                                self.search_hub.web_browser.url_prompt_active = true;
+                                self.search_hub.web_browser.url_input.clear();
+                            }
+                            (KeyModifiers::CONTROL, KeyCode::Char('f')) => {
+                                self.search_hub.web_browser.link_prompt_active = true;
+                                self.search_hub.web_browser.link_input.clear();
+                            }
+                            (KeyModifiers::NONE, KeyCode::Char('/')) => {
+                                self.search_hub.web_browser.search_mode = true;
                                 self.search_hub.web_browser.search_query.clear();
-                                let _ = queue!(w, Clear(ClearType::All));
+                            }
+                            (KeyModifiers::ALT, KeyCode::Char('n')) => {
+                                self.search_hub.web_browser.next_search_match();
+                            }
+                            (KeyModifiers::SHIFT, KeyCode::Char('N'))
+                            | (KeyModifiers::ALT, KeyCode::Char('N')) => {
+                                self.search_hub.web_browser.prev_search_match();
+                            }
+                            (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
+                                self.search_hub.web_browser.go_back(self.width);
+                            }
+                            (KeyModifiers::CONTROL, KeyCode::Char('F')) => {
+                                self.search_hub.web_browser.go_forward(self.width);
+                            }
+                            (KeyModifiers::CONTROL, KeyCode::Char('r')) => {
+                                self.search_hub.web_browser.reload(self.width);
+                            }
+                            (KeyModifiers::CONTROL, KeyCode::Char('m')) => {
+                                self.search_hub.web_browser.toggle_view_mode();
+                            }
+                            (KeyModifiers::CONTROL, KeyCode::Char('B')) => {
+                                self.search_hub.web_browser.bookmark_current_page();
+                            }
+                            (KeyModifiers::ALT, KeyCode::Char('T')) => {
+                                self.search_hub.web_browser.next_link();
+                            }
+                            (KeyModifiers::ALT, KeyCode::Char('t')) => {
+                                self.search_hub.web_browser.prev_link();
+                            }
+                            (KeyModifiers::SHIFT, KeyCode::BackTab)
+                            | (KeyModifiers::SHIFT, KeyCode::Tab) => {
+                                self.search_hub.web_browser.prev_link();
                             }
                             (KeyModifiers::NONE, KeyCode::Enter) => {
-                                let query = self.search_hub.web_browser.search_query.clone();
-                                self.search_hub.web_browser.search_mode = false;
-                                if !query.trim().is_empty() {
-                                    self.search_hub.web_browser.search_page(&query);
-                                }
-                                let _ = queue!(w, Clear(ClearType::All));
+                                self.search_hub.web_browser.follow_selected_link(self.width);
                             }
-                            (KeyModifiers::NONE, KeyCode::Backspace) => {
-                                self.search_hub.web_browser.search_query.pop();
+                            (KeyModifiers::NONE, KeyCode::Up)
+                            | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                                self.search_hub.web_browser.scroll_up(1);
                             }
-                            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                                self.search_hub.web_browser.search_query.push(c);
+                            (KeyModifiers::NONE, KeyCode::Down)
+                            | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+                                self.search_hub.web_browser.scroll_down(1);
+                            }
+                            (KeyModifiers::NONE, KeyCode::PageUp) => {
+                                self.search_hub.web_browser.scroll_up(10);
+                            }
+                            (KeyModifiers::NONE, KeyCode::PageDown) => {
+                                self.search_hub.web_browser.scroll_down(10);
                             }
                             _ => {}
                         }
-                        return;
+                        break;
                     }
 
-                    // 1.2 Web Reader Navigation Keys
-                    match (key.modifiers, key.code) {
-                        (KeyModifiers::NONE, KeyCode::Esc) => {
-                            self.search_hub.close_web_reader();
-                            let _ = queue!(w, Clear(ClearType::All));
-                        }
-                        (KeyModifiers::CONTROL, KeyCode::Char('o'))
-                        | (KeyModifiers::CONTROL, KeyCode::Char('g')) => {
-                            self.search_hub.web_browser.url_prompt_active = true;
-                            self.search_hub.web_browser.url_input.clear();
-                        }
-                        (KeyModifiers::CONTROL, KeyCode::Char('f')) => {
-                            self.search_hub.web_browser.link_prompt_active = true;
-                            self.search_hub.web_browser.link_input.clear();
-                        }
-                        (KeyModifiers::NONE, KeyCode::Char('/')) => {
-                            self.search_hub.web_browser.search_mode = true;
-                            self.search_hub.web_browser.search_query.clear();
-                        }
-                        (KeyModifiers::ALT, KeyCode::Char('n')) => {
-                            self.search_hub.web_browser.next_search_match();
-                        }
-                        (KeyModifiers::SHIFT, KeyCode::Char('N'))
-                        | (KeyModifiers::ALT, KeyCode::Char('N')) => {
-                            self.search_hub.web_browser.prev_search_match();
-                        }
-                        (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
-                            self.search_hub.web_browser.go_back(self.width);
-                        }
-                        (KeyModifiers::CONTROL, KeyCode::Char('F')) => {
-                            self.search_hub.web_browser.go_forward(self.width);
-                        }
-                        (KeyModifiers::CONTROL, KeyCode::Char('r')) => {
-                            self.search_hub.web_browser.reload(self.width);
-                        }
-                        (KeyModifiers::CONTROL, KeyCode::Char('m')) => {
-                            self.search_hub.web_browser.toggle_view_mode();
-                        }
-                        (KeyModifiers::CONTROL, KeyCode::Char('B')) => {
-                            self.search_hub.web_browser.bookmark_current_page();
-                        }
-                        (KeyModifiers::ALT, KeyCode::Char('T')) => {
-                            self.search_hub.web_browser.next_link();
-                        }
-                        (KeyModifiers::ALT, KeyCode::Char('t')) => {
-                            self.search_hub.web_browser.prev_link();
-                        }
-                        (KeyModifiers::SHIFT, KeyCode::BackTab)
-                        | (KeyModifiers::SHIFT, KeyCode::Tab) => {
-                            self.search_hub.web_browser.prev_link();
-                        }
-                        (KeyModifiers::NONE, KeyCode::Enter) => {
-                            self.search_hub.web_browser.follow_selected_link(self.width);
-                        }
-                        (KeyModifiers::NONE, KeyCode::Up)
-                        | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
-                            self.search_hub.web_browser.scroll_up(1);
-                        }
-                        (KeyModifiers::NONE, KeyCode::Down)
-                        | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
-                            self.search_hub.web_browser.scroll_down(1);
-                        }
-                        (KeyModifiers::NONE, KeyCode::PageUp) => {
-                            self.search_hub.web_browser.scroll_up(10);
-                        }
-                        (KeyModifiers::NONE, KeyCode::PageDown) => {
-                            self.search_hub.web_browser.scroll_down(10);
-                        }
-                        _ => {}
-                    }
-                    return;
-                }
+                    // 2. Active Git / PR Modal Prompts in Search Hub
+                    if let Some(ref mut prompt) = self.search_hub.prompt {
+                        match (key.modifiers, key.code) {
+                            (KeyModifiers::NONE, KeyCode::Esc) => {
+                                self.search_hub.prompt = None;
+                                self.search_hub.status_message =
+                                    Some("Action cancelled.".to_string());
+                                self.reset(w).expect("Failed to reset editor");
+                                break;
+                            }
+                            (KeyModifiers::NONE, KeyCode::Enter) => match prompt {
+                                crate::search::ActionPrompt::CloneRepo {
+                                    repo_url,
+                                    dest_input,
+                                } => {
+                                    let dest_path = self.current_dir.join(dest_input.trim());
+                                    let url = repo_url.clone();
+                                    let target_str = dest_path.display().to_string();
 
-                // 2. Active Git / PR Modal Prompts in Search Hub
-                if let Some(ref mut prompt) = self.search_hub.prompt {
-                    match (key.modifiers, key.code) {
-                        (KeyModifiers::NONE, KeyCode::Esc) => {
-                            self.search_hub.prompt = None;
-                            self.search_hub.status_message = Some("Action cancelled.".to_string());
-                            let _ = queue!(w, Clear(ClearType::All));
-                        }
-                        (KeyModifiers::NONE, KeyCode::Enter) => match prompt {
-                            crate::search::ActionPrompt::CloneRepo {
-                                repo_url,
-                                dest_input,
-                            } => {
-                                let dest_path = self.current_dir.join(dest_input.trim());
-                                let url = repo_url.clone();
-                                let target_str = dest_path.display().to_string();
+                                    self.search_hub.prompt =
+                                        Some(crate::search::ActionPrompt::CloneInProgress {
+                                            repo_url: url.clone(),
+                                            dest_path: target_str.clone(),
+                                            progress_pct: 10,
+                                            status_text:
+                                                "Connecting and negotiating Git objects..."
+                                                    .to_string(),
+                                        });
 
-                                self.search_hub.prompt =
-                                    Some(crate::search::ActionPrompt::CloneInProgress {
-                                        repo_url: url.clone(),
-                                        dest_path: target_str.clone(),
-                                        progress_pct: 10,
-                                        status_text: "Connecting and negotiating Git objects..."
-                                            .to_string(),
-                                    });
-
-                                let res = crate::search::clone_repository_with_progress(
-                                    &url,
-                                    &dest_path,
-                                    None::<fn(crate::search::CloneProgress)>,
-                                );
-                                match res {
-                                    Ok(msg) => {
-                                        self.search_hub.status_message = Some(msg);
-                                        self.search_hub.prompt = None;
-                                    }
-                                    Err(err) => {
-                                        self.search_hub.status_message =
-                                            Some(format!("Error: {err}"));
-                                        self.search_hub.prompt = None;
-                                    }
-                                }
-                            }
-                            crate::search::ActionPrompt::CloneInProgress { .. } => {}
-                            crate::search::ActionPrompt::CreateBranch { branch_input } => {
-                                let branch_name = branch_input.trim().to_string();
-                                let res = crate::search::create_git_branch(
-                                    &self.current_dir,
-                                    &branch_name,
-                                );
-                                match res {
-                                    Ok(msg) => {
-                                        self.search_hub.status_message = Some(msg);
-                                        self.search_hub.prompt = None;
-                                    }
-                                    Err(err) => {
-                                        self.search_hub.status_message =
-                                            Some(format!("Error: {err}"));
-                                        self.search_hub.prompt = None;
-                                    }
-                                }
-                            }
-                            crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
-                                let branch_name = branch_input.trim().to_string();
-                                let res = crate::search::checkout_git_branch(
-                                    &self.current_dir,
-                                    &branch_name,
-                                );
-                                match res {
-                                    Ok(msg) => {
-                                        self.search_hub.status_message = Some(msg);
-                                        self.search_hub.prompt = None;
-                                    }
-                                    Err(err) => {
-                                        self.search_hub.status_message =
-                                            Some(format!("Error: {}", err));
-                                        self.search_hub.prompt = None;
-                                    }
-                                }
-                            }
-                            crate::search::ActionPrompt::ExportReport { path_input } => {
-                                let dest_path = self.current_dir.join(path_input.trim());
-                                let res = crate::search::export_report_to_file(
-                                    &dest_path,
-                                    &self.search_hub.results,
-                                );
-                                match res {
-                                    Ok(msg) => {
-                                        self.search_hub.status_message = Some(msg);
-                                        self.search_hub.prompt = None;
-                                    }
-                                    Err(err) => {
-                                        self.search_hub.status_message =
-                                            Some(format!("Error: {}", err));
-                                        self.search_hub.prompt = None;
-                                    }
-                                }
-                            }
-                            crate::search::ActionPrompt::CreatePullRequest {
-                                repo_input,
-                                title_input,
-                                body_input,
-                                head_input,
-                                base_input,
-                                token_input,
-                                step,
-                            } => {
-                                if *step < 5 {
-                                    *step += 1;
-                                    self.search_hub.status_message = Some(format!(
-                                        "Creating Pull Request - Step {}/6",
-                                        *step + 1
-                                    ));
-                                } else {
-                                    let repo = repo_input.clone();
-                                    let title = title_input.clone();
-                                    let body = body_input.clone();
-                                    let head = head_input.clone();
-                                    let base = base_input.clone();
-                                    let token = if token_input.trim().is_empty() {
-                                        None
-                                    } else {
-                                        Some(token_input.as_str())
-                                    };
-                                    self.search_hub.status_message =
-                                        Some("Submitting Pull Request...".to_string());
-                                    let res = crate::search::create_github_pull_request(
-                                        &repo, &title, &body, &head, &base, token,
+                                    let res = crate::search::clone_repository_with_progress(
+                                        &url,
+                                        &dest_path,
+                                        None::<fn(crate::search::CloneProgress)>,
                                     );
                                     match res {
                                         Ok(msg) => {
@@ -2384,70 +2467,123 @@ impl Qwx {
                                         }
                                         Err(err) => {
                                             self.search_hub.status_message =
-                                                Some(format!("PR Error: {err}"));
+                                                Some(format!("Error: {err}"));
                                             self.search_hub.prompt = None;
                                         }
                                     }
                                 }
-                            }
-                        },
-                        (KeyModifiers::NONE, KeyCode::Backspace) => match prompt {
-                            crate::search::ActionPrompt::CloneRepo { dest_input, .. } => {
-                                dest_input.pop();
-                            }
-                            crate::search::ActionPrompt::CreateBranch { branch_input } => {
-                                branch_input.pop();
-                            }
-                            crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
-                                branch_input.pop();
-                            }
-                            crate::search::ActionPrompt::ExportReport { path_input } => {
-                                path_input.pop();
-                            }
-                            crate::search::ActionPrompt::CreatePullRequest {
-                                repo_input,
-                                title_input,
-                                body_input,
-                                head_input,
-                                base_input,
-                                token_input,
-                                step,
-                            } => match step {
-                                0 => {
-                                    repo_input.pop();
-                                }
-                                1 => {
-                                    title_input.pop();
-                                }
-                                2 => {
-                                    body_input.pop();
-                                }
-                                3 => {
-                                    head_input.pop();
-                                }
-                                4 => {
-                                    base_input.pop();
-                                }
-                                5 => {
-                                    token_input.pop();
-                                }
-                                _ => {}
-                            },
-                            crate::search::ActionPrompt::CloneInProgress { .. } => {}
-                        },
-                        (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                            match prompt {
-                                crate::search::ActionPrompt::CloneRepo { dest_input, .. } => {
-                                    dest_input.push(c);
-                                }
+                                crate::search::ActionPrompt::CloneInProgress { .. } => {}
                                 crate::search::ActionPrompt::CreateBranch { branch_input } => {
-                                    branch_input.push(c);
+                                    let branch_name = branch_input.trim().to_string();
+                                    let res = crate::search::create_git_branch(
+                                        &self.current_dir,
+                                        &branch_name,
+                                    );
+                                    match res {
+                                        Ok(msg) => {
+                                            self.search_hub.status_message = Some(msg);
+                                            self.search_hub.prompt = None;
+                                        }
+                                        Err(err) => {
+                                            self.search_hub.status_message =
+                                                Some(format!("Error: {err}"));
+                                            self.search_hub.prompt = None;
+                                        }
+                                    }
                                 }
                                 crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
-                                    branch_input.push(c);
+                                    let branch_name = branch_input.trim().to_string();
+                                    let res = crate::search::checkout_git_branch(
+                                        &self.current_dir,
+                                        &branch_name,
+                                    );
+                                    match res {
+                                        Ok(msg) => {
+                                            self.search_hub.status_message = Some(msg);
+                                            self.search_hub.prompt = None;
+                                        }
+                                        Err(err) => {
+                                            self.search_hub.status_message =
+                                                Some(format!("Error: {}", err));
+                                            self.search_hub.prompt = None;
+                                        }
+                                    }
                                 }
                                 crate::search::ActionPrompt::ExportReport { path_input } => {
-                                    path_input.push(c);
+                                    let dest_path = self.current_dir.join(path_input.trim());
+                                    let res = crate::search::export_report_to_file(
+                                        &dest_path,
+                                        &self.search_hub.results,
+                                    );
+                                    match res {
+                                        Ok(msg) => {
+                                            self.search_hub.status_message = Some(msg);
+                                            self.search_hub.prompt = None;
+                                        }
+                                        Err(err) => {
+                                            self.search_hub.status_message =
+                                                Some(format!("Error: {}", err));
+                                            self.search_hub.prompt = None;
+                                        }
+                                    }
+                                }
+                                crate::search::ActionPrompt::CreatePullRequest {
+                                    repo_input,
+                                    title_input,
+                                    body_input,
+                                    head_input,
+                                    base_input,
+                                    token_input,
+                                    step,
+                                } => {
+                                    if *step < 5 {
+                                        *step += 1;
+                                        self.search_hub.status_message = Some(format!(
+                                            "Creating Pull Request - Step {}/6",
+                                            *step + 1
+                                        ));
+                                    } else {
+                                        let repo = repo_input.clone();
+                                        let title = title_input.clone();
+                                        let body = body_input.clone();
+                                        let head = head_input.clone();
+                                        let base = base_input.clone();
+                                        let token = if token_input.trim().is_empty() {
+                                            None
+                                        } else {
+                                            Some(token_input.as_str())
+                                        };
+                                        self.search_hub.status_message =
+                                            Some("Submitting Pull Request...".to_string());
+                                        let res = crate::search::create_github_pull_request(
+                                            &repo, &title, &body, &head, &base, token,
+                                        );
+                                        match res {
+                                            Ok(msg) => {
+                                                self.search_hub.status_message = Some(msg);
+                                                self.search_hub.prompt = None;
+                                            }
+                                            Err(err) => {
+                                                self.search_hub.status_message =
+                                                    Some(format!("PR Error: {err}"));
+                                                self.search_hub.prompt = None;
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            (KeyModifiers::NONE, KeyCode::Backspace) => match prompt {
+                                crate::search::ActionPrompt::CloneRepo { dest_input, .. } => {
+                                    dest_input.pop();
+                                }
+                                crate::search::ActionPrompt::CreateBranch { branch_input } => {
+                                    branch_input.pop();
+                                }
+                                crate::search::ActionPrompt::CheckoutBranch { branch_input } => {
+                                    branch_input.pop();
+                                }
+                                crate::search::ActionPrompt::ExportReport { path_input } => {
+                                    path_input.pop();
                                 }
                                 crate::search::ActionPrompt::CreatePullRequest {
                                     repo_input,
@@ -2459,165 +2595,216 @@ impl Qwx {
                                     step,
                                 } => match step {
                                     0 => {
-                                        repo_input.push(c);
+                                        repo_input.pop();
                                     }
                                     1 => {
-                                        title_input.push(c);
+                                        title_input.pop();
                                     }
                                     2 => {
-                                        body_input.push(c);
+                                        body_input.pop();
                                     }
                                     3 => {
-                                        head_input.push(c);
+                                        head_input.pop();
                                     }
                                     4 => {
-                                        base_input.push(c);
+                                        base_input.pop();
                                     }
                                     5 => {
-                                        token_input.push(c);
+                                        token_input.pop();
                                     }
                                     _ => {}
                                 },
                                 crate::search::ActionPrompt::CloneInProgress { .. } => {}
+                            },
+                            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                                match prompt {
+                                    crate::search::ActionPrompt::CloneRepo {
+                                        dest_input, ..
+                                    } => {
+                                        dest_input.push(c);
+                                    }
+                                    crate::search::ActionPrompt::CreateBranch { branch_input } => {
+                                        branch_input.push(c);
+                                    }
+                                    crate::search::ActionPrompt::CheckoutBranch {
+                                        branch_input,
+                                    } => {
+                                        branch_input.push(c);
+                                    }
+                                    crate::search::ActionPrompt::ExportReport { path_input } => {
+                                        path_input.push(c);
+                                    }
+                                    crate::search::ActionPrompt::CreatePullRequest {
+                                        repo_input,
+                                        title_input,
+                                        body_input,
+                                        head_input,
+                                        base_input,
+                                        token_input,
+                                        step,
+                                    } => match step {
+                                        0 => {
+                                            repo_input.push(c);
+                                        }
+                                        1 => {
+                                            title_input.push(c);
+                                        }
+                                        2 => {
+                                            body_input.push(c);
+                                        }
+                                        3 => {
+                                            head_input.push(c);
+                                        }
+                                        4 => {
+                                            base_input.push(c);
+                                        }
+                                        5 => {
+                                            token_input.push(c);
+                                        }
+                                        _ => {}
+                                    },
+                                    crate::search::ActionPrompt::CloneInProgress { .. } => {}
+                                }
                             }
+                            _ => {}
+                        }
+                        break;
+                    }
+
+                    // 3. SearchHub Navigation & Input (Results Grid View)
+                    match (key.modifiers, key.code) {
+                        (KeyModifiers::NONE, KeyCode::Esc) => {
+                            self.mode = Mode::Normal;
+                            self.reset(w).expect("Failed to reset editor");
+                            break;
+                        }
+                        (KeyModifiers::NONE, KeyCode::Tab) => {
+                            self.search_hub.next_provider();
+                        }
+                        (KeyModifiers::SHIFT, KeyCode::BackTab)
+                        | (KeyModifiers::SHIFT, KeyCode::Tab) => {
+                            self.search_hub.prev_provider();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Up) => {
+                            self.search_hub.prev_result();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Down) => {
+                            self.search_hub.next_result();
+                        }
+                        (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                            self.search_hub.prev_result();
+                        }
+                        (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+                            self.search_hub.next_result();
+                        }
+                        (KeyModifiers::NONE, KeyCode::PageUp) => {
+                            self.search_hub.scroll_preview_up();
+                        }
+                        (KeyModifiers::NONE, KeyCode::PageDown) => {
+                            self.search_hub.scroll_preview_down();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('w'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('w')) => {
+                            self.search_hub.open_selected_in_web_reader(self.width);
+                            self.reset(w).expect("Failed to clear screen");
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('v'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('v')) => {
+                            self.search_hub.view_results_as_web_page(self.width);
+                            self.reset(w).expect("Failed to clear screen");
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('o'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
+                            self.search_hub.open_selected_in_browser();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('e'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
+                            self.search_hub.start_export_report();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('s')) => {
+                            self.search_hub.start_checkout_branch();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('c'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                            self.search_hub.start_clone_selected();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('b'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
+                            self.search_hub.start_create_branch();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('p')) => {
+                            self.search_hub.start_create_pull_request();
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('a'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::LocalAudit);
+                            self.search_hub.perform_search(&self.current_dir);
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('1'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('1')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::All);
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('2'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('2')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::Crates);
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('3'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('3')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::GitHub);
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('4'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('4')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::GitLab);
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('5'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('5')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::Wikipedia);
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('6'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('6')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::Cve);
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('7'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('7')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::HackerNews);
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('8'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('8')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::LocalAudit);
+                        }
+                        (KeyModifiers::ALT, KeyCode::Char('9'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('9')) => {
+                            self.search_hub
+                                .set_provider(crate::search::SearchProvider::Web);
+                        }
+                        (KeyModifiers::NONE, KeyCode::Enter) => {
+                            self.search_hub.perform_search(&self.current_dir);
+                        }
+                        (KeyModifiers::NONE, KeyCode::Backspace) => {
+                            self.search_hub.query.pop();
+                        }
+                        (KeyModifiers::NONE, KeyCode::Char(c)) => {
+                            self.search_hub.query.push(c);
                         }
                         _ => {}
                     }
-                    return;
                 }
-
-                // 3. SearchHub Navigation & Input (Results Grid View)
-                match (key.modifiers, key.code) {
-                    (KeyModifiers::NONE, KeyCode::Esc) => {
-                        self.mode = Mode::Normal;
-                        let _ = queue!(w, Clear(ClearType::All));
-                    }
-                    (KeyModifiers::NONE, KeyCode::Tab) => {
-                        self.search_hub.next_provider();
-                    }
-                    (KeyModifiers::SHIFT, KeyCode::BackTab)
-                    | (KeyModifiers::SHIFT, KeyCode::Tab) => {
-                        self.search_hub.prev_provider();
-                    }
-                    (KeyModifiers::NONE, KeyCode::Up) => {
-                        self.search_hub.prev_result();
-                    }
-                    (KeyModifiers::NONE, KeyCode::Down) => {
-                        self.search_hub.next_result();
-                    }
-                    (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
-                        self.search_hub.prev_result();
-                    }
-                    (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
-                        self.search_hub.next_result();
-                    }
-                    (KeyModifiers::NONE, KeyCode::PageUp) => {
-                        self.search_hub.scroll_preview_up();
-                    }
-                    (KeyModifiers::NONE, KeyCode::PageDown) => {
-                        self.search_hub.scroll_preview_down();
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('w'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('w')) => {
-                        self.search_hub.open_selected_in_web_reader(self.width);
-                        let _ = queue!(w, Clear(ClearType::All));
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('v'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('v')) => {
-                        self.search_hub.view_results_as_web_page(self.width);
-                        let _ = queue!(w, Clear(ClearType::All));
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('o'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
-                        self.search_hub.open_selected_in_browser();
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('e'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
-                        self.search_hub.start_export_report();
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('s')) => {
-                        self.search_hub.start_checkout_branch();
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('c'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
-                        self.search_hub.start_clone_selected();
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('b'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
-                        self.search_hub.start_create_branch();
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('p')) => {
-                        self.search_hub.start_create_pull_request();
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('a'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::LocalAudit);
-                        self.search_hub.perform_search(&self.current_dir);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('1'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('1')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::All);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('2'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('2')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::Crates);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('3'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('3')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::GitHub);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('4'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('4')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::GitLab);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('5'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('5')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::Wikipedia);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('6'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('6')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::Cve);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('7'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('7')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::HackerNews);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('8'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('8')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::LocalAudit);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('9'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('9')) => {
-                        self.search_hub
-                            .set_provider(crate::search::SearchProvider::Web);
-                    }
-                    (KeyModifiers::NONE, KeyCode::Enter) => {
-                        self.search_hub.perform_search(&self.current_dir);
-                    }
-                    (KeyModifiers::NONE, KeyCode::Backspace) => {
-                        self.search_hub.query.pop();
-                    }
-                    (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                        self.search_hub.query.push(c);
-                    }
-                    _ => {}
+                Event::Resize(cols, rows) => {
+                    self.width = cols;
+                    self.height = rows;
+                    self.reset(w).expect("Failed to clear screen");
                 }
+                _ => {}
             }
-            Event::Resize(cols, rows) => {
-                self.width = cols;
-                self.height = rows;
-                let _ = queue!(stdout(), Clear(ClearType::All));
-            }
-            _ => {}
         }
     }
 
@@ -2625,9 +2812,9 @@ impl Qwx {
         match self.mode {
             Mode::Normal => self.handle_normal(w),
             Mode::Finder => self.handle_finder(w),
-            Mode::Menu => self.handle_menu(),
+            Mode::Menu => self.handle_menu(w),
             Mode::Editor => self.handle_editor(w),
-            Mode::Search => self.handle_search(),
+            Mode::Search => self.handle_search(w),
             Mode::WebSearch => self.handle_web_search(w),
             Mode::Player => self.handle_player(w),
             Mode::Zen => {}
@@ -2638,23 +2825,29 @@ impl Qwx {
         }
     }
 
-    fn handle_player<W: Write>(&mut self, w: &mut W) {
-        if poll(std::time::Duration::from_millis(100)).unwrap_or(false) {
-            match read().expect("failed to get terminal input") {
-                Event::Key(key) => {
-                    if !self.player.handle_key(key.code, key.modifiers) {
-                        self.mode = Mode::Normal;
-                        let _ = queue!(w, Clear(ClearType::All));
+    pub fn handle_player<W: Write>(&mut self, w: &mut W) {
+        self.reset(w).expect("failed to reset");
+        loop {
+            self.draw_spotify_player(w)
+                .expect("failed to draw spotify player");
+            if poll(std::time::Duration::from_millis(100)).unwrap_or(false) {
+                match read().expect("failed to get terminal input") {
+                    Event::Key(key) => {
+                        if !self.player.handle_key(key.code, key.modifiers) {
+                            self.mode = Mode::Normal;
+                            break;
+                        }
                     }
+                    Event::Resize(cols, rows) => {
+                        self.width = cols;
+                        self.height = rows;
+                        self.reset(w).expect("failed to reset");
+                    }
+                    _ => {}
                 }
-                Event::Resize(cols, rows) => {
-                    self.width = cols;
-                    self.height = rows;
-                    let _ = queue!(w, Clear(ClearType::All));
-                }
-                _ => {}
             }
         }
+        self.reset(w).expect("failed to reset");
     }
     /// Creates a new instance of the editor with the specified path and open mode.
     pub fn is_finder_open(&self) -> bool {
@@ -2663,20 +2856,20 @@ impl Qwx {
     pub fn run(&mut self) -> Result<(), Error> {
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
-        queue!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, Hide, EnterAlternateScreen)?;
         while self.running {
             self.draw(&mut stdout)?;
             self.handle_events(&mut stdout);
         }
-        queue!(stdout, LeaveAlternateScreen, Show)?;
+        execute!(stdout, LeaveAlternateScreen, Show)?;
         terminal::disable_raw_mode()?;
         Ok(())
     }
-
     #[allow(clippy::too_many_arguments)]
     /// Displays a preview of a given node within a specified area.
-    pub fn preview(
+    pub fn preview<W: Write>(
         &self,
+        w: &mut W,
         node: &Node,
         start_x: u16,
         start_y: u16,
@@ -2684,8 +2877,11 @@ impl Qwx {
         p_height: u16,
         scroll_y: usize,
         selection: Option<(usize, usize)>,
+        active_search: Option<&str>,
     ) -> Result<(), Error> {
-        let mut w = stdout();
+        // 1. Compilation de la Regex de recherche une seule fois pour la vue
+        let re = active_search.and_then(|pattern| regex::Regex::new(pattern).ok());
+
         let mut drawn_lines = 0;
 
         for (line_idx, line_spans) in node
@@ -2698,6 +2894,25 @@ impl Qwx {
             queue!(w, MoveTo(start_x, start_y + line_idx as u16))?;
 
             let current_absolute_line = scroll_y + line_idx;
+
+            // 2. Recherche des correspondances Regex sur la ligne brute (sans couleurs)
+            let raw_line = node
+                .content
+                .get(current_absolute_line)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+
+            let match_ranges: Vec<(usize, usize)> = re
+                .as_ref()
+                .map(|regex| {
+                    regex
+                        .find_iter(raw_line)
+                        .map(|m| (m.start(), m.end()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // 3. Gestion de la sélection visuelle (couleur de fond)
             let is_selected = match selection {
                 Some((start, end)) => {
                     current_absolute_line >= start && current_absolute_line <= end
@@ -2705,56 +2920,80 @@ impl Qwx {
                 None => false,
             };
 
-            if is_selected {
-                queue!(
-                    w,
-                    SetBackgroundColor(Color::Rgb {
-                        r: 55,
-                        g: 65,
-                        b: 85
-                    })
-                )?;
-            }
+            let bg_color = if is_selected {
+                Color::DarkGrey
+            } else {
+                Color::Reset
+            };
 
             let mut current_width = 0;
-            for (text, color) in line_spans {
-                let clean_text = text.replace('\t', "    ").replace('\r', "");
-                let text_width = clean_text.width();
-                let remaining_width = p_width.saturating_sub(current_width) as usize;
+            let mut byte_offset = 0; // Pour tracker notre position exacte en octets
 
-                if remaining_width == 0 {
-                    break;
-                }
+            // 4. Boucle d'affichage caractère par caractère
+            for (text, base_color) in line_spans {
+                for c in text.chars() {
+                    let char_len = c.len_utf8();
+                    let is_match = match_ranges
+                        .iter()
+                        .any(|&(s, e)| byte_offset >= s && byte_offset < e);
 
-                let display_text = if text_width > remaining_width {
-                    let mut acc_width = 0;
-                    let mut truncated = String::new();
-                    for c in clean_text.chars() {
-                        let c_width = c.width().unwrap_or(0);
-                        if acc_width + c_width > remaining_width {
-                            break;
-                        }
-                        truncated.push(c);
-                        acc_width += c_width;
+                    // Calcul de la largeur visuelle du caractère
+                    let mut c_width = c.width().unwrap_or(0) as u16;
+                    if c == '\t' {
+                        c_width = 4;
+                    } else if c == '\r' {
+                        c_width = 0;
                     }
-                    truncated
-                } else {
-                    clean_text
-                };
 
-                queue!(w, SetForegroundColor(*color), Print(&display_text))?;
-                current_width += display_text.width() as u16;
+                    // Troncature automatique à la bordure droite du panneau
+                    if current_width + c_width > p_width {
+                        byte_offset += char_len;
+                        continue;
+                    }
+
+                    // Application des couleurs (Recherche > Sélection > Normal)
+                    if is_match {
+                        queue!(
+                            w,
+                            SetBackgroundColor(Color::White),
+                            SetForegroundColor(Color::Black)
+                        )?;
+                    } else {
+                        queue!(
+                            w,
+                            SetBackgroundColor(bg_color),
+                            SetForegroundColor(*base_color)
+                        )?;
+                    }
+
+                    // Affichage final propre
+                    if c == '\t' {
+                        queue!(w, Print("    "))?;
+                    } else if c != '\r' {
+                        queue!(w, Print(c))?;
+                    }
+
+                    current_width += c_width;
+                    byte_offset += char_len;
+                }
             }
 
+            // 5. Remplissage de l'espace vide restant en fin de ligne (padding)
             if current_width < p_width {
                 let padding = " ".repeat((p_width - current_width) as usize);
-                queue!(w, Print(padding))?;
+                queue!(
+                    w,
+                    SetBackgroundColor(bg_color),
+                    SetForegroundColor(Color::Reset),
+                    Print(padding)
+                )?;
             }
 
             queue!(w, ResetColor)?;
             drawn_lines += 1;
         }
 
+        // 6. Remplissage des lignes entièrement vides en bas du panneau
         for empty_y in drawn_lines..(p_height as usize) {
             let padding = " ".repeat(p_width as usize);
             queue!(
@@ -2764,6 +3003,7 @@ impl Qwx {
                 Print(padding)
             )?;
         }
+        w.flush()?;
         Ok(())
     }
     /// Creates a new instance of the editor with the specified path and open mode.
@@ -2818,11 +3058,9 @@ impl Qwx {
             panes[0].view = target_node_id as u8;
         }
         let mut spatial_map = HashMap::new();
-        // On initialise le panneau 0 (TopLeft) sur le Workspace 1, View 1 avec le fichier cible
         if target_file.is_some() && target_node_id < views.len() {
             spatial_map.insert((0, 1, 1), target_node_id);
         } else if !nodes.is_empty() {
-            // Sinon on met le premier fichier dispo
             spatial_map.insert((0, 1, 1), 0);
         }
         Ok(Self {
@@ -2900,20 +3138,6 @@ impl Qwx {
                 }
             }
         }
-    }
-    /// Creates a new instance of the editor with the specified path and open mode.
-    pub fn draw_finder<W: Write>(&mut self, w: &mut W) -> io::Result<()> {
-        let max_width = 180.min(self.width);
-        let left_x = (self.width.saturating_sub(max_width)) / 2;
-        self.finder.clone().show(
-            w,
-            &mut self.finder,
-            &mut self.finder_research.as_mut(),
-            left_x,
-            0,
-            max_width,
-            self.height,
-        )
     }
 }
 /// Creates a configuration object for syntax highlighting based on the provided parameters.
@@ -3654,7 +3878,6 @@ impl Ji {
             ji.query = Query::new(&config.ts_config.language, config.query_string).ok();
             let _ = ji.parser.set_language(&config.ts_config.language);
             ji.lang_config = Some(config);
-
             ji.update_syntax_tree();
         }
         Ok(ji)
