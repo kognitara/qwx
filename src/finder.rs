@@ -1741,7 +1741,7 @@ pub fn list_sub_files(path: &Path) -> Vec<String> {
 ///
 /// - `height`:
 ///     The height dimension (in units) of the `Finder` layout, used for display or visualization purposes.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Finder {
     pub layout: FinderLayout,
     pub directories: Vec<String>,
@@ -2020,17 +2020,10 @@ impl Finder {
         let research_lower = research.to_ascii_lowercase();
         let matcher = |item_name: &String| -> bool {
             let item_lower = item_name.to_lowercase();
-            if let Some(target) = research_lower.strip_prefix('=') {
-                item_lower == target
-            } else if let Some(target) = research_lower.strip_prefix('^') {
-                item_lower.starts_with(target)
-            } else if let Some(target) = research_lower.strip_prefix('$') {
-                item_lower.ends_with(target)
-            } else if let Some(target) = research_lower.strip_prefix('!') {
-                !item_lower.contains(target)
-            } else {
-                item_lower.contains(&research_lower)
-            }
+            item_lower.contains(&research_lower)
+                || item_lower.eq(&research_lower)
+                || item_lower.starts_with(&research_lower)
+                || item_lower.ends_with(&research_lower)
         };
         self.files.retain(|f| matcher(f));
         self.directories.retain(|d| matcher(d));

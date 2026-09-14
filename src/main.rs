@@ -7,8 +7,8 @@ use inquire::Text;
 use qwx::editor::{Mode, Qwx};
 use qwx::player::{SpotifyClient, SpotifyCredentials};
 use std::env::{current_dir, set_current_dir};
-use std::io;
-use std::path::Path;
+use std::path::PathBuf;
+use std::{env, io};
 
 const HELP_CONTENT: &str = include_str!("../help.txt");
 
@@ -22,7 +22,7 @@ fn cli() -> Command {
                 .help("Path to open")
                 .required(true)
                 .action(ArgAction::Set)
-                .value_parser(value_parser!(String)),
+                .value_parser(value_parser!(PathBuf)),
         ))
         .subcommand(
             Command::new("gen")
@@ -46,7 +46,7 @@ fn cli() -> Command {
                     Arg::new("destination")
                         .required(true)
                         .action(ArgAction::Set)
-                        .value_parser(value_parser!(String)),
+                        .value_parser(value_parser!(PathBuf)),
                 ),
         )
         .subcommand(
@@ -172,10 +172,10 @@ fn update_spotify_token() -> io::Result<()> {
 fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     let url = sub.get_one::<String>("url").expect("url is required");
     let destination = sub
-        .get_one::<String>("destination")
+        .get_one::<PathBuf>("destination")
         .expect("destination is required");
     let w = &mut io::stdout();
-    let dest = Path::new(destination.as_str());
+    let dest = destination.as_path();
     let x = current_dir()?;
     let p = x.join(destination);
 
@@ -232,18 +232,17 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     set_current_dir(p.as_path())?;
     Qwx::new(p.as_path(), Mode::Normal).as_mut().run(w)
 }
+
 fn main() -> io::Result<()> {
     let mut app = cli();
     let w = &mut io::stdout();
     let matches = app.clone().get_matches();
     match matches.subcommand() {
         Some(("open", sub)) => {
-            let p = sub
-                .get_one::<String>("path")
-                .map(|s| s.as_str())
-                .unwrap_or(".");
-            let path = Path::new(p);
-            Qwx::new(path, Mode::Normal).as_mut().run(w)
+            let p = sub.get_one::<PathBuf>("path").expect("path is required");
+            Qwx::new(p.canonicalize()?.as_path(), Mode::Normal)
+                .as_mut()
+                .run(w)
         }
         Some(("gen", sub)) => {
             let shell = sub.get_one::<String>("shell").expect("shell is required");
@@ -267,11 +266,14 @@ fn main() -> io::Result<()> {
             }
         }
         None => {
-            if let Some(p) = matches.get_one::<String>("path") {
-                let path = Path::new(p);
-                Qwx::new(path, Mode::Normal).as_mut().run(w)
+            if let Some(p) = matches.get_one::<PathBuf>("path") {
+                Qwx::new(p.canonicalize()?.as_path(), Mode::Normal)
+                    .as_mut()
+                    .run(w)
             } else {
-                Qwx::new(Path::new("."), Mode::Normal).as_mut().run(w)
+                Qwx::new(current_dir()?.as_path(), Mode::Normal)
+                    .as_mut()
+                    .run(w)
             }
         }
         _ => {

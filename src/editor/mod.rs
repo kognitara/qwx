@@ -11,6 +11,7 @@ use crossterm::terminal::{
     self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, size,
 };
 use crossterm::{execute, queue};
+use inquire::Select;
 use is_executable::IsExecutable;
 use ropey::Rope;
 use std::collections::HashMap;
@@ -52,7 +53,48 @@ pub const INIT_PANE_STATE: PaneState = PaneState {
     cursor_col: 0,
     facet: Facet::Front,
 };
-
+pub const INIT_NODE_STATE: [Node; 4] = [
+    Node {
+        id: 0,
+        name: String::new(),
+        ext: String::new(),
+        content: vec![],
+        colored_lines: vec![],
+        is_file: true,
+        undo_stack: vec![],
+        redo_stack: vec![],
+    },
+    Node {
+        id: 1,
+        name: String::new(),
+        ext: String::new(),
+        content: vec![],
+        colored_lines: vec![],
+        is_file: true,
+        undo_stack: vec![],
+        redo_stack: vec![],
+    },
+    Node {
+        id: 2,
+        name: String::new(),
+        ext: String::new(),
+        content: vec![],
+        colored_lines: vec![],
+        is_file: true,
+        undo_stack: vec![],
+        redo_stack: vec![],
+    },
+    Node {
+        id: 3,
+        name: String::new(),
+        ext: String::new(),
+        content: vec![],
+        colored_lines: vec![],
+        is_file: true,
+        undo_stack: vec![],
+        redo_stack: vec![],
+    },
+];
 /// Converts a numerical value (0-9) into its corresponding superscript Unicode character.
 ///
 /// # Parameters
@@ -145,7 +187,6 @@ impl<W: Write> QwxUi<W> for Qwx {
     }
     fn draw_normal(&mut self, w: &mut W) -> Result<(), Error> {
         self.base(w)?;
-
         queue!(w, Show, SetCursorStyle::BlinkingUnderScore)?;
 
         let max_width = 180.min(self.width);
@@ -684,7 +725,7 @@ impl QwxPanel for Qwx {
                     "keyword.directive",
                     "punctuation.special",
                 ];
-                if let Some(config) = detect_language(&node.ext, &theme_keys) {
+                if let Some(config) = detect_language(&node.ext, &node.name, &theme_keys) {
                     ed.query = Query::new(&config.ts_config.language, config.query_string).ok();
                     let _ = ed.parser.set_language(&config.ts_config.language);
                     ed.lang_config = Some(config);
@@ -912,12 +953,12 @@ pub struct Qwx {
     pub front_panes: [PaneState; 4],
     pub back_panes: [PaneState; 4],
     pub spatial_map: HashMap<(usize, u8, u8), usize>,
+    pub current_dir: Box<Path>,
     nodes: Vec<Node>,
     views: Vec<View>,
     width: u16,
     height: u16,
     pub running: bool,
-    pub current_dir: PathBuf,
     focus: PaneFocus,
     panes: [PaneState; 4],
     mode: Mode,
@@ -954,6 +995,7 @@ impl AsMut<Qwx> for Qwx {
 /// };
 /// println!("Active node ID: {}", view.active_node_id);
 /// ```
+#[derive(Default, Copy, Clone)]
 pub struct View {
     pub active_node_id: usize,
 }
@@ -1083,7 +1125,7 @@ pub enum QwxScrollDirection {
 ///     PaneFocus::BottomRight => println!("Bottom-right pane is focused."),
 /// }
 /// ```
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum PaneFocus {
     TopLeft = 0,
     TopRight = 1,
@@ -1425,6 +1467,15 @@ impl<W: Write> QwxRenderer<W> for Qwx {
 }
 
 impl Qwx {
+    pub fn refresh_and_ask<W: Write>(&mut self, path: Vec<String>, w: &mut W) -> ! {
+        self.running = false;
+        self.run(w).expect("failed to refresh");
+        let p = Select::new("path", path).prompt().expect("");
+        Qwx::new(Path::new(&p), Mode::Normal)
+            .run(w)
+            .expect("failed to refresh");
+        exit(0)
+    }
     pub fn refresh<W: Write>(&mut self, path: &Path, w: &mut W) -> ! {
         self.running = false;
         self.run(w).expect("failed to refresh");
@@ -1457,8 +1508,6 @@ impl Qwx {
     }
     fn sync_node_content(&mut self) {
         let active_idx = self.focus as usize;
-
-        // J'ai supprimé ici les deux lignes qui écrasaient `pane.cursor` par erreur !
 
         if let Some(view) = self.views.get(active_idx) {
             let node_id = view.active_node_id;
@@ -1565,20 +1614,91 @@ impl Qwx {
                                         self.refresh(home.as_path(), w);
                                     }
                                 }
-                                (KeyModifiers::NONE, KeyCode::Char('v')) => {
-                                    #[cfg(target_os = "linux")]
-                                    self.refresh(Path::new("/var/log"), w);
-                                    #[cfg(target_os = "freebsd")]
-                                    self.refresh(Path::new("/var/log"), w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('g')) => {
-                                    self.refresh(Path::new("/"), w);
-                                }
-
                                 (KeyModifiers::NONE, KeyCode::Char('d')) => {
-                                    if let Some(document) = dirs::document_dir() {
-                                        self.refresh(document.as_path(), w);
+                                    let mut options: Vec<String> = Vec::new();
+                                    if let Some(x) = dirs::document_dir() {
+                                        options.push(x.display().to_string());
                                     }
+                                    if let Some(x) = dirs::data_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    if let Some(x) = dirs::data_local_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+
+                                    if let Some(x) = dirs::download_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    if let Some(x) = dirs::desktop_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    options.push(String::from("/dev"));
+                                    options.dedup();
+                                    options.sort();
+                                    self.refresh_and_ask(options, w);
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('v')) => {
+                                    let mut options: Vec<String> = Vec::new();
+                                    if let Some(x) = dirs::video_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    if cfg!(target_os = "linux") {
+                                        options.push(String::from("/var"));
+                                    }
+                                    options.dedup();
+                                    options.sort();
+                                    self.refresh_and_ask(options, w);
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('o')) => {
+                                    #[cfg(target_os = "linux")]
+                                    self.refresh(Path::new("/opt"), w);
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('p')) => {
+                                    let mut options: Vec<String> = Vec::new();
+                                    #[cfg(target_os = "linux")]
+                                    options.push(String::from("/proc"));
+                                    if let Some(x) = dirs::picture_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    if let Some(x) = dirs::preference_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    if let Some(x) = dirs::public_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    options.dedup();
+                                    options.sort();
+                                    self.refresh_and_ask(options, w);
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('r')) => {
+                                    let mut options: Vec<String> = Vec::new();
+                                    if let Some(x) = dirs::runtime_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    #[cfg(target_os = "linux")]
+                                    options.push(String::from("/run"));
+                                    options.dedup();
+                                    options.sort();
+                                    self.refresh_and_ask(options, w);
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('s')) => {
+                                    let mut options: Vec<String> = Vec::new();
+                                    if cfg!(target_os = "linux") {
+                                        options.push(String::from("/sys"));
+                                        options.push(String::from("/srv"));
+                                    }
+                                    if let Some(x) = dirs::state_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    options.dedup();
+                                    options.sort();
+                                    self.refresh_and_ask(options, w);
+                                }
+                                (KeyModifiers::NONE, KeyCode::Char('m')) => {
+                                    #[cfg(target_os = "linux")]
+                                    self.refresh(Path::new("/mnt"), w);
+                                    #[cfg(target_os = "freebsd")]
+                                    self.refresh(Path::new("/mnt"), w);
                                 }
                                 (KeyModifiers::NONE, KeyCode::Char('e')) => {
                                     #[cfg(target_os = "linux")]
@@ -1597,24 +1717,24 @@ impl Qwx {
                                         self.refresh(audio.as_path(), w);
                                     }
                                 }
-                                (KeyModifiers::NONE, KeyCode::Char('p')) => {
-                                    if let Some(pic) = dirs::picture_dir() {
-                                        self.refresh(pic.as_path(), w);
-                                    }
-                                }
                                 (KeyModifiers::NONE, KeyCode::Char('c')) => {
-                                    if let Some(conf) = dirs::config_dir() {
-                                        self.refresh(conf.as_path(), w);
+                                    let mut options: Vec<String> = Vec::new();
+                                    if let Some(x) = dirs::cache_dir() {
+                                        options.push(x.display().to_string());
                                     }
+                                    if let Some(x) = dirs::config_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    if let Some(x) = dirs::config_local_dir() {
+                                        options.push(x.display().to_string());
+                                    }
+                                    options.dedup();
+                                    options.sort();
+                                    self.refresh_and_ask(options, w);
                                 }
                                 (KeyModifiers::NONE, KeyCode::Char('t')) => {
                                     if let Some(template) = dirs::template_dir() {
                                         self.refresh(template.as_path(), w);
-                                    }
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('x')) => {
-                                    if let Some(cache) = dirs::cache_dir() {
-                                        self.refresh(cache.as_path(), w);
                                     }
                                 }
                                 _ => break,
@@ -2171,6 +2291,7 @@ impl Qwx {
     }
 
     fn handle_finder<W: Write>(&mut self, w: &mut W) {
+        self.reset(w).expect("failed to reset");
         loop {
             self.draw_finder(w).expect("failed to draw");
             match read().expect("msg") {
@@ -2180,12 +2301,22 @@ impl Qwx {
                     }
                     (KeyModifiers::NONE, KeyCode::Backspace) => {
                         self.finder_research.pop();
-                        self.finder.filter(self.finder_research.clone());
+                        if !self.finder_research.is_empty() && !self.finder.files.is_empty() {
+                            self.finder.filter(self.finder_research.clone());
+                            continue;
+                        }
+                        self.finder =
+                            Finder::new(self.current_dir.as_ref(), self.finder_layout.clone());
+                        if !self.finder_research.is_empty() {
+                            self.finder.filter(self.finder_research.clone());
+                        }
                         continue;
                     }
                     (KeyModifiers::NONE, KeyCode::Char(c)) => {
-                        self.finder_research.push(c);
-                        self.finder.filter(self.finder_research.clone());
+                        if c.is_ascii_alphanumeric() {
+                            self.finder_research.push(c);
+                            self.finder.filter(self.finder_research.clone());
+                        }
                         continue;
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
@@ -2201,10 +2332,13 @@ impl Qwx {
                         self.finder.prev_dir();
                     }
                     (KeyModifiers::ALT, KeyCode::Char('h')) => {
-                        if let Some(parent) = self.current_dir.parent() {
-                            self.current_dir = parent.into();
-                            self.finder =
-                                Finder::new(&self.current_dir, self.finder_layout.clone());
+                        let x = self.current_dir.as_ref();
+                        if let Some(z) = x.parent() {
+                            if z.is_empty() {
+                                continue;
+                            }
+                            self.finder = Finder::new(z, self.finder_layout.clone());
+                            self.current_dir = z.into();
                         }
                     }
                     (KeyModifiers::ALT, KeyCode::Char('l')) => {
@@ -2212,8 +2346,9 @@ impl Qwx {
                         if !dirs.is_empty() && self.finder.selected_dir < dirs.len() {
                             let dirname = &dirs[self.finder.selected_dir];
                             let new_path = self.current_dir.join(dirname);
-                            self.current_dir = new_path.clone().into();
-                            self.finder = Finder::new(&new_path, self.finder_layout.clone());
+                            self.finder =
+                                Finder::new(new_path.as_path(), self.finder_layout.clone());
+                            self.current_dir = new_path.into();
                             self.finder_research.clear();
                         }
                     }
@@ -2228,7 +2363,7 @@ impl Qwx {
                     (KeyModifiers::NONE, KeyCode::F(5)) => {
                         self.finder_research.clear();
                         self.finder =
-                            Finder::new(self.current_dir.as_path(), self.finder_layout.clone());
+                            Finder::new(self.current_dir.as_ref(), self.finder_layout.clone());
                     }
                     (KeyModifiers::NONE, KeyCode::Enter) => {
                         let files = self.finder.get_files();
@@ -3087,17 +3222,43 @@ impl Qwx {
     /// Creates a new instance of the editor with the specified path and open mode.
     pub fn new(path: &Path, open_mode: Mode) -> Self {
         let (width, height) = size().expect("failed to get size");
+
         let (dir_path, target_file) = if path.is_file() {
             (path.parent().unwrap_or_else(|| Path::new(".")), Some(path))
         } else {
             (path, None)
         };
-
+        let file_list = list_files(dir_path);
+        if file_list.is_empty() {
+            return Self {
+                finder_layout: FinderLayout::SideBySide,
+                finder: Finder::new(path, FinderLayout::SideBySide),
+                finder_research: String::new(),
+                current_facet: Facet::Front,
+                front_panes: [INIT_PANE_STATE; 4],
+                back_panes: [INIT_PANE_STATE; 4],
+                spatial_map: HashMap::new(),
+                current_dir: dir_path.into(),
+                nodes: INIT_NODE_STATE.to_vec(),
+                views: Vec::from([View::default(); 4]),
+                width,
+                height,
+                running: true,
+                focus: PaneFocus::TopLeft,
+                panes: [INIT_PANE_STATE; 4],
+                mode: Mode::Normal,
+                menu_input: String::new(),
+                editor: Ji::default(),
+                search_input: String::new(),
+                last_search_query: None,
+                search_hub: SearchHub::default(),
+                player: MusicPlayer::default(),
+            };
+        }
         let mut nodes: Vec<Node> = Vec::new();
         let mut views: Vec<View> = Vec::new();
         let mut target_node_id = 0;
 
-        let file_list = list_files(dir_path);
         for (i, filename) in file_list.iter().enumerate() {
             let fpath = PathBuf::from(filename);
             if let Ok(node) = qwx_load_node(i, &fpath.as_path().to_path_buf()) {
@@ -3120,10 +3281,6 @@ impl Qwx {
             if let Ok(ed) = Ji::open(target) {
                 editor = ed;
             }
-        } else if let Some(first_file) = file_list.first() {
-            if let Ok(ed) = Ji::open(Path::new(first_file)) {
-                editor = ed;
-            }
         }
 
         let mut panes = [
@@ -3141,6 +3298,7 @@ impl Qwx {
         } else if !nodes.is_empty() {
             spatial_map.insert((0, 1, 1), 0);
         }
+
         Self {
             width,
             height,
@@ -3153,9 +3311,8 @@ impl Qwx {
             nodes: nodes.clone(),
             views,
             finder_layout: FinderLayout::SideBySide,
-            finder: Finder::new(dir_path, FinderLayout::SideBySide),
+            finder: Finder::new(path, FinderLayout::SideBySide),
             finder_research: String::new(),
-            current_dir: dir_path.into(),
             editor,
             search_input: String::new(),
             last_search_query: None,
@@ -3164,6 +3321,7 @@ impl Qwx {
             front_panes: [INIT_PANE_STATE; 4],
             back_panes: [INIT_PANE_STATE; 4],
             current_facet: Facet::Front,
+            current_dir: dir_path.into(),
         }
     }
 
@@ -3281,7 +3439,11 @@ pub fn create_config(
 /// - Some languages, such as `d`, `hcl`, and `glsl`, do not have associated highlight queries.
 /// - File extensions for the same language may vary (e.g., `cpp`, `cc`, `hpp` for C++).
 /// - This function relies on the `create_config` helper for building language configurations.
-fn detect_language(extension: &str, theme_keys: &[&'static str]) -> Option<LangConfig> {
+fn detect_language(
+    extension: &str,
+    filename: &str,
+    theme_keys: &[&'static str],
+) -> Option<LangConfig> {
     match extension {
         #[cfg(feature = "tree-sitter-ada")]
         "ada" | "adb" => create_config(
@@ -3302,13 +3464,6 @@ fn detect_language(extension: &str, theme_keys: &[&'static str]) -> Option<LangC
             "scss",
             Language::from(tree_sitter_sas::LANGUAGE),
             tree_sitter_sas::HIGHLIGHTS_QUERY,
-            theme_keys,
-        ),
-        #[cfg(feature = "tree-sitter-kconfig")]
-        "Kconfig" => create_config(
-            "Kconfig",
-            Language::from(tree_sitter_kconfig::LANGUAGE),
-            tree_sitter_kconfig::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
         #[cfg(feature = "tree-sitter-vhdl")]
@@ -3544,13 +3699,6 @@ fn detect_language(extension: &str, theme_keys: &[&'static str]) -> Option<LangC
             tree_sitter_lua::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
-        #[cfg(feature = "tree-sitter-make")]
-        "make" | "makefile" | "Makefile" => create_config(
-            "make",
-            Language::from(tree_sitter_make::LANGUAGE),
-            tree_sitter_make::HIGHLIGHTS_QUERY,
-            theme_keys,
-        ),
         #[cfg(feature = "tree-sitter-nix")]
         "nix" => create_config(
             "nix",
@@ -3656,7 +3804,23 @@ fn detect_language(extension: &str, theme_keys: &[&'static str]) -> Option<LangC
             tree_sitter_zig::HIGHLIGHTS_QUERY,
             theme_keys,
         ),
-        _ => None, // Unknown extension
+        _ => match filename {
+            #[cfg(feature = "tree-sitter-make")]
+            "Makefile" => create_config(
+                "make",
+                Language::from(tree_sitter_make::LANGUAGE),
+                tree_sitter_make::HIGHLIGHTS_QUERY,
+                theme_keys,
+            ),
+            #[cfg(feature = "tree-sitter-kconfig")]
+            "Kconfig" => create_config(
+                "Kconfig",
+                Language::from(tree_sitter_kconfig::LANGUAGE),
+                tree_sitter_kconfig::HIGHLIGHTS_QUERY,
+                theme_keys,
+            ),
+            _ => None,
+        },
     }
 }
 /// Represents the configuration of highlighting for a specific language.
@@ -3665,7 +3829,7 @@ pub struct LangConfig {
     pub query_string: &'static str,
 }
 /// Snapshot representing an editor state for undo/redo.
-#[derive(Clone, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct EditSnapshot {
     pub rope: Rope,
     pub cursor_line: usize,
@@ -3945,7 +4109,11 @@ impl Ji {
             is_dirty: false,
         };
 
-        if let Some(config) = detect_language(ext.to_str().expect(""), &theme_keys) {
+        if let Some(config) = detect_language(
+            ext.to_str().expect(""),
+            filename.to_str().expect(""),
+            &theme_keys,
+        ) {
             ji.query = Query::new(&config.ts_config.language, config.query_string).ok();
             let _ = ji.parser.set_language(&config.ts_config.language);
             ji.lang_config = Some(config);
