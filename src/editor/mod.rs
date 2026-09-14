@@ -842,7 +842,7 @@ pub fn qwx_read_lines(path: impl AsRef<Path>) -> Result<Vec<String>, Error> {
 /// use std::path;
 /// use std::path::Path;
 /// use qwx::editor::qwx_load_node;
-/// let path::Path::new("example.txt");
+/// let path = Path::new("example.txt");
 /// let node = qwx_load_node(1, path);
 /// match node {
 ///     Ok(n) => println!("Node loaded with name: {}", n.name),
