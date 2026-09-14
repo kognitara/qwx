@@ -1256,7 +1256,7 @@ fn draw_mosaic_finder<W: Write>(
     queue_label(w, x1 + 2, mid_y, " SUB FILES ", inner_w_mid, FINDER_BORDER)?;
     queue_label(w, x2 + 2, mid_y, " INFO ", inner_w_right, FINDER_BORDER)?;
 
-    // 6. Draw vertical dividers for bottom half
+    // 6. Draw vertical dividers for the bottom half
     for y in (mid_y + 1)..bot_y {
         queue!(
             w,
@@ -1626,33 +1626,6 @@ pub fn list_sub_dirs(path: &Path) -> Vec<String> {
     dirs
 }
 
-pub fn all_files() -> Vec<String> {
-    let mut files: Vec<String> = Vec::new();
-    for entry in ignore::WalkBuilder::new(".")
-        .threads(num_cpus::get())
-        .standard_filters(true)
-        .ignore(true)
-        .hidden(false)
-        .add_custom_ignore_filename(".gitignore")
-        .add_custom_ignore_filename(".hgignore")
-        .add_custom_ignore_filename(".svnignore")
-        .build()
-        .into_iter()
-        .flatten()
-    {
-        if entry.path().is_file()
-            && let Ok(rel_path) = entry.path().canonicalize()
-        {
-            let p = rel_path.to_string_lossy().to_string();
-            if !p.contains(".git") && !p.contains(".hg") && !p.contains(".svn") {
-                files.push(p);
-            }
-        }
-    }
-    files.sort();
-    files.dedup();
-    files
-}
 /// Generates a list of files located within the subdirectories of a specified directory.
 ///
 /// This function traverses the directory tree starting at the provided path and identifies
@@ -2059,12 +2032,8 @@ impl Finder {
                 item_lower.contains(&research_lower)
             }
         };
-        if research.starts_with("?") {
-            self.files = all_files();
-            self.files.retain(|f| matcher(f));
-        } else {
-            self.files.retain(|f| matcher(f));
-        }
+        self.files.retain(|f| matcher(f));
+        self.directories.retain(|d| matcher(d));
     }
 }
 

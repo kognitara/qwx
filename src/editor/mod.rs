@@ -435,7 +435,7 @@ impl<W: Write> QwxUi<W> for Qwx {
                 };
                 let len = node.content.len();
                 let pct = if len >= 1 {
-                    ((cur * 100) / (len - 1)).min(100)
+                    ((cur * 100) / (len)).min(100)
                 } else {
                     100
                 };
@@ -2214,6 +2214,7 @@ impl Qwx {
                             let new_path = self.current_dir.join(dirname);
                             self.current_dir = new_path.clone().into();
                             self.finder = Finder::new(&new_path, self.finder_layout.clone());
+                            self.finder_research.clear();
                         }
                     }
                     (KeyModifiers::ALT, KeyCode::Right) => {
