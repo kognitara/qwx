@@ -217,8 +217,8 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     });
     let w = &mut io::stdout();
     let mut fetch_options = FetchOptions::new();
+    fetch_options.depth(1);
     fetch_options.remote_callbacks(callbacks);
-
     let mut builder = RepoBuilder::new();
     builder.fetch_options(fetch_options);
 
