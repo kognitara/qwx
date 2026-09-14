@@ -1,6 +1,4 @@
-use crate::editor::theme::{
-    UI_BORDER_ACTIVE, UI_DMENU_BG, UI_DMENU_FG, UI_TEXT_MUTED, get_color_for_capture,
-};
+use crate::editor::theme::{UI_DMENU_BG, UI_DMENU_FG, get_color_for_capture};
 use crate::finder::{Finder, FinderLayout, list_files};
 use crate::player::MusicPlayer;
 use crate::search::SearchHub;
@@ -427,23 +425,20 @@ impl<W: Write> QwxUi<W> for Qwx {
             let is_active = self.focus == pane_focus;
             let expo = get_superscript(pane.view);
 
-            // Calcul du pourcentage ET des lignes spécifiques au panneau itéré
             let (percentage_str, current_line, total_lines) = if let Some(view) = self.views.get(i)
                 && let Some(node) = self.nodes.iter().find(|n| n.id == view.active_node_id)
             {
-                let len = node.content.len();
-                let pct = if len <= 1 {
-                    100
-                } else {
-                    ((pane.cursor as usize * 100) / (len - 1)).min(100)
-                };
-
                 let cur = if is_active && (self.mode == Mode::Editor || self.mode == Mode::Normal) {
                     self.editor.cursor_line + 1
                 } else {
                     pane.cursor as usize + 1
                 };
-
+                let len = node.content.len();
+                let pct = if len >= 1 {
+                    ((cur * 100) / (len - 1)).min(100)
+                } else {
+                    100
+                };
                 (pct, cur, len)
             } else {
                 (0, 0, 0)
@@ -482,44 +477,35 @@ impl<W: Write> QwxUi<W> for Qwx {
                     search_term,
                 );
 
-                if is_active && self.editor.is_dirty {
-                    let dirty_display = " * ";
-                    let dirty_x = start_x + p_width.saturating_sub(dirty_display.len() as u16) - 1;
-                    queue!(
-                        w,
-                        MoveTo(dirty_x, start_y - 1),
-                        SetForegroundColor(Color::Red),
-                        Print(dirty_display)
-                    )?;
-                }
-
-                let name_display = format!(" {} ", node.name);
-                let name_len = name_display.chars().count() as u16;
-                let center_x = start_x + (p_width.saturating_sub(name_len)) / 2;
-
-                queue!(
-                    w,
-                    MoveTo(center_x, start_y - 1),
-                    SetForegroundColor(Color::White),
-                    Print(name_display)
-                )?;
-
-                // Affichage propre des métadonnées du panneau
-                let info_display = format!(
-                    " Ln {}/{} | {:>3} % {:03}{} ",
-                    current_line, total_lines, percentage_str, pane.workspace, expo
+                let name = if is_active && self.editor.is_dirty {
+                    format!(" {}{}", node.name, "*")
+                } else {
+                    format!(" {} ", node.name)
+                };
+                let lines_display = format!(
+                    "{:<3} {:>3}% {:>4}/{:<4}",
+                    node.id, percentage_str, current_line, total_lines
                 );
 
-                let indicator_x =
-                    start_x + p_width.saturating_sub(info_display.chars().count() as u16) - 1;
-                let indicator_y = start_y + p_height;
-
-                queue!(w, MoveTo(indicator_x, indicator_y))?;
-                if is_active {
-                    queue!(w, SetForegroundColor(UI_BORDER_ACTIVE), Print(info_display))?;
+                let name_len = name.chars().count() as u16;
+                let center_x = start_x + (p_width.saturating_sub(name_len)) / 2;
+                let info_display = format!("{:03}{}", pane.workspace, expo);
+                let dirty_x = start_x + p_width.saturating_sub(info_display.chars().count() as u16);
+                let color = if is_active {
+                    Color::Green
                 } else {
-                    queue!(w, SetForegroundColor(UI_TEXT_MUTED), Print(info_display))?;
-                }
+                    Color::White
+                };
+                queue!(
+                    w,
+                    SetForegroundColor(color),
+                    MoveTo(start_x, start_y - 1),
+                    Print(lines_display),
+                    MoveTo(center_x, start_y - 1),
+                    Print(name),
+                    MoveTo(dirty_x, start_y - 1),
+                    Print(info_display)
+                )?;
             }
         }
         w.flush()?;
@@ -2202,16 +2188,16 @@ impl Qwx {
                         self.finder.filter(self.finder_research.clone());
                         continue;
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('j')) => {
+                    (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
                         self.finder.next_file();
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('k')) => {
+                    (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
                         self.finder.prev_file();
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('j')) => {
                         self.finder.next_dir();
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                    (KeyModifiers::ALT, KeyCode::Char('k')) => {
                         self.finder.prev_dir();
                     }
                     (KeyModifiers::ALT, KeyCode::Char('h')) => {
@@ -3165,8 +3151,8 @@ impl Qwx {
             menu_input: String::new(),
             nodes: nodes.clone(),
             views,
-            finder_layout: FinderLayout::Grid,
-            finder: Finder::new(dir_path, FinderLayout::Grid),
+            finder_layout: FinderLayout::SideBySide,
+            finder: Finder::new(dir_path, FinderLayout::SideBySide),
             finder_research: String::new(),
             current_dir: dir_path.into(),
             editor,
