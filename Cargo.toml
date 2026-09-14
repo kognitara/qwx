@@ -5,6 +5,11 @@ edition = "2024"
 description = "Quaternary Walk Extended"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/kognitara/qwx.git"
+authors = ["Micieli Willy"]
+
+[[bin]]
+name = "we"
+path = "src/main.rs"
 
 [profile.release]
 opt-level = 3       # Optimisation maximale pour la vitesse (remplace "z")

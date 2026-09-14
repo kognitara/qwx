@@ -14,7 +14,9 @@ const HELP_CONTENT: &str = include_str!("../help.txt");
 
 fn cli() -> Command {
     Command::new(env!("CARGO_PKG_NAME"))
+        .bin_name(env!("CARGO_BIN_NAME"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
         .version(env!("CARGO_PKG_VERSION"))
         .long_about(HELP_CONTENT)
         .subcommand(Command::new("open").about("Open a directory or file").arg(
@@ -255,7 +257,7 @@ fn main() -> io::Result<()> {
                 "elvish" => Shell::Elvish,
                 _ => unreachable!(),
             };
-            generate(shell, &mut app, "qwx", w);
+            generate(shell, &mut app, env!("CARGO_BIN_NAME"), w);
             Ok(())
         }
         Some(("clone", sub)) => clone_and_open(sub),
