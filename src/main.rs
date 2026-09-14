@@ -47,7 +47,7 @@ fn cli() -> Command {
                         .required(true)
                         .action(ArgAction::Set)
                         .value_parser(value_parser!(PathBuf)),
-                ),
+                ).arg(Arg::new("depth").long("depth").value_parser(value_parser!(i32)).required(false).help("Number of commits to fetch")),
         )
         .subcommand(
             Command::new("spotify")
@@ -174,6 +174,7 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     let destination = sub
         .get_one::<PathBuf>("destination")
         .expect("destination is required");
+    let d = sub.get_one::<i32>("depth").unwrap_or(&0);
     let w = &mut io::stdout();
     let dest = destination.as_path();
     let x = current_dir()?;
@@ -217,7 +218,7 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     });
     let w = &mut io::stdout();
     let mut fetch_options = FetchOptions::new();
-    fetch_options.depth(1);
+    fetch_options.depth(d.clone());
     fetch_options.remote_callbacks(callbacks);
     let mut builder = RepoBuilder::new();
     builder.fetch_options(fetch_options);
