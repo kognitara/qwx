@@ -4,6 +4,7 @@ use git2::build::RepoBuilder;
 use git2::{FetchOptions, RemoteCallbacks};
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::Text;
+use qwx::QwxConfig;
 use qwx::editor::{Mode, Qwx};
 use qwx::player::{SpotifyClient, SpotifyCredentials};
 use std::env::{current_dir, set_current_dir};
@@ -171,7 +172,7 @@ fn update_spotify_token() -> io::Result<()> {
     }
 }
 
-fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
+fn clone_and_open(sub: &ArgMatches, c: &QwxConfig) -> io::Result<()> {
     let url = sub.get_one::<String>("url").expect("url is required");
     let destination = sub
         .get_one::<PathBuf>("destination")
@@ -184,7 +185,7 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
 
     if p.is_dir() {
         set_current_dir(p.as_path())?;
-        return Qwx::new(p.as_path(), Mode::Normal).as_mut().run(w);
+        return Qwx::new(p.as_path(), Mode::Normal, &c).as_mut().run(w);
     }
 
     let pb = ProgressBar::new(0);
@@ -233,17 +234,18 @@ fn clone_and_open(sub: &ArgMatches) -> io::Result<()> {
     }
     pb.finish_with_message("Clone and checkout completed.");
     set_current_dir(p.as_path())?;
-    Qwx::new(p.as_path(), Mode::Normal).as_mut().run(w)
+    Qwx::new(p.as_path(), Mode::Normal, c).as_mut().run(w)
 }
 
 fn main() -> io::Result<()> {
+    let c: QwxConfig = toml::from_str(include_str!("../qwx.toml")).unwrap();
     let mut app = cli();
     let w = &mut io::stdout();
     let matches = app.clone().get_matches();
     match matches.subcommand() {
         Some(("open", sub)) => {
             let p = sub.get_one::<PathBuf>("path").expect("path is required");
-            Qwx::new(p.canonicalize()?.as_path(), Mode::Normal)
+            Qwx::new(p.canonicalize()?.as_path(), Mode::Normal, &c)
                 .as_mut()
                 .run(w)
         }
@@ -260,7 +262,7 @@ fn main() -> io::Result<()> {
             generate(shell, &mut app, env!("CARGO_BIN_NAME"), w);
             Ok(())
         }
-        Some(("clone", sub)) => clone_and_open(sub),
+        Some(("clone", sub)) => clone_and_open(sub, &c),
         Some(("spotify", sub)) | Some(("spotify-config", sub)) => {
             if let Some(("update-token", _)) = sub.subcommand() {
                 update_spotify_token()
@@ -270,11 +272,11 @@ fn main() -> io::Result<()> {
         }
         None => {
             if let Some(p) = matches.get_one::<PathBuf>("path") {
-                Qwx::new(p.canonicalize()?.as_path(), Mode::Normal)
+                Qwx::new(p.canonicalize()?.as_path(), Mode::Normal, &c)
                     .as_mut()
                     .run(w)
             } else {
-                Qwx::new(current_dir()?.as_path(), Mode::Normal)
+                Qwx::new(current_dir()?.as_path(), Mode::Normal, &c)
                     .as_mut()
                     .run(w)
             }

@@ -7,10 +7,6 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/kognitara/qwx.git"
 authors = ["Micieli Willy"]
 
-[[bin]]
-name = "we"
-path = "src/main.rs"
-
 [profile.release]
 opt-level = 3       # Optimisation maximale pour la vitesse (remplace "z")
 lto = true          # Link Time Optimization "fat" (analyse tout le graphe d'un coup)
@@ -94,6 +90,8 @@ tree-sitter-glsl = { version = "0.2.0", default-features = false, optional = tru
 tree-sitter-hlsl = { version = "0.2.0", default-features = false, optional = true }
 tree-sitter-lua = { version = "0.5.0", default-features = false, optional = true }
 tree-sitter-highlight = "0.26.11"
+toml = "1.1.6"
+
 
 [features]
 default = ["tree-sitter-rust"]

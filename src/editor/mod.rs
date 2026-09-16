@@ -2,6 +2,7 @@ use crate::editor::theme::{UI_DMENU_BG, UI_DMENU_FG, get_color_for_capture};
 use crate::finder::{Finder, FinderLayout, list_files};
 use crate::player::MusicPlayer;
 use crate::search::SearchHub;
+use crate::{Action, KeyMap, QwxConfig, build_keymap};
 use crossterm::cursor::{
     Hide, MoveDown, MoveLeft, MoveRight, MoveTo, MoveUp, SetCursorStyle, Show,
 };
@@ -946,6 +947,8 @@ pub struct FacetSide {
 /// * `editor` - Represents the `Ji` editor instance, which is used for any text editing functionalities within the application.
 /// * `search_input` - Stores the user's input string for search operations within the application.
 pub struct Qwx {
+    pub config: QwxConfig,
+    pub keymap: KeyMap,
     pub finder_layout: FinderLayout,
     pub finder: Finder,
     pub finder_research: String,
@@ -968,11 +971,6 @@ pub struct Qwx {
     pub last_search_query: Option<String>,
     pub search_hub: SearchHub,
     pub player: MusicPlayer,
-}
-impl Default for Qwx {
-    fn default() -> Self {
-        Self::new(Path::new("."), Mode::Normal)
-    }
 }
 
 impl AsMut<Qwx> for Qwx {
@@ -1471,7 +1469,7 @@ impl Qwx {
         self.running = false;
         self.run(w).expect("failed to refresh");
         let p = Select::new("path", path).prompt().expect("");
-        Qwx::new(Path::new(&p), Mode::Normal)
+        Qwx::new(Path::new(&p), Mode::Normal, &self.config.clone())
             .run(w)
             .expect("failed to refresh");
         exit(0)
@@ -1479,7 +1477,7 @@ impl Qwx {
     pub fn refresh<W: Write>(&mut self, path: &Path, w: &mut W) -> ! {
         self.running = false;
         self.run(w).expect("failed to refresh");
-        Qwx::new(path, Mode::Normal)
+        Qwx::new(path, Mode::Normal, &self.config.clone())
             .run(w)
             .expect("failed to refresh");
         exit(0)
@@ -1595,216 +1593,51 @@ impl Qwx {
         pane.cursor = new_scroll as u16; // (Gère déjà le défilement vertical)
         pane.cursor_col = cursor_col as u16; // <-- AJOUTE CETTE LIGNE ICI
     }
-
     pub fn handle_normal<W: Write>(&mut self, w: &mut W) {
         self.reset(w).expect("failed to reset");
+
         loop {
             self.draw_normal(w).expect("failed to draw");
-            match read().expect("failed to get terminal input") {
-                Event::Key(key) => match (key.modifiers, key.code) {
-                    (KeyModifiers::NONE, KeyCode::Char('n')) => {
-                        self.search_next();
-                        self.follow(); // Pas de sync_node_content() !
-                    }
-                    (KeyModifiers::NONE, KeyCode::Char('g')) => {
-                        match read().expect("failed to get terminal input") {
-                            Event::Key(key) => match (key.modifiers, key.code) {
-                                (KeyModifiers::NONE, KeyCode::Char('h')) => {
-                                    if let Some(home) = dirs::home_dir() {
-                                        self.refresh(home.as_path(), w);
-                                    }
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('d')) => {
-                                    let mut options: Vec<String> = Vec::new();
-                                    if let Some(x) = dirs::document_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    if let Some(x) = dirs::data_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    if let Some(x) = dirs::data_local_dir() {
-                                        options.push(x.display().to_string());
-                                    }
+            let e = read()
+                .expect("failed to get terminal input")
+                .as_key_event()
+                .expect("failed to parse key event");
 
-                                    if let Some(x) = dirs::download_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    if let Some(x) = dirs::desktop_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    options.push(String::from("/dev"));
-                                    options.dedup();
-                                    options.sort();
-                                    self.refresh_and_ask(options, w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('v')) => {
-                                    let mut options: Vec<String> = Vec::new();
-                                    if let Some(x) = dirs::video_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    if cfg!(target_os = "linux") {
-                                        options.push(String::from("/var"));
-                                    }
-                                    options.dedup();
-                                    options.sort();
-                                    self.refresh_and_ask(options, w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('o')) => {
-                                    #[cfg(target_os = "linux")]
-                                    self.refresh(Path::new("/opt"), w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('p')) => {
-                                    let mut options: Vec<String> = Vec::new();
-                                    #[cfg(target_os = "linux")]
-                                    options.push(String::from("/proc"));
-                                    if let Some(x) = dirs::picture_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    if let Some(x) = dirs::preference_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    if let Some(x) = dirs::public_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    options.dedup();
-                                    options.sort();
-                                    self.refresh_and_ask(options, w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('r')) => {
-                                    let mut options: Vec<String> = Vec::new();
-                                    if let Some(x) = dirs::runtime_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    #[cfg(target_os = "linux")]
-                                    options.push(String::from("/run"));
-                                    options.dedup();
-                                    options.sort();
-                                    self.refresh_and_ask(options, w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('s')) => {
-                                    let mut options: Vec<String> = Vec::new();
-                                    if cfg!(target_os = "linux") {
-                                        options.push(String::from("/sys"));
-                                        options.push(String::from("/srv"));
-                                    }
-                                    if let Some(x) = dirs::state_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    options.dedup();
-                                    options.sort();
-                                    self.refresh_and_ask(options, w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('m')) => {
-                                    #[cfg(target_os = "linux")]
-                                    self.refresh(Path::new("/mnt"), w);
-                                    #[cfg(target_os = "freebsd")]
-                                    self.refresh(Path::new("/mnt"), w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('e')) => {
-                                    #[cfg(target_os = "linux")]
-                                    self.refresh(Path::new("/etc"), w);
-                                    #[cfg(target_os = "freebsd")]
-                                    self.refresh(Path::new("/usr/local/etc"), w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('i')) => {
-                                    #[cfg(target_os = "linux")]
-                                    self.refresh(Path::new("/usr/include"), w);
-                                    #[cfg(target_os = "freebsd")]
-                                    self.refresh(Path::new("/usr/local/include"), w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('a')) => {
-                                    if let Some(audio) = dirs::audio_dir() {
-                                        self.refresh(audio.as_path(), w);
-                                    }
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('c')) => {
-                                    let mut options: Vec<String> = Vec::new();
-                                    if let Some(x) = dirs::cache_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    if let Some(x) = dirs::config_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    if let Some(x) = dirs::config_local_dir() {
-                                        options.push(x.display().to_string());
-                                    }
-                                    options.dedup();
-                                    options.sort();
-                                    self.refresh_and_ask(options, w);
-                                }
-                                (KeyModifiers::NONE, KeyCode::Char('t')) => {
-                                    if let Some(template) = dirs::template_dir() {
-                                        self.refresh(template.as_path(), w);
-                                    }
-                                }
-                                _ => break,
-                            },
-                            _ => break,
-                        }
-                    }
-                    // Résultat précédent (Majuscule avec Shift)
-                    (KeyModifiers::SHIFT, KeyCode::Char('N'))
-                    | (KeyModifiers::SHIFT, KeyCode::Char('n')) => {
-                        self.search_prev();
-                        self.follow(); // Pas de sync_node_content() !
-                    }
-                    // --- FACETTES (Recto / Verso) ---
-                    (KeyModifiers::ALT, KeyCode::Char('x')) => {
-                        self.toggle_facet(w);
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('a')) => {
-                        if self.current_facet == Facet::Back {
-                            self.toggle_facet(w);
-                        }
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('z')) => {
-                        if self.current_facet == Facet::Front {
-                            self.toggle_facet(w);
-                        }
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('l')) => {
-                        let pane = self.active_pane_mut();
-                        pane.workspace = pane.workspace.saturating_add(1);
-                        self.load_active_pane_file();
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('h')) => {
-                        let pane = self.active_pane_mut();
-                        // On empêche de descendre en dessous du Workspace 1
-                        pane.workspace = pane.workspace.saturating_sub(1).max(1);
-                        self.load_active_pane_file();
-                    }
-                    // Views : naviguer dans la 4ème dimension (angles de vue)
-                    (KeyModifiers::ALT, KeyCode::Char('k')) => {
-                        let pane = self.active_pane_mut();
-                        pane.view = pane.view.saturating_add(1);
-                        self.load_active_pane_file();
-                    }
-                    (KeyModifiers::NONE, KeyCode::Char('j')) => {
+            if let Some(action) = self.keymap.get(&(e.modifiers, e.code)) {
+                match action {
+                    Action::MoveDown => {
                         let total_lines = self.editor.rope.len_lines();
-                        // On bloque strictement à la dernière ligne existante (index total_lines - 1)
                         if self.editor.cursor_line + 1 < total_lines {
                             self.editor.cursor_line += 1;
                         }
                         self.follow();
                     }
-
-                    (KeyModifiers::ALT, KeyCode::Char('j')) => {
-                        let pane = self.active_pane_mut();
-                        // On empêche de descendre en dessous de la View 1
-                        pane.view = pane.view.saturating_sub(1).max(1);
-                        self.load_active_pane_file();
-                    }
-                    (KeyModifiers::NONE, KeyCode::Char('k')) => {
+                    Action::MoveUp => {
                         if self.editor.cursor_line > 0 {
                             self.editor.cursor_line -= 1;
                         }
                         self.follow();
                     }
-                    (KeyModifiers::NONE, KeyCode::Char('h')) => {
-                        if self.editor.cursor_col > 0 {
+                    Action::MoveLeft => {
+                        let max_col = self
+                            .editor
+                            .rope
+                            .line(self.editor.cursor_line)
+                            .len_chars()
+                            .saturating_sub(1);
+                        if self.editor.cursor_col < max_col {
                             self.editor.cursor_col -= 1;
-                        } else if self.editor.cursor_line > 0 {
+                        } else if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
                             self.editor.cursor_line -= 1;
+                            self.editor.cursor_col = 0;
+                        }
+                        self.follow();
+                    }
+                    Action::MoveRight => {
+                        if self.editor.cursor_col > 0 {
+                            self.editor.cursor_col += 1;
+                        } else if self.editor.cursor_line > 0 {
+                            self.editor.cursor_line += 1;
                             self.editor.cursor_col = self
                                 .editor
                                 .rope
@@ -1814,92 +1647,52 @@ impl Qwx {
                         }
                         self.follow();
                     }
-                    (KeyModifiers::NONE, KeyCode::Char('l')) => {
-                        let max_col = self
-                            .editor
-                            .rope
-                            .line(self.editor.cursor_line)
-                            .len_chars()
-                            .saturating_sub(1);
-                        if self.editor.cursor_col < max_col {
-                            self.editor.cursor_col += 1;
-                        } else if self.editor.cursor_line + 1 < self.editor.rope.len_lines() {
-                            self.editor.cursor_line += 1;
-                            self.editor.cursor_col = 0;
-                        }
-                        self.follow();
-                    }
-                    (KeyModifiers::NONE, KeyCode::PageDown) => {
-                        let total_lines = self.editor.rope.len_lines();
-                        let step = 15;
-
-                        // On déplace le curseur vers le bas, bridé à la fin du fichier
-                        self.editor.cursor_line =
-                            (self.editor.cursor_line + step).min(total_lines.saturating_sub(1));
-
-                        // On réajuste la colonne au cas où la nouvelle ligne est plus courte
-                        let max_col = self
-                            .editor
-                            .rope
-                            .line(self.editor.cursor_line)
-                            .len_chars()
-                            .saturating_sub(1);
-                        self.editor.cursor_col = self.editor.cursor_col.min(max_col);
-                        self.follow();
-                    }
-                    (KeyModifiers::NONE, KeyCode::PageUp) => {
-                        let step = 15;
-                        let active_pane = self.active_pane_mut();
-                        active_pane.cursor = active_pane.cursor.saturating_sub(step);
-                        self.editor.cursor_line = self.active_pane_mut().cursor as usize;
-                        self.follow();
-                    }
-
-                    (KeyModifiers::NONE, KeyCode::Char('x')) => {
+                    Action::SelectLine => {
                         self.editor.select_line();
                         self.follow();
                     }
-                    (KeyModifiers::NONE, KeyCode::Char('d')) => {
+                    Action::DeleteLine => {
                         if self.editor.selection.is_some() {
                             self.editor.delete_selection();
                             self.sync_node_content();
-                            self.follow();
                         }
                     }
-                    (KeyModifiers::NONE, KeyCode::Char('u')) => {
-                        self.editor.undo();
-                        self.sync_node_content();
-                        self.follow();
-                    }
-                    (KeyModifiers::NONE, KeyCode::Char('U'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('y')) => {
+                    Action::Redo => {
                         self.editor.redo();
                         self.sync_node_content();
                         self.follow();
                     }
-                    (KeyModifiers::NONE, KeyCode::Char('y')) => {
-                        self.editor.yank();
-                    }
-                    (KeyModifiers::NONE, KeyCode::Char('p')) => {
-                        self.editor.paste();
+                    Action::Undo => {
+                        self.editor.undo();
                         self.sync_node_content();
                         self.follow();
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
-                        let _ = self.editor.save();
+                    Action::Yank => {
+                        self.editor.yank();
                     }
-                    (KeyModifiers::NONE, KeyCode::Esc) => {
-                        // 1. Enlever la sélection visuelle du mode éditeur
-                        if self.editor.selection.is_some() {
-                            self.editor.selection = None;
-                        }
-
-                        // 2. Vider la recherche pour éteindre la surbrillance jaune
-                        if self.last_search_query.is_some() {
-                            self.last_search_query = None;
+                    Action::Paste => {
+                        self.editor.paste();
+                        self.sync_node_content();
+                    }
+                    Action::ToggleFacet => {
+                        self.toggle_facet(w);
+                    }
+                    Action::ShowFrontFacet => {
+                        if self.current_facet == Facet::Back {
+                            self.toggle_facet(w);
                         }
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
+                    Action::ShowBackFacet => {
+                        if self.current_facet == Facet::Front {
+                            self.toggle_facet(w);
+                        }
+                    }
+                    Action::GoEnd => {
+                        self.editor.cursor_line = self.editor.rope.len_lines() - 1;
+                        self.sync_node_content();
+                        self.follow();
+                    }
+                    Action::GoRightPanel => {
                         self.focus = match self.focus {
                             PaneFocus::TopLeft => PaneFocus::TopRight,
                             PaneFocus::BottomLeft => PaneFocus::BottomRight,
@@ -1907,7 +1700,7 @@ impl Qwx {
                         };
                         self.load_active_pane_file();
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('h')) => {
+                    Action::GoLeftPanel => {
                         self.focus = match self.focus {
                             PaneFocus::TopRight => PaneFocus::TopLeft,
                             PaneFocus::BottomRight => PaneFocus::BottomLeft,
@@ -1915,70 +1708,66 @@ impl Qwx {
                         };
                         self.load_active_pane_file();
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
+                    Action::GoBottomPanel => {
                         self.focus = match self.focus {
-                            PaneFocus::TopLeft => PaneFocus::BottomLeft,
                             PaneFocus::TopRight => PaneFocus::BottomRight,
+                            PaneFocus::TopLeft => PaneFocus::BottomLeft,
                             _ => self.focus,
                         };
                         self.load_active_pane_file();
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                    Action::GotTopPanel => {
                         self.focus = match self.focus {
-                            PaneFocus::BottomLeft => PaneFocus::TopLeft,
                             PaneFocus::BottomRight => PaneFocus::TopRight,
+                            PaneFocus::BottomLeft => PaneFocus::TopLeft,
                             _ => self.focus,
                         };
                         self.load_active_pane_file();
                     }
-
-                    // --- TRANSITIONS DE MODES ---
-                    (KeyModifiers::NONE, KeyCode::Char('o')) => {
-                        let max_col = self
-                            .editor
-                            .rope
-                            .line(self.editor.cursor_line)
-                            .len_chars()
-                            .saturating_sub(1);
-                        self.editor.cursor_col = max_col;
-                        self.editor.insert_char('\n');
-                        self.sync_node_content();
+                    Action::GoTop => {
+                        self.editor.cursor_line = 1;
+                        self.editor.cursor_col = 0;
                         self.follow();
-                        self.mode = Mode::Editor;
                     }
-                    (KeyModifiers::NONE, KeyCode::Char('e')) => {
-                        self.mode = Mode::Editor;
-                        break;
-                    }
-                    (KeyModifiers::ALT, KeyCode::Char('f')) => {
+                    Action::OpenFinder => {
                         self.mode = Mode::Finder;
+                        self.menu_input.clear();
                         break;
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('d')) => {
+                    Action::ExitMode => {
+                        if self.editor.selection.is_some() {
+                            self.editor.selection = None;
+                        }
+                        if self.last_search_query.is_some() {
+                            self.last_search_query = None;
+                        }
+                        self.mode = Mode::Normal;
+                        break;
+                    }
+                    Action::Edit => {
+                        self.mode = Mode::Editor;
+                        break;
+                    }
+                    Action::OpenMenu => {
                         self.mode = Mode::Menu;
                         self.menu_input.clear();
                         break;
                     }
-                    (KeyModifiers::NONE, KeyCode::Char('/')) => {
+                    Action::Search => {
                         self.mode = Mode::Search;
                         self.search_input.clear();
                         break;
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('w')) => {
+                    Action::OpenWeb => {
                         self.mode = Mode::WebSearch;
                         break;
                     }
-                    (KeyModifiers::ALT, KeyCode::Char('m')) => {
+                    Action::OpenPlayer => {
                         self.mode = Mode::Player;
                         self.player.refresh_playback_state();
                         break;
                     }
-                    (KeyModifiers::NONE, KeyCode::Char('q')) => {
-                        self.running = false;
-                        break;
-                    }
-                    // --- Rotation Horaire (Ctrl + r) ---
-                    (KeyModifiers::CONTROL, KeyCode::Char('r')) => {
+                    Action::PanelRotateClockwise => {
                         let old_panes = self.panes;
                         self.panes[1] = old_panes[0];
                         self.panes[3] = old_panes[1];
@@ -2012,8 +1801,7 @@ impl Qwx {
                         self.spatial_map = new_map;
                         self.load_active_pane_file();
                     }
-                    // --- Rotation anti Horaire (Alt + r) ---
-                    (KeyModifiers::ALT, KeyCode::Char('r')) => {
+                    Action::PanelRotateCounterClockwise => {
                         let old_panes = self.panes;
                         self.panes[0] = old_panes[3];
                         self.panes[3] = old_panes[2];
@@ -2047,17 +1835,79 @@ impl Qwx {
                         self.spatial_map = new_map;
                         self.load_active_pane_file();
                     }
-                    _ => {}
-                },
-                Event::Resize(cols, rows) => {
-                    self.width = cols;
-                    self.height = rows;
-                    self.reset(w).expect("failed to reset");
+                    Action::EditNewLine => {
+                        let max_col = self
+                            .editor
+                            .rope
+                            .line(self.editor.cursor_line)
+                            .len_chars()
+                            .saturating_sub(1);
+                        self.editor.cursor_col = max_col;
+                        self.editor.insert_char('\n');
+                        self.follow();
+                        self.mode = Mode::Editor;
+                        break;
+                    }
+                    Action::Quit => {
+                        self.running = false;
+                        break;
+                    }
+                    Action::PageUp => {
+                        let step = 15;
+                        let active_pane = self.active_pane_mut();
+                        active_pane.cursor = active_pane.cursor.saturating_sub(step);
+                        self.editor.cursor_line = self.active_pane_mut().cursor as usize;
+                        self.follow();
+                    }
+                    Action::PageDown => {
+                        let total_lines = self.editor.rope.len_lines();
+                        let step = 15;
+
+                        self.editor.cursor_line =
+                            (self.editor.cursor_line + step).min(total_lines.saturating_sub(1));
+
+                        let max_col = self
+                            .editor
+                            .rope
+                            .line(self.editor.cursor_line)
+                            .len_chars()
+                            .saturating_sub(1);
+                        self.editor.cursor_col = self.editor.cursor_col.min(max_col);
+                        self.follow();
+                    }
+                    Action::SaveDocument => {
+                        self.editor.save().unwrap();
+                        break;
+                    }
+                    Action::IncreaseWorkspace => {
+                        let pane = self.active_pane_mut();
+                        pane.workspace = pane.workspace.saturating_add(1).max(1);
+                        self.load_active_pane_file();
+                    }
+                    Action::IncreaseView => {
+                        let pane = self.active_pane_mut();
+                        pane.view = pane.view.saturating_add(1).max(1);
+                        self.load_active_pane_file();
+                    }
+                    Action::DecreaseView => {
+                        let pane = self.active_pane_mut();
+                        pane.view = pane.view.saturating_sub(1).max(1);
+                        self.load_active_pane_file();
+                    }
+                    Action::DecreaseWorkspace => {
+                        let pane = self.active_pane_mut();
+                        pane.workspace = pane.workspace.saturating_sub(1).max(1);
+                        self.load_active_pane_file();
+                    }
+                    Action::DeleteSelection => {
+                        if self.editor.selection.is_some() {
+                            self.editor.delete_selection();
+                        }
+                        self.follow();
+                    }
                 }
-                _ => {}
             }
         }
-        self.reset(w).expect("failed to reset");
     }
 
     pub fn handle_menu<W: Write>(&mut self, w: &mut W) {
@@ -3220,7 +3070,7 @@ impl Qwx {
         Ok(())
     }
     /// Creates a new instance of the editor with the specified path and open mode.
-    pub fn new(path: &Path, open_mode: Mode) -> Self {
+    pub fn new(path: &Path, open_mode: Mode, c: &QwxConfig) -> Self {
         let (width, height) = size().expect("failed to get size");
 
         let (dir_path, target_file) = if path.is_file() {
@@ -3231,6 +3081,8 @@ impl Qwx {
         let file_list = list_files(dir_path);
         if file_list.is_empty() {
             return Self {
+                config: c.clone(),
+                keymap: build_keymap(c),
                 finder_layout: FinderLayout::SideBySide,
                 finder: Finder::new(path, FinderLayout::SideBySide),
                 finder_research: String::new(),
@@ -3300,6 +3152,8 @@ impl Qwx {
         }
 
         Self {
+            config: c.clone(),
+            keymap: build_keymap(c),
             width,
             height,
             spatial_map,
