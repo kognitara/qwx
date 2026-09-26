@@ -7,10 +7,6 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/kognitara/qwx.git"
 authors = ["Micieli Willy"]
 
-[[bin]]
-name = "we"
-path = "src/main.rs"
-
 [profile.release]
 opt-level = 3       # Optimisation maximale pour la vitesse (remplace "z")
 lto = true          # Link Time Optimization "fat" (analyse tout le graphe d'un coup)
@@ -19,8 +15,8 @@ panic = "abort"     # Supprime le code de "stack unwinding" (gagne en vitesse et
 strip = true        # On garde ça pour virer les symboles de debug
 
 [dependencies]
-clap = "4.6.6"
-clap_complete = "4.6.9"
+clap = "4.6.7"
+clap_complete = "4.6.11"
 crossterm = "0.29.0"
 dirs = "7.0.0"
 git2 = { version = "0.21.0", features = ["https", "ssh"] }
