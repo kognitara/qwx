@@ -3,15 +3,55 @@ use clap_complete::{Shell, generate};
 use git2::build::RepoBuilder;
 use git2::{FetchOptions, RemoteCallbacks};
 use indicatif::{ProgressBar, ProgressStyle};
-use inquire::Text;
+use inquire::{Confirm, Text};
 use qwx::editor::{Mode, Qwx};
 use qwx::player::{SpotifyClient, SpotifyCredentials};
 use std::env::{current_dir, set_current_dir};
-use std::path::PathBuf;
+use std::fs::create_dir_all;
+use std::io::{Error, stdout};
+use std::path::{Path, PathBuf};
 use std::{env, io};
 
 const HELP_CONTENT: &str = include_str!("../help.txt");
 
+fn new() -> io::Result<()> {
+    let name = Text::new("Project name:")
+        .prompt()
+        .expect("failed to get name");
+    let bin = Confirm::new("Create a binary:")
+        .with_default(true)
+        .prompt()
+        .unwrap_or_default();
+
+    let project = format!("./{name}");
+    create_dir_all(project.as_str()).expect("failed to create the project directory");
+    let w = &mut stdout();
+    if bin
+        && std::process::Command::new("cargo")
+            .arg("init")
+            .current_dir(project.as_str())
+            .spawn()
+            .expect("no cargo")
+            .wait()
+            .expect("failed to wait process")
+            .success()
+    {
+        Qwx::new(Path::new(project.as_str()), Mode::Normal).run(w)
+    } else if std::process::Command::new("cargo")
+        .arg("init")
+        .arg("--lib")
+        .current_dir(format!("./{name}"))
+        .spawn()
+        .expect("no cargo")
+        .wait()
+        .expect("failed to wait process")
+        .success()
+    {
+        Qwx::new(Path::new(project.as_str()), Mode::Normal).run(w)
+    } else {
+        Err(Error::other("failed to create the project"))
+    }
+}
 fn cli() -> Command {
     Command::new(env!("CARGO_PKG_NAME"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
@@ -25,6 +65,7 @@ fn cli() -> Command {
                 .action(ArgAction::Set)
                 .value_parser(value_parser!(PathBuf)),
         ))
+        .subcommand(Command::new("new").about("Create a new rust project"))
         .subcommand(
             Command::new("gen")
                 .about("Gen auto completion for shell")
@@ -246,6 +287,7 @@ fn main() -> io::Result<()> {
                 .as_mut()
                 .run(w)
         }
+        Some(("new", _)) => new(),
         Some(("gen", sub)) => {
             let shell = sub.get_one::<String>("shell").expect("shell is required");
             let shell = match shell.as_str() {
