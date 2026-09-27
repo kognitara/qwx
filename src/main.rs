@@ -3,11 +3,13 @@ use clap_complete::{Shell, generate};
 use git2::build::RepoBuilder;
 use git2::{FetchOptions, RemoteCallbacks};
 use indicatif::{ProgressBar, ProgressStyle};
-use inquire::Text;
-use qwx::QwxConfig;
+use inquire::{Confirm, Text};
 use qwx::editor::{Mode, Qwx};
 use qwx::player::{SpotifyClient, SpotifyCredentials};
+use qwx::{QwxConfig, QwxKeysConfig};
 use std::env::{current_dir, set_current_dir};
+use std::fs::{File, create_dir_all, read_to_string};
+use std::io::Write;
 use std::path::PathBuf;
 use std::{env, io};
 
@@ -36,6 +38,9 @@ fn cli() -> Command {
                         .value_parser(["bash", "zsh", "fish", "powershell", "elvish"]),
                 ),
         )
+        .subcommand(Command::new("config").about("Manage the qwx.toml file").subcommands([
+            Command::new("edit").about("Open the config file"),
+        ]))
         .subcommand(
             Command::new("clone")
                 .about("Get a git repository in a directory and open it in qwx")
@@ -238,52 +243,141 @@ fn clone_and_open(sub: &ArgMatches, c: &QwxConfig) -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
-    let c: QwxConfig = toml::from_str(include_str!("../qwx.toml")).unwrap();
+    let path = dirs::config_dir().expect("no config dir");
+    let conf_dir = path.join("qwx");
+    let config_file = conf_dir.join("config.toml");
     let mut app = cli();
     let w = &mut io::stdout();
     let matches = app.clone().get_matches();
-    match matches.subcommand() {
-        Some(("open", sub)) => {
-            let p = sub.get_one::<PathBuf>("path").expect("path is required");
-            Qwx::new(p.canonicalize()?.as_path(), Mode::Normal, &c)
-                .as_mut()
-                .run(w)
-        }
-        Some(("gen", sub)) => {
-            let shell = sub.get_one::<String>("shell").expect("shell is required");
-            let shell = match shell.as_str() {
-                "bash" => Shell::Bash,
-                "zsh" => Shell::Zsh,
-                "fish" => Shell::Fish,
-                "powershell" => Shell::PowerShell,
-                "elvish" => Shell::Elvish,
-                _ => unreachable!(),
-            };
-            generate(shell, &mut app, env!("CARGO_BIN_NAME"), w);
-            Ok(())
-        }
-        Some(("clone", sub)) => clone_and_open(sub, &c),
-        Some(("spotify", sub)) | Some(("spotify-config", sub)) => {
-            if let Some(("update-token", _)) = sub.subcommand() {
-                update_spotify_token()
-            } else {
-                configure_spotify()
-            }
-        }
-        None => {
-            if let Some(p) = matches.get_one::<PathBuf>("path") {
+    if config_file.exists() {
+        let config_content =
+            std::fs::read_to_string(&config_file).expect("failed to read config file");
+        let c: QwxConfig = toml::from_str(&config_content).unwrap();
+
+        match matches.subcommand() {
+            Some(("open", sub)) => {
+                let p = sub.get_one::<PathBuf>("path").expect("path is required");
                 Qwx::new(p.canonicalize()?.as_path(), Mode::Normal, &c)
                     .as_mut()
                     .run(w)
-            } else {
-                Qwx::new(current_dir()?.as_path(), Mode::Normal, &c)
-                    .as_mut()
-                    .run(w)
+            }
+            Some(("gen", sub)) => {
+                let shell = sub.get_one::<String>("shell").expect("shell is required");
+                let shell = match shell.as_str() {
+                    "bash" => Shell::Bash,
+                    "zsh" => Shell::Zsh,
+                    "fish" => Shell::Fish,
+                    "powershell" => Shell::PowerShell,
+                    "elvish" => Shell::Elvish,
+                    _ => unreachable!(),
+                };
+                generate(shell, &mut app, env!("CARGO_BIN_NAME"), w);
+                Ok(())
+            }
+            Some(("clone", sub)) => clone_and_open(sub, &c),
+            Some(("spotify", sub)) | Some(("spotify-config", sub)) => {
+                if let Some(("update-token", _)) = sub.subcommand() {
+                    update_spotify_token()
+                } else {
+                    configure_spotify()
+                }
+            }
+            None => {
+                if let Some(p) = matches.get_one::<PathBuf>("path") {
+                    Qwx::new(p.canonicalize()?.as_path(), Mode::Normal, &c)
+                        .as_mut()
+                        .run(w)
+                } else {
+                    Qwx::new(current_dir()?.as_path(), Mode::Normal, &c)
+                        .as_mut()
+                        .run(w)
+                }
+            }
+            Some(("config", sub)) => match sub.subcommand() {
+                Some(("edit", _)) => {
+                    if Confirm::new("Changes qwx keybindings ?")
+                        .with_default(false)
+                        .prompt()
+                        .unwrap_or_default()
+                    {
+                        let config =
+                            read_to_string(config_file.as_path()).expect("failed to read config");
+                        let new_content = inquire::Editor::new("Configuration of qwx")
+                            .with_predefined_text(&config)
+                            .prompt();
+                        if let Ok(x) = new_content {
+                            let mut f = File::create(config_file.as_path())
+                                .expect("failed to empty config file");
+                            f.write_all(x.as_bytes())
+                                .expect("faield to write new config");
+                            f.sync_all().expect("failed to sync data");
+                        }
+                        Ok(())
+                    } else {
+                        Ok(())
+                    }
+                }
+                _ => Ok(()),
+            },
+            _ => {
+                app.clone().print_help()?;
+                Ok(())
             }
         }
-        _ => {
-            app.clone().print_help()?;
-            Ok(())
-        }
+    } else {
+        println!("Generating config at : {}", config_file.display());
+        create_dir_all(conf_dir.as_path()).expect("failed to create qwx dir");
+        println!(
+            "Config directory created successfully at : {}",
+            conf_dir.display()
+        );
+        let config = QwxConfig {
+            keys: QwxKeysConfig {
+                decrease_view: String::from("A-j"),
+                increase_view: String::from("A-k"),
+                decrease_workspace: String::from("A-h"),
+                increase_workspace: String::from("A-l"),
+                pageup: String::from("pageup"),
+                pagedown: String::from("pagedown"),
+                move_down: String::from("j"),
+                move_left: String::from("h"),
+                move_right: String::from("l"),
+                move_up: String::from("k"),
+                select_line: String::from("x"),
+                delete_line: String::from("C-x"),
+                redo: String::from("r"),
+                undo: String::from("u"),
+                yank: String::from("y"),
+                paste: String::from("p"),
+                toggle_facet: String::from("A-space"),
+                show_front_facet: String::from("F-1"),
+                show_back_facet: String::from("F-2"),
+                go_top: String::from("A-g"),
+                go_end: String::from("A-b"),
+                go_bottom_panel: String::from("C-j"),
+                go_top_panel: String::from("C-k"),
+                go_right_panel: String::from("C-l"),
+                go_left_panel: String::from("C-h"),
+                open_finder: String::from("A-f"),
+                edit: String::from("e"),
+                edit_new_line: String::from("o"),
+                open_menu: String::from("A-d"),
+                search: String::from("/"),
+                open_web: String::from("A-w"),
+                open_player: String::from("A-m"),
+                quit: String::from("q"),
+                rotate_clockwise: String::from("C-r"),
+                rotate_counter_clockwise: String::from("A-r"),
+                exit_mode: String::from("esc"),
+                save_document: String::from("C-s"),
+                delete_selection: String::from("d"),
+            },
+        };
+        let content = toml::to_string(&config).expect("msg");
+        let mut c = File::create_new(config_file.as_path()).expect("msg");
+        c.write_all(content.as_bytes()).expect("faield to write");
+        c.sync_all().expect("faield to sync_all");
+        println!("Config file generated successfully");
+        Ok(())
     }
 }
