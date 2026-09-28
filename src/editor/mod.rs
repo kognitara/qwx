@@ -169,6 +169,7 @@ pub trait QwxUi<W: Write> {
     fn draw_menu(&mut self, w: &mut W) -> Result<(), Error>;
     fn draw_editor(&mut self, w: &mut W) -> Result<(), Error>;
     fn draw_search(&mut self, w: &mut W) -> Result<(), Error>;
+    fn draw_help(&mut self, w: &mut W) -> Result<(), Error>;
     fn reset(&mut self, w: &mut W) -> Result<(), Error>;
     fn base(&mut self, w: &mut W) -> Result<(), Error>;
 }
@@ -183,8 +184,85 @@ impl<W: Write> QwxUi<W> for Qwx {
             Mode::Search => self.draw_search(w),
             Mode::WebSearch => self.draw_web(w),
             Mode::Player => self.draw_spotify_player(w),
+            Mode::Help => self.draw_help(w),
             Mode::Zen | Mode::Fusion | Mode::Rescue | Mode::Broadcast | Mode::Ephemeral => Ok(()),
         }
+    }
+    fn draw_help(&mut self, w: &mut W) -> Result<(), Error> {
+        // Dessine l'éditeur en arrière-plan pour garder le contexte
+        self.base(w)?;
+        queue!(w, Hide)?;
+
+        let popup_width = 70.min(self.width.saturating_sub(4));
+        let popup_height = 20.min(self.height.saturating_sub(4));
+        let start_x = (self.width.saturating_sub(popup_width)) / 2;
+        let start_y = (self.height.saturating_sub(popup_height)) / 2;
+
+        // Fond et bordure du panneau
+        for y in 0..popup_height {
+            queue!(
+                w,
+                MoveTo(start_x, start_y + y),
+                SetBackgroundColor(Color::DarkGrey),
+                SetForegroundColor(Color::White),
+                Print(format!("{:width$}", " ", width = popup_width as usize))
+            )?;
+        }
+
+        // Titre centré
+        let title = " QWX - Raccourcis Clavier ";
+        let title_x = start_x + (popup_width.saturating_sub(title.chars().count() as u16)) / 2;
+        queue!(
+            w,
+            MoveTo(title_x, start_y + 1),
+            SetBackgroundColor(Color::White),
+            SetForegroundColor(Color::Black),
+            Print(title),
+            SetBackgroundColor(Color::DarkGrey),
+            SetForegroundColor(Color::White)
+        )?;
+
+        // Raccourcis à afficher en lisant ta configuration
+        let lines = [
+            format!(
+                " Navigation : {} {} {} {}",
+                self.config.keys.move_left,
+                self.config.keys.move_down,
+                self.config.keys.move_up,
+                self.config.keys.move_right
+            ),
+            format!(
+                " Panneaux   : {} {} {} {}",
+                self.config.keys.go_left_panel,
+                self.config.keys.go_bottom_panel,
+                self.config.keys.go_top_panel,
+                self.config.keys.go_right_panel
+            ),
+            format!(
+                " Vues       : {} / {}",
+                self.config.keys.decrease_view, self.config.keys.increase_view
+            ),
+            format!(
+                " Édition    : {} (normal) | {} (nvl. ligne)",
+                self.config.keys.edit, self.config.keys.edit_new_line
+            ),
+            format!(" Finder     : {}", self.config.keys.open_finder),
+            format!(" Menu       : {}", self.config.keys.open_menu),
+            format!(" Sauvegarder: {}", self.config.keys.save_document),
+            format!(" Quitter    : {}", self.config.keys.quit),
+            String::from(""),
+            String::from(" [Appuyez sur Echap ou 'q' pour fermer]"),
+        ];
+
+        for (i, line) in lines.iter().enumerate() {
+            if i as u16 + 4 < popup_height {
+                queue!(w, MoveTo(start_x + 3, start_y + 4 + i as u16), Print(line))?;
+            }
+        }
+
+        queue!(w, ResetColor)?;
+        w.flush()?;
+        Ok(())
     }
     fn draw_normal(&mut self, w: &mut W) -> Result<(), Error> {
         self.base(w)?;
@@ -1238,6 +1316,7 @@ pub enum Mode {
     Rescue,
     Broadcast,
     Ephemeral,
+    Help,
 }
 ///
 /// A trait that provides functionality for managing a cursor in the context of a writable output.
@@ -2000,6 +2079,10 @@ impl Qwx {
                         {
                             self.mode = Mode::Player;
                             self.player.refresh_playback_state();
+                            self.menu_input.clear();
+                            break;
+                        } else if self.menu_input.trim() == ":help" {
+                            self.mode = Mode::Help;
                             self.menu_input.clear();
                             break;
                         }
@@ -2864,7 +2947,29 @@ impl Qwx {
             }
         }
     }
-
+    pub fn handle_help<W: Write>(&mut self, w: &mut W) {
+        self.reset(w).expect("failed to reset");
+        loop {
+            self.draw_help(w).expect("failed to draw help");
+            match read().expect("failed to read terminal") {
+                Event::Key(key) => match (key.modifiers, key.code) {
+                    (KeyModifiers::NONE, KeyCode::Esc)
+                    | (KeyModifiers::NONE, KeyCode::Char('q')) => {
+                        self.mode = Mode::Normal;
+                        self.reset(w).expect("failed to reset");
+                        break;
+                    }
+                    _ => {}
+                },
+                Event::Resize(cols, rows) => {
+                    self.width = cols;
+                    self.height = rows;
+                    self.reset(w).expect("failed to reset on resize");
+                }
+                _ => {}
+            }
+        }
+    }
     pub fn handle_events<W: Write>(&mut self, w: &mut W) {
         match self.mode {
             Mode::Normal => self.handle_normal(w),
@@ -2874,6 +2979,7 @@ impl Qwx {
             Mode::Search => self.handle_search(w),
             Mode::WebSearch => self.handle_web_search(w),
             Mode::Player => self.handle_player(w),
+            Mode::Help => self.handle_help(w),
             Mode::Zen => {}
             Mode::Fusion => {}
             Mode::Rescue => {}

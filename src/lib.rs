@@ -33,6 +33,7 @@ pub fn parse_key(s: &str) -> (KeyModifiers, KeyCode) {
         "pageup" => (KeyModifiers::NONE, KeyCode::PageUp),
         "pagedown" => (KeyModifiers::NONE, KeyCode::PageDown),
         "space" => (KeyModifiers::NONE, KeyCode::Char(' ')),
+        "?" => (KeyModifiers::NONE, KeyCode::Char('?')),
 
         // Gestion récursive propre des modificateurs (supporte "C-space" !)
         k if k.starts_with("C-") => {
@@ -171,7 +172,9 @@ pub enum Action {
     DecreaseWorkspace,
 }
 #[derive(Deserialize, Serialize, Clone)]
+#[serde(default)]
 pub struct QwxKeysConfig {
+    pub help: String,
     pub decrease_view: String,
     pub increase_view: String,
     pub decrease_workspace: String,
@@ -211,7 +214,53 @@ pub struct QwxKeysConfig {
     pub save_document: String,
     pub delete_selection: String,
 }
-#[derive(Deserialize, Serialize, Clone)]
+impl Default for QwxKeysConfig {
+    fn default() -> Self {
+        Self {
+            help: String::from("?"),
+            decrease_view: String::from("A-j"),
+            increase_view: String::from("A-k"),
+            decrease_workspace: String::from("A-h"),
+            increase_workspace: String::from("A-l"),
+            pageup: String::from("pageup"),
+            pagedown: String::from("pagedown"),
+            move_down: String::from("j"),
+            move_left: String::from("h"),
+            move_right: String::from("l"),
+            move_up: String::from("k"),
+            select_line: String::from("x"),
+            delete_line: String::from("C-x"),
+            redo: String::from("r"),
+            undo: String::from("u"),
+            yank: String::from("y"),
+            paste: String::from("p"),
+            toggle_facet: String::from("A-space"),
+            show_front_facet: String::from("F-1"),
+            show_back_facet: String::from("F-2"),
+            go_top: String::from("A-g"),
+            go_end: String::from("A-b"),
+            go_bottom_panel: String::from("C-j"),
+            go_top_panel: String::from("C-k"),
+            go_right_panel: String::from("C-l"),
+            go_left_panel: String::from("C-h"),
+            open_finder: String::from("A-f"),
+            edit: String::from("e"),
+            edit_new_line: String::from("o"),
+            open_menu: String::from("A-d"),
+            search: String::from("/"),
+            open_web: String::from("A-w"),
+            open_player: String::from("A-m"),
+            quit: String::from("q"),
+            rotate_clockwise: String::from("C-r"),
+            rotate_counter_clockwise: String::from("A-r"),
+            exit_mode: String::from("esc"),
+            save_document: String::from("C-s"),
+            delete_selection: String::from("d"),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct QwxConfig {
     pub keys: QwxKeysConfig,
 }

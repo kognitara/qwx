@@ -4,9 +4,9 @@ use git2::build::RepoBuilder;
 use git2::{FetchOptions, RemoteCallbacks};
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::{Confirm, Text};
+use qwx::QwxConfig;
 use qwx::editor::{Mode, Qwx};
 use qwx::player::{SpotifyClient, SpotifyCredentials};
-use qwx::{QwxConfig, QwxKeysConfig};
 use std::env::{current_dir, set_current_dir};
 use std::fs::{File, create_dir_all, read_to_string};
 use std::io::Write;
@@ -330,48 +330,7 @@ fn main() -> io::Result<()> {
             "Config directory created successfully at : {}",
             conf_dir.display()
         );
-        let config = QwxConfig {
-            keys: QwxKeysConfig {
-                decrease_view: String::from("A-j"),
-                increase_view: String::from("A-k"),
-                decrease_workspace: String::from("A-h"),
-                increase_workspace: String::from("A-l"),
-                pageup: String::from("pageup"),
-                pagedown: String::from("pagedown"),
-                move_down: String::from("j"),
-                move_left: String::from("h"),
-                move_right: String::from("l"),
-                move_up: String::from("k"),
-                select_line: String::from("x"),
-                delete_line: String::from("C-x"),
-                redo: String::from("r"),
-                undo: String::from("u"),
-                yank: String::from("y"),
-                paste: String::from("p"),
-                toggle_facet: String::from("A-space"),
-                show_front_facet: String::from("F-1"),
-                show_back_facet: String::from("F-2"),
-                go_top: String::from("A-g"),
-                go_end: String::from("A-b"),
-                go_bottom_panel: String::from("C-j"),
-                go_top_panel: String::from("C-k"),
-                go_right_panel: String::from("C-l"),
-                go_left_panel: String::from("C-h"),
-                open_finder: String::from("A-f"),
-                edit: String::from("e"),
-                edit_new_line: String::from("o"),
-                open_menu: String::from("A-d"),
-                search: String::from("/"),
-                open_web: String::from("A-w"),
-                open_player: String::from("A-m"),
-                quit: String::from("q"),
-                rotate_clockwise: String::from("C-r"),
-                rotate_counter_clockwise: String::from("A-r"),
-                exit_mode: String::from("esc"),
-                save_document: String::from("C-s"),
-                delete_selection: String::from("d"),
-            },
-        };
+        let config = QwxConfig::default();
         let content = toml::to_string(&config).expect("msg");
         let mut c = File::create_new(config_file.as_path()).expect("msg");
         c.write_all(content.as_bytes()).expect("faield to write");
